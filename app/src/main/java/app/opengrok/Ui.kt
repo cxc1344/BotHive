@@ -333,9 +333,9 @@ fun PillButton(text: String, filled: Boolean = true, modifier: Modifier = Modifi
 fun EditBotScreen(store: Store, botId: String?, go: (Screen) -> Unit) {
     val old = store.bot(botId)
     var name by remember { mutableStateOf(old?.name ?: "") }
-    var prompt by remember { mutableStateOf(old?.prompt ?: PRESETS[0].prompt) }
-    var preset by remember { mutableStateOf(if (old == null) PRESETS[0].name else "自定义") }
-    var isManager by remember { mutableStateOf(old?.isManager ?: PRESETS[0].manager) }
+    var prompt by remember { mutableStateOf(old?.prompt ?: PRESETS[1].prompt) }
+    var preset by remember { mutableStateOf(if (old == null) PRESETS[1].name else "自定义") }
+    var isManager by remember { mutableStateOf(old?.isManager ?: PRESETS[1].manager) }
     var baseUrl by remember { mutableStateOf(old?.baseUrl ?: "https://api.openai.com/v1") }
     var model by remember { mutableStateOf(old?.model ?: "gpt-4o-mini") }
     var key by remember { mutableStateOf(old?.apiKey ?: "") }
