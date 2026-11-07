@@ -50,10 +50,6 @@
 本仓库带 GitHub Actions：推送到 `main` 自动构建，产物在 Actions 的 artifact 或 Releases 中下载。
 本地构建：Android Studio 打开，或 `gradle assembleDebug`（JDK 17、AGP 8.5.2、Gradle 8.9、compileSdk 35）。
 
-## 缘起
-
-本项目代码由 Claude 编写，Muse 协助审查、打包与发布；设计目标对标同系列的 PocketGrok（Web 版内核），走的是安卓原生路线。欢迎 Issue 与 PR。
-
 ## 许可
 
 [MIT](LICENSE)
