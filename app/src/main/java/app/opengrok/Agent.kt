@@ -51,7 +51,7 @@ object Agent {
         val msgs = JSONArray()
         msgs.put(JSONObject().put("role", "system").put("content", sys))
         for (m in history) {
-            if (m.text.isBlank() || m.role == "system") continue
+            if (m.text.isBlank() || m.role == "system" || m.role == "project") continue
             when {
                 m.from == bot.id -> msgs.put(JSONObject().put("role", "assistant").put("content", m.text))
                 m.from == null -> msgs.put(JSONObject().put("role", "user").put("content", m.text))
