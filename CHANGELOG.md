@@ -1,1 +1,22 @@
-IyDmm7TmlrDml6Xlv5cKCiMjIHYwLjIuMe+8iFAwLjHvvInigJQgMjAyNi0xMS0wNwoK5a6J5YWo5Yqg5Zu677yI6KGl5LiB55SxIEdQVCDmj5Dlh7rjgIFNdXNlIOiQveWcsO+8jEFjdGlvbnMg57yW6K+R6aqM6K+B77yJ77yaCgotIOWuoeafpeWksei0peWFs+mXre+8muaAu+e7j+eQhuWuoeafpei+k+WHuuaXoOazleino+aekOOAgeaIlue7k+iuuuS4jeaYr+aYjuehrueahCBwYXNzL3Jld29yayDml7bvvIzkuIDlvovmjInmnKrpgJrov4flpITnkIbvvIzkuI3lho3pu5jorqTmlL7ooYwKLSBLZXlzdG9yZSDlpLHotKXlhbPpl63vvJrliqDlr4bkuI3lj6/nlKjml7bkuI3lho3mioogQVBJIEtleSDpmY3nuqfkuLrmmI7mlofkv53lrZjvvIjkv53lrZjml7bliqDlr4blpLHotKXliJnor6UgS2V5IOWtmOS4uuepuu+8jOmcgOmHjeaWsOWhq+WGme+8jOS4jeS8muWboOatpOW0qea6g++8iQotIOm7mOiupOemgeatoiBIVFRQIOaYjuaWh+ivt+axgu+8iHVzZXNDbGVhcnRleHRUcmFmZmljIOaUueS4uiBmYWxzZe+8ie+8m+S9v+eUqOWxgOWfn+e9kSBIVFRQIOaooeWei+aOpeWPo+eahOeUqOaIt+S8muWPl+W9seWTjQoK5Y+m5ZCrIG1haW4g5LiK5YWI6KGM6JC95Zyw55qE5L+u5aSN77yaCgotIOS/ruWkje+8mumhueebruWNoeeJh+a2iOaBr+S4jeWGjeS4suWFpSBCb3Qg55qE5a+56K+d5LiK5LiL5paHCi0g5LyY5YyW77ya5paw5bu6IEJvdCDpu5jorqTpooTorr7mlLnkuLrjgIzpgJrnlKjliqnmiYvjgI3vvIzkuI3lho3pu5jorqTmgLvnu4/nkIYKCiMjIHYwLjIuMO+8iFAw77yJ4oCUIDIwMjYtMTEtMDcKCi0g5oC757uP55CG6LSf6LSj5Yi25rWB5rC057q/77ya56uL6aG544CB5rS+5rS744CB5a6h5p+l44CB5omT5Zue6L+U5bel77yI5pyA5aSa5LiA5qyh77yJ44CB57uT6aG55rGH5oqlCi0g5Y2x6Zmp5ZG95Luk5a6I5Y2rIEd1YXJkIOS4juWuieWFqOaLpuaIquiusOW9lQotIEFQSSBLZXkg57uPIEFuZHJvaWQgS2V5c3RvcmUg5Yqg5a+G5a2Y5YKoCi0g6L+e5o6l6Ieq5qOA77yb6aKE6K6+5omp5YWF6IezIDE0IOS4qgotIOmmluS4que7jyBHaXRIdWIgQWN0aW9ucyDmnoTlu7rlubblhazlvIDlj5HluIPnmoTniYjmnKwK
+# 更新日志
+
+## v0.2.1（P0.1）— 2026-11-07
+
+安全加固（补丁由 GPT 提出、Muse 落地，Actions 编译验证）：
+
+- 审查失败关闭：总经理审查输出无法解析、或结论不是明确的 pass/rework 时，一律按未通过处理，不再默认放行
+- Keystore 失败关闭：加密不可用时不再把 API Key 降级为明文保存（保存时加密失败则该 Key 存为空，需重新填写，不会因此崩溃）
+- 默认禁止 HTTP 明文请求（usesCleartextTraffic 改为 false）；使用局域网 HTTP 模型接口的用户会受影响
+
+另含 main 上先行落地的修复：
+
+- 修复：项目卡片消息不再串入 Bot 的对话上下文
+- 优化：新建 Bot 默认预设改为「通用助手」，不再默认总经理
+
+## v0.2.0（P0）— 2026-11-07
+
+- 总经理负责制流水线：立项、派活、审查、打回返工（最多一次）、结项汇报
+- 危险命令守卫 Guard 与安全拦截记录
+- API Key 经 Android Keystore 加密存储
+- 连接自检；预设扩充至 14 个
+- 首个经 GitHub Actions 构建并公开发布的版本
