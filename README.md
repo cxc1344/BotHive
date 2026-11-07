@@ -29,9 +29,9 @@
 
 ## 截图
 
-<!-- 安装后补充：主页 / 总经理立项 / 群聊 / 设置自检 -->
-
-_（待补）_
+| Bot 列表 | 新建 Bot | 设置与连接自检 |
+| --- | --- | --- |
+| <img src="screenshots/bots.jpg" width="260"> | <img src="screenshots/new-bot.jpg" width="260"> | <img src="screenshots/settings.jpg" width="260"> |
 
 ## 路线图
 
