@@ -1,1 +1,244 @@
-cGFja2FnZSBhcHAub3Blbmdyb2sKCmltcG9ydCBhbmRyb2lkLmNvbnRlbnQuQ29udGV4dAppbXBvcnQgYW5kcm9pZHguY29tcG9zZS5ydW50aW1lLm11dGFibGVTdGF0ZUxpc3RPZgppbXBvcnQgYW5kcm9pZHguY29tcG9zZS5ydW50aW1lLnNuYXBzaG90cy5TbmFwc2hvdFN0YXRlTGlzdAppbXBvcnQga290bGlueC5jb3JvdXRpbmVzLkNvcm91dGluZVNjb3BlCmltcG9ydCBrb3RsaW54LmNvcm91dGluZXMuRGlzcGF0Y2hlcnMKaW1wb3J0IGtvdGxpbnguY29yb3V0aW5lcy5TdXBlcnZpc29ySm9iCmltcG9ydCBrb3RsaW54LmNvcm91dGluZXMubGF1bmNoCmltcG9ydCBrb3RsaW54LmNvcm91dGluZXMud2l0aENvbnRleHQKaW1wb3J0IG9yZy5qc29uLkpTT05BcnJheQppbXBvcnQgb3JnLmpzb24uSlNPTk9iamVjdAppbXBvcnQgamF2YS5pby5GaWxlCgpjbGFzcyBTdG9yZShwcml2YXRlIHZhbCBjdHg6IENvbnRleHQpIHsKICAgIHZhbCBib3RzID0gbXV0YWJsZVN0YXRlTGlzdE9mPEJvdD4oKQogICAgdmFsIGdyb3VwcyA9IG11dGFibGVTdGF0ZUxpc3RPZjxHcm91cD4oKQogICAgdmFsIGRtSWRzID0gbXV0YWJsZVN0YXRlTGlzdE9mPFN0cmluZz4oKQogICAgdmFsIGJ1c3kgPSBtdXRhYmxlU3RhdGVMaXN0T2Y8U3RyaW5nPigpCiAgICB2YWwgcHJvamVjdHMgPSBtdXRhYmxlU3RhdGVMaXN0T2Y8UHJvamVjdD4oKQogICAgdmFsIGd1YXJkTG9nID0gbXV0YWJsZVN0YXRlTGlzdE9mPEd1YXJkRW50cnk+KCkKICAgIHByaXZhdGUgdmFsIGxpc3RzID0gSGFzaE1hcDxTdHJpbmcsIFNuYXBzaG90U3RhdGVMaXN0PE1zZz4+KCkKICAgIHZhbCBzY29wZSA9IENvcm91dGluZVNjb3BlKFN1cGVydmlzb3JKb2IoKSArIERpc3BhdGNoZXJzLk1haW4pCiAgICBwcml2YXRlIHZhbCBmaWxlID0gRmlsZShjdHguZmlsZXNEaXIsICJzdGF0ZS5qc29uIikKCiAgICBpbml0IHsgbG9hZCgpIH0KCiAgICBmdW4gY2hhdChpZDogU3RyaW5nKTogU25hcHNob3RTdGF0ZUxpc3Q8TXNnPiA9IGxpc3RzLmdldE9yUHV0KGlkKSB7IG11dGFibGVTdGF0ZUxpc3RPZigpIH0KICAgIGZ1biBzYW5kYm94KGJvdElkOiBTdHJpbmcpID0gU2FuZGJveChGaWxlKGN0eC5maWxlc0RpciwgInNhbmRib3gvJGJvdElkIikpCiAgICBmdW4gYm90KGlkOiBTdHJpbmc/KSA9IGJvdHMuZmlyc3RPck51bGwgeyBpdC5pZCA9PSBpZCB9CiAgICBmdW4gYm90TmFtZShpZDogU3RyaW5nPykgPSBib3QoaWQpPy5uYW1lID86ICI/IgogICAgZnVuIGRtSWQoYTogU3RyaW5nLCBiOiBTdHJpbmcpID0gImRtOiIgKyBsaXN0T2YoYSwgYikuc29ydGVkKCkuam9pblRvU3RyaW5nKCI6IikKICAgIGZ1biBwcm9qZWN0KGlkOiBTdHJpbmcpID0gcHJvamVjdHMuZmlyc3RPck51bGwgeyBpdC5pZCA9PSBpZCB9CgogICAgZnVuIGNoYXRMaXN0KCk6IExpc3Q8U3RyaW5nPiA9CiAgICAgICAgYm90cy5tYXAgeyAiYm90OiR7aXQuaWR9IiB9ICsgZ3JvdXBzLm1hcCB7ICJncm91cDoke2l0LmlkfSIgfSArIGRtSWRzLnRvTGlzdCgpCgogICAgZnVuIHRpdGxlKGlkOiBTdHJpbmcpOiBTdHJpbmcgPSB3aGVuIHsKICAgICAgICBpZC5zdGFydHNXaXRoKCJib3Q6IikgLT4gYm90TmFtZShpZC5yZW1vdmVQcmVmaXgoImJvdDoiKSkKICAgICAgICBpZC5zdGFydHNXaXRoKCJncm91cDoiKSAtPiBncm91cHMuZmlyc3RPck51bGwgeyBpdC5pZCA9PSBpZC5yZW1vdmVQcmVmaXgoImdyb3VwOiIpIH0/Lm5hbWUgPzogIue+pOiBiiIKICAgICAgICBpZC5zdGFydHNXaXRoKCJkbToiKSAtPiBpZC5yZW1vdmVQcmVmaXgoImRtOiIpLnNwbGl0KCI6Iikuam9pblRvU3RyaW5nKCIg4oeEICIpIHsgYm90TmFtZShpdCkgfQogICAgICAgIGVsc2UgLT4gIj8iCiAgICB9CgogICAgZnVuIHN1YnRpdGxlKGlkOiBTdHJpbmcpOiBTdHJpbmcgPSB3aGVuIHsKICAgICAgICBpZC5zdGFydHNXaXRoKCJib3Q6IikgLT4gewogICAgICAgICAgICB2YWwgYiA9IGJvdChpZC5yZW1vdmVQcmVmaXgoImJvdDoiKSkKICAgICAgICAgICAgKGlmIChiPy5pc01hbmFnZXIgPT0gdHJ1ZSkgIuaAu+e7j+eQhiDCtyAiIGVsc2UgIiIpICsgKGI/Lm1vZGVsID86ICIiKQogICAgICAgIH0KICAgICAgICBpZC5zdGFydHNXaXRoKCJncm91cDoiKSAtPiAiJHtncm91cHMuZmlyc3RPck51bGwgeyBpdC5pZCA9PSBpZC5yZW1vdmVQcmVmaXgoImdyb3VwOiIpIH0/Lm1lbWJlcklkcz8uc2l6ZSA/OiAwfSDkvY3miJDlkZgiCiAgICAgICAgZWxzZSAtPiAiQm90IOengeiBiijlj6ror7spIgogICAgfQoKICAgIHByaXZhdGUgZnVuIGVuc3VyZUNoYXQoaWQ6IFN0cmluZykgewogICAgICAgIGlmIChpZC5zdGFydHNXaXRoKCJkbToiKSAmJiBpZCAhaW4gZG1JZHMpIGRtSWRzLmFkZChpZCkKICAgIH0KCiAgICBmdW4gYWRkRG0oaWQ6IFN0cmluZywgbTogTXNnKSB7CiAgICAgICAgZW5zdXJlQ2hhdChpZCkKICAgICAgICBjaGF0KGlkKS5hZGQobSkKICAgICAgICBzYXZlKCkKICAgIH0KCiAgICBmdW4gbG9nR3VhcmQoYm90SWQ6IFN0cmluZywgY21kOiBTdHJpbmcsIHJlYXNvbjogU3RyaW5nKSB7CiAgICAgICAgZ3VhcmRMb2cuYWRkKEd1YXJkRW50cnkoU3lzdGVtLmN1cnJlbnRUaW1lTWlsbGlzKCksIGJvdElkLCBjbWQudGFrZSgzMDApLCByZWFzb24pKQogICAgICAgIHdoaWxlIChndWFyZExvZy5zaXplID4gMjAwKSBndWFyZExvZy5yZW1vdmVBdCgwKQogICAgICAgIHNhdmUoKQogICAgfQoKICAgIGZ1biBzYXZlQm90KGI6IEJvdCkgewogICAgICAgIHZhbCBpID0gYm90cy5pbmRleE9mRmlyc3QgeyBpdC5pZCA9PSBiLmlkIH0KICAgICAgICBpZiAoaSA+PSAwKSBib3RzW2ldID0gYiBlbHNlIGJvdHMuYWRkKGIpCiAgICAgICAgc2F2ZSgpCiAgICB9CgogICAgZnVuIGRlbGV0ZUJvdChpZDogU3RyaW5nKSB7CiAgICAgICAgYm90cy5yZW1vdmVBbGwgeyBpdC5pZCA9PSBpZCB9CiAgICAgICAgZm9yIChpIGluIGdyb3Vwcy5pbmRpY2VzKSBncm91cHNbaV0gPSBncm91cHNbaV0uY29weShtZW1iZXJJZHMgPSBncm91cHNbaV0ubWVtYmVySWRzIC0gaWQpCiAgICAgICAgc2FuZGJveChpZCkuZGlyLmRlbGV0ZVJlY3Vyc2l2ZWx5KCkKICAgICAgICBsaXN0cy5yZW1vdmUoImJvdDokaWQiKQogICAgICAgIGRtSWRzLnJlbW92ZUFsbCB7IGl0LnJlbW92ZVByZWZpeCgiZG06Iikuc3BsaXQoIjoiKS5jb250YWlucyhpZCkgfQogICAgICAgIHNhdmUoKQogICAgfQoKICAgIGZ1biBhZGRHcm91cChnOiBHcm91cCkgeyBncm91cHMuYWRkKGcpOyBzYXZlKCkgfQoKICAgIGZ1biByZXNldFNhbmRib3goYm90SWQ6IFN0cmluZykgewogICAgICAgIHNhbmRib3goYm90SWQpLnJlc2V0KCkKICAgICAgICBjaGF0KCJib3Q6JGJvdElkIikuYWRkKE1zZyhyb2xlID0gInN5c3RlbSIsIHRleHQgPSAi5rKZ55uS5bey6YeN572uIikpCiAgICAgICAgc2F2ZSgpCiAgICB9CgogICAgLy8gLS0tLSBwcm9qZWN0cyAtLS0tCiAgICBmdW4gdXBkKHBpZDogU3RyaW5nLCBmOiAoUHJvamVjdCkgLT4gUHJvamVjdCkgewogICAgICAgIHZhbCBpID0gcHJvamVjdHMuaW5kZXhPZkZpcnN0IHsgaXQuaWQgPT0gcGlkIH0KICAgICAgICBpZiAoaSA+PSAwKSB7IHByb2plY3RzW2ldID0gZihwcm9qZWN0c1tpXSk7IHNhdmUoKSB9CiAgICB9CgogICAgZnVuIHNldEEocGlkOiBTdHJpbmcsIGJvdElkOiBTdHJpbmcsIGY6IChBc3NpZ25tZW50KSAtPiBBc3NpZ25tZW50KSA9CiAgICAgICAgdXBkKHBpZCkgeyBwIC0+IHAuY29weShhc3NpZ25tZW50cyA9IHAuYXNzaWdubWVudHMubWFwIHsgaWYgKGl0LmJvdElkID09IGJvdElkKSBmKGl0KSBlbHNlIGl0IH0pIH0KCiAgICBmdW4gc3RhcnRQcm9qZWN0KGNoYXRJZDogU3RyaW5nLCB0ZXh0OiBTdHJpbmcpIHsKICAgICAgICB2YWwgbSA9IGJvdChjaGF0SWQucmVtb3ZlUHJlZml4KCJib3Q6IikpID86IHJldHVybgogICAgICAgIGNoYXQoY2hhdElkKS5hZGQoTXNnKHJvbGUgPSAidXNlciIsIHRleHQgPSB0ZXh0KSkKICAgICAgICBzYXZlKCkKICAgICAgICBQaXBlbGluZS5zdGFydCh0aGlzLCBtLCB0ZXh0KQogICAgfQoKICAgIC8vIC0tLS0gY2hhdHRpbmcgLS0tLQogICAgLyoqIFJ1bnMgW2JdIGluIFtjaGF0SWRdOiBhZGRzIGEgbGl2ZSBwbGFjZWhvbGRlciBtZXNzYWdlICh0b29sIGNhbGxzIHN0cmVhbSBpbnRvIGl0KSBhbmQgcmV0dXJucyB0aGUgcmVwbHkuIENhbGwgb24gTWFpbi4gKi8KICAgIHN1c3BlbmQgZnVuIHJ1bkJvdEluKGNoYXRJZDogU3RyaW5nLCBiOiBCb3QsIGRlcHRoOiBJbnQgPSAwKTogU3RyaW5nIHsKICAgICAgICBlbnN1cmVDaGF0KGNoYXRJZCkKICAgICAgICB2YWwgbGlzdCA9IGNoYXQoY2hhdElkKQogICAgICAgIHZhbCBoaXN0b3J5ID0gbGlzdC50b0xpc3QoKQogICAgICAgIGxpc3QuYWRkKE1zZyhyb2xlID0gImFzc2lzdGFudCIsIHRleHQgPSAiIiwgZnJvbSA9IGIuaWQpKQogICAgICAgIHZhbCBpZHggPSBsaXN0Lmxhc3RJbmRleAogICAgICAgIHZhbCByZXBseSA9IEFnZW50LnJ1bih0aGlzLCBiLCBoaXN0b3J5LCBkZXB0aCkgeyB0b29scyAtPgogICAgICAgICAgICB3aXRoQ29udGV4dChEaXNwYXRjaGVycy5NYWluKSB7IGxpc3RbaWR4XSA9IGxpc3RbaWR4XS5jb3B5KHRvb2xzID0gdG9vbHMpIH0KICAgICAgICB9CiAgICAgICAgbGlzdFtpZHhdID0gbGlzdFtpZHhdLmNvcHkodGV4dCA9IHJlcGx5KQogICAgICAgIHNhdmUoKQogICAgICAgIHJldHVybiByZXBseQogICAgfQoKICAgIGZ1biBzZW5kKGNoYXRJZDogU3RyaW5nLCB0ZXh0OiBTdHJpbmcpIHsKICAgICAgICB2YWwgbGlzdCA9IGNoYXQoY2hhdElkKQogICAgICAgIGxpc3QuYWRkKE1zZyhyb2xlID0gInVzZXIiLCB0ZXh0ID0gdGV4dCkpCiAgICAgICAgc2F2ZSgpCiAgICAgICAgc2NvcGUubGF1bmNoIHsKICAgICAgICAgICAgYnVzeS5hZGQoY2hhdElkKQogICAgICAgICAgICB0cnkgewogICAgICAgICAgICAgICAgdmFsIHRhcmdldHMgPSB3aGVuIHsKICAgICAgICAgICAgICAgICAgICBjaGF0SWQuc3RhcnRzV2l0aCgiYm90OiIpIC0+IGxpc3RPZk5vdE51bGwoYm90KGNoYXRJZC5yZW1vdmVQcmVmaXgoImJvdDoiKSkpCiAgICAgICAgICAgICAgICAgICAgY2hhdElkLnN0YXJ0c1dpdGgoImdyb3VwOiIpIC0+CiAgICAgICAgICAgICAgICAgICAgICAgIGdyb3Vwcy5maXJzdE9yTnVsbCB7IGl0LmlkID09IGNoYXRJZC5yZW1vdmVQcmVmaXgoImdyb3VwOiIpIH0KICAgICAgICAgICAgICAgICAgICAgICAgICAgID8ubWVtYmVySWRzPy5tYXBOb3ROdWxsIHsgYm90KGl0KSB9ID86IGVtcHR5TGlzdCgpCiAgICAgICAgICAgICAgICAgICAgZWxzZSAtPiBlbXB0eUxpc3QoKQogICAgICAgICAgICAgICAgfQogICAgICAgICAgICAgICAgZm9yIChiIGluIHRhcmdldHMpIHJ1bkJvdEluKGNoYXRJZCwgYikKICAgICAgICAgICAgfSBmaW5hbGx5IHsKICAgICAgICAgICAgICAgIGJ1c3kucmVtb3ZlKGNoYXRJZCkKICAgICAgICAgICAgfQogICAgICAgIH0KICAgIH0KCiAgICAvLyAtLS0tIHBlcnNpc3RlbmNlIC0tLS0KICAgIHByaXZhdGUgZnVuIG1zZ0pzb24obTogTXNnKSA9IEpTT05PYmplY3QoKS5hcHBseSB7CiAgICAgICAgcHV0KCJpZCIsIG0uaWQpOyBwdXQoInJvbGUiLCBtLnJvbGUpOyBwdXQoInRleHQiLCBtLnRleHQpCiAgICAgICAgbS5mcm9tPy5sZXQgeyBwdXQoImZyb20iLCBpdCkgfQogICAgICAgIHB1dCgidG9vbHMiLCBKU09OQXJyYXkobS50b29scy5tYXAgewogICAgICAgICAgICBKU09OT2JqZWN0KCkucHV0KCJpZCIsIGl0LmlkKS5wdXQoIm5hbWUiLCBpdC5uYW1lKS5wdXQoImFyZ3MiLCBpdC5hcmdzKS5wdXQoIm91dHB1dCIsIGl0Lm91dHB1dCkKICAgICAgICB9KSkKICAgIH0KCiAgICBmdW4gc2F2ZSgpIHsKICAgICAgICB2YWwgbyA9IEpTT05PYmplY3QoKQogICAgICAgIG8ucHV0KCJ2IiwgMikKICAgICAgICBvLnB1dCgiYm90cyIsIEpTT05BcnJheShib3RzLm1hcCB7CiAgICAgICAgICAgIEpTT05PYmplY3QoKS5wdXQoImlkIiwgaXQuaWQpLnB1dCgibmFtZSIsIGl0Lm5hbWUpLnB1dCgicHJvbXB0IiwgaXQucHJvbXB0KQogICAgICAgICAgICAgICAgLnB1dCgiYmFzZVVybCIsIGl0LmJhc2VVcmwpLnB1dCgiYXBpS2V5IiwgcnVuQ2F0Y2hpbmcgeyBTZWNyZXRzLmVuYyhpdC5hcGlLZXkpIH0uZ2V0T3JEZWZhdWx0KCIiKSkucHV0KCJtb2RlbCIsIGl0Lm1vZGVsKQogICAgICAgICAgICAgICAgLnB1dCgibWFuYWdlciIsIGl0LmlzTWFuYWdlcikKICAgICAgICB9KSkKICAgICAgICBvLnB1dCgiZ3JvdXBzIiwgSlNPTkFycmF5KGdyb3Vwcy5tYXAgewogICAgICAgICAgICBKU09OT2JqZWN0KCkucHV0KCJpZCIsIGl0LmlkKS5wdXQoIm5hbWUiLCBpdC5uYW1lKS5wdXQoIm1lbWJlcnMiLCBKU09OQXJyYXkoaXQubWVtYmVySWRzKSkKICAgICAgICB9KSkKICAgICAgICBvLnB1dCgiZG1zIiwgSlNPTkFycmF5KGRtSWRzLnRvTGlzdCgpKSkKICAgICAgICBvLnB1dCgicHJvamVjdHMiLCBKU09OQXJyYXkocHJvamVjdHMubWFwIHsgcCAtPgogICAgICAgICAgICBKU09OT2JqZWN0KCkucHV0KCJpZCIsIHAuaWQpLnB1dCgibWFuYWdlciIsIHAubWFuYWdlcklkKS5wdXQoInRpdGxlIiwgcC50aXRsZSkKICAgICAgICAgICAgICAgIC5wdXQoInJlcXVlc3QiLCBwLnJlcXVlc3QpLnB1dCgic3RhZ2UiLCBwLnN0YWdlLm5hbWUpLnB1dCgicmVwb3J0IiwgcC5yZXBvcnQpLnB1dCgibm90ZSIsIHAubm90ZSkKICAgICAgICAgICAgICAgIC5wdXQoImFzc2lnbm1lbnRzIiwgSlNPTkFycmF5KHAuYXNzaWdubWVudHMubWFwIHsgYSAtPgogICAgICAgICAgICAgICAgICAgIEpTT05PYmplY3QoKS5wdXQoImJvdCIsIGEuYm90SWQpLnB1dCgidGFzayIsIGEudGFzaykucHV0KCJzdGF0dXMiLCBhLnN0YXR1cykKICAgICAgICAgICAgICAgICAgICAgICAgLnB1dCgiZGVsaXZlcmFibGUiLCBhLmRlbGl2ZXJhYmxlKS5wdXQoInJldmlldyIsIGEucmV2aWV3KS5wdXQoImF0dGVtcHRzIiwgYS5hdHRlbXB0cykKICAgICAgICAgICAgICAgIH0pKQogICAgICAgIH0pKQogICAgICAgIG8ucHV0KCJndWFyZCIsIEpTT05BcnJheShndWFyZExvZy5tYXAgewogICAgICAgICAgICBKU09OT2JqZWN0KCkucHV0KCJ0IiwgaXQudGltZSkucHV0KCJib3QiLCBpdC5ib3RJZCkucHV0KCJjbWQiLCBpdC5jbWQpLnB1dCgicmVhc29uIiwgaXQucmVhc29uKQogICAgICAgIH0pKQogICAgICAgIHZhbCBjaGF0c0pzb24gPSBKU09OT2JqZWN0KCkKICAgICAgICBmb3IgKChrLCB2KSBpbiBsaXN0cykgY2hhdHNKc29uLnB1dChrLCBKU09OQXJyYXkodi50b0xpc3QoKS5tYXAgeyBtc2dKc29uKGl0KSB9KSkKICAgICAgICBvLnB1dCgiY2hhdHMiLCBjaGF0c0pzb24pCiAgICAgICAgdmFsIHMgPSBvLnRvU3RyaW5nKCkKICAgICAgICBzY29wZS5sYXVuY2goRGlzcGF0Y2hlcnMuSU8pIHsgcnVuQ2F0Y2hpbmcgeyBmaWxlLndyaXRlVGV4dChzKSB9IH0KICAgIH0KCiAgICBwcml2YXRlIGZ1biBsb2FkKCkgewogICAgICAgIGlmICghZmlsZS5leGlzdHMoKSkgcmV0dXJuCiAgICAgICAgcnVuQ2F0Y2hpbmcgewogICAgICAgICAgICB2YWwgbyA9IEpTT05PYmplY3QoZmlsZS5yZWFkVGV4dCgpKQogICAgICAgICAgICBvLm9wdEpTT05BcnJheSgiYm90cyIpPy5sZXQgeyBhIC0+CiAgICAgICAgICAgICAgICBmb3IgKGkgaW4gMCB1bnRpbCBhLmxlbmd0aCgpKSBhLmdldEpTT05PYmplY3QoaSkubGV0IHsKICAgICAgICAgICAgICAgICAgICBib3RzLmFkZChCb3QoaXQuZ2V0U3RyaW5nKCJpZCIpLCBpdC5nZXRTdHJpbmcoIm5hbWUiKSwgaXQub3B0U3RyaW5nKCJwcm9tcHQiKSwKICAgICAgICAgICAgICAgICAgICAgICAgaXQub3B0U3RyaW5nKCJiYXNlVXJsIiksIFNlY3JldHMuZGVjKGl0Lm9wdFN0cmluZygiYXBpS2V5IikpLCBpdC5vcHRTdHJpbmcoIm1vZGVsIiksCiAgICAgICAgICAgICAgICAgICAgICAgIGl0Lm9wdEJvb2xlYW4oIm1hbmFnZXIiLCBmYWxzZSkpKQogICAgICAgICAgICAgICAgfQogICAgICAgICAgICB9CiAgICAgICAgICAgIG8ub3B0SlNPTkFycmF5KCJncm91cHMiKT8ubGV0IHsgYSAtPgogICAgICAgICAgICAgICAgZm9yIChpIGluIDAgdW50aWwgYS5sZW5ndGgoKSkgYS5nZXRKU09OT2JqZWN0KGkpLmxldCB7IGcgLT4KICAgICAgICAgICAgICAgICAgICB2YWwgbXMgPSBnLmdldEpTT05BcnJheSgibWVtYmVycyIpCiAgICAgICAgICAgICAgICAgICAgZ3JvdXBzLmFkZChHcm91cChnLmdldFN0cmluZygiaWQiKSwgZy5nZXRTdHJpbmcoIm5hbWUiKSwgKDAgdW50aWwgbXMubGVuZ3RoKCkpLm1hcCB7IG1zLmdldFN0cmluZyhpdCkgfSkpCiAgICAgICAgICAgICAgICB9CiAgICAgICAgICAgIH0KICAgICAgICAgICAgby5vcHRKU09OQXJyYXkoImRtcyIpPy5sZXQgeyBhIC0+IGZvciAoaSBpbiAwIHVudGlsIGEubGVuZ3RoKCkpIGRtSWRzLmFkZChhLmdldFN0cmluZyhpKSkgfQogICAgICAgICAgICBvLm9wdEpTT05BcnJheSgicHJvamVjdHMiKT8ubGV0IHsgYSAtPgogICAgICAgICAgICAgICAgZm9yIChpIGluIDAgdW50aWwgYS5sZW5ndGgoKSkgYS5nZXRKU09OT2JqZWN0KGkpLmxldCB7IHAgLT4KICAgICAgICAgICAgICAgICAgICB2YWwgYXNnID0gcC5vcHRKU09OQXJyYXkoImFzc2lnbm1lbnRzIikKICAgICAgICAgICAgICAgICAgICB2YWwgbGlzdCA9IGlmIChhc2cgPT0gbnVsbCkgZW1wdHlMaXN0KCkgZWxzZSAoMCB1bnRpbCBhc2cubGVuZ3RoKCkpLm1hcCB7CiAgICAgICAgICAgICAgICAgICAgICAgIHZhbCB4ID0gYXNnLmdldEpTT05PYmplY3QoaXQpCiAgICAgICAgICAgICAgICAgICAgICAgIEFzc2lnbm1lbnQoeC5nZXRTdHJpbmcoImJvdCIpLCB4Lm9wdFN0cmluZygidGFzayIpLCB4Lm9wdFN0cmluZygic3RhdHVzIiwgInBlbmRpbmciKSwKICAgICAgICAgICAgICAgICAgICAgICAgICAgIHgub3B0U3RyaW5nKCJkZWxpdmVyYWJsZSIpLCB4Lm9wdFN0cmluZygicmV2aWV3IiksIHgub3B0SW50KCJhdHRlbXB0cyIsIDApKQogICAgICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgICAgICAgICB2YXIgc3RhZ2UgPSBydW5DYXRjaGluZyB7IFN0YWdlLnZhbHVlT2YocC5nZXRTdHJpbmcoInN0YWdlIikpIH0uZ2V0T3JEZWZhdWx0KFN0YWdlLkNBTkNFTExFRCkKICAgICAgICAgICAgICAgICAgICB2YXIgbm90ZSA9IHAub3B0U3RyaW5nKCJub3RlIikKICAgICAgICAgICAgICAgICAgICBpZiAoc3RhZ2UgaW4gc2V0T2YoU3RhZ2UuUExBTk5JTkcsIFN0YWdlLkVYRUNVVElORywgU3RhZ2UuUkVWSUVXSU5HLCBTdGFnZS5SRVBPUlRJTkcpKSB7CiAgICAgICAgICAgICAgICAgICAgICAgIHN0YWdlID0gU3RhZ2UuSU5URVJSVVBURUQKICAgICAgICAgICAgICAgICAgICAgICAgbm90ZSA9ICJBcHAg6KKr5YWz6ZetLOmhueebruS4reaWrSzmnKroh6rliqjmgaLlpI3jgIIiCiAgICAgICAgICAgICAgICAgICAgfQogICAgICAgICAgICAgICAgICAgIHByb2plY3RzLmFkZChQcm9qZWN0KHAuZ2V0U3RyaW5nKCJpZCIpLCBwLmdldFN0cmluZygibWFuYWdlciIpLCBwLm9wdFN0cmluZygidGl0bGUiKSwKICAgICAgICAgICAgICAgICAgICAgICAgcC5vcHRTdHJpbmcoInJlcXVlc3QiKSwgc3RhZ2UsIGxpc3QsIHAub3B0U3RyaW5nKCJyZXBvcnQiKSwgbm90ZSkpCiAgICAgICAgICAgICAgICB9CiAgICAgICAgICAgIH0KICAgICAgICAgICAgby5vcHRKU09OQXJyYXkoImd1YXJkIik/LmxldCB7IGEgLT4KICAgICAgICAgICAgICAgIGZvciAoaSBpbiAwIHVudGlsIGEubGVuZ3RoKCkpIGEuZ2V0SlNPTk9iamVjdChpKS5sZXQgewogICAgICAgICAgICAgICAgICAgIGd1YXJkTG9nLmFkZChHdWFyZEVudHJ5KGl0Lm9wdExvbmcoInQiKSwgaXQub3B0U3RyaW5nKCJib3QiKSwgaXQub3B0U3RyaW5nKCJjbWQiKSwgaXQub3B0U3RyaW5nKCJyZWFzb24iKSkpCiAgICAgICAgICAgICAgICB9CiAgICAgICAgICAgIH0KICAgICAgICAgICAgby5vcHRKU09OT2JqZWN0KCJjaGF0cyIpPy5sZXQgeyBjIC0+CiAgICAgICAgICAgICAgICBmb3IgKGsgaW4gYy5rZXlzKCkpIHsKICAgICAgICAgICAgICAgICAgICB2YWwgYXJyID0gYy5nZXRKU09OQXJyYXkoaykKICAgICAgICAgICAgICAgICAgICB2YWwgbCA9IGNoYXQoaykKICAgICAgICAgICAgICAgICAgICBmb3IgKGkgaW4gMCB1bnRpbCBhcnIubGVuZ3RoKCkpIHsKICAgICAgICAgICAgICAgICAgICAgICAgdmFsIG0gPSBhcnIuZ2V0SlNPTk9iamVjdChpKQogICAgICAgICAgICAgICAgICAgICAgICB2YWwgdHMgPSBtLm9wdEpTT05BcnJheSgidG9vbHMiKQogICAgICAgICAgICAgICAgICAgICAgICB2YWwgdG9vbHMgPSBpZiAodHMgPT0gbnVsbCkgZW1wdHlMaXN0KCkgZWxzZSAoMCB1bnRpbCB0cy5sZW5ndGgoKSkubWFwIHsKICAgICAgICAgICAgICAgICAgICAgICAgICAgIHZhbCB0ID0gdHMuZ2V0SlNPTk9iamVjdChpdCkKICAgICAgICAgICAgICAgICAgICAgICAgICAgIFRvb2xDYWxsKHQuZ2V0U3RyaW5nKCJpZCIpLCB0LmdldFN0cmluZygibmFtZSIpLCB0Lm9wdFN0cmluZygiYXJncyIpLCB0Lm9wdFN0cmluZygib3V0cHV0IikpCiAgICAgICAgICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgICAgICAgICAgICAgbC5hZGQoTXNnKG0uZ2V0U3RyaW5nKCJpZCIpLCBtLmdldFN0cmluZygicm9sZSIpLCBtLm9wdFN0cmluZygidGV4dCIpLCB0b29scywKICAgICAgICAgICAgICAgICAgICAgICAgICAgIGlmIChtLmhhcygiZnJvbSIpKSBtLmdldFN0cmluZygiZnJvbSIpIGVsc2UgbnVsbCkpCiAgICAgICAgICAgICAgICAgICAgfQogICAgICAgICAgICAgICAgfQogICAgICAgICAgICB9CiAgICAgICAgfQogICAgfQp9Cg==
+package app.opengrok
+
+import android.content.Context
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.snapshots.SnapshotStateList
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
+
+class Store(private val ctx: Context) {
+    val bots = mutableStateListOf<Bot>()
+    val groups = mutableStateListOf<Group>()
+    val dmIds = mutableStateListOf<String>()
+    val busy = mutableStateListOf<String>()
+    val projects = mutableStateListOf<Project>()
+    val guardLog = mutableStateListOf<GuardEntry>()
+    private val lists = HashMap<String, SnapshotStateList<Msg>>()
+    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val file = File(ctx.filesDir, "state.json")
+
+    init { load() }
+
+    fun chat(id: String): SnapshotStateList<Msg> = lists.getOrPut(id) { mutableStateListOf() }
+    fun sandbox(botId: String) = Sandbox(File(ctx.filesDir, "sandbox/$botId"))
+    fun bot(id: String?) = bots.firstOrNull { it.id == id }
+    fun botName(id: String?) = bot(id)?.name ?: "?"
+    fun dmId(a: String, b: String) = "dm:" + listOf(a, b).sorted().joinToString(":")
+    fun project(id: String) = projects.firstOrNull { it.id == id }
+
+    fun chatList(): List<String> =
+        bots.map { "bot:${it.id}" } + groups.map { "group:${it.id}" } + dmIds.toList()
+
+    fun title(id: String): String = when {
+        id.startsWith("bot:") -> botName(id.removePrefix("bot:"))
+        id.startsWith("group:") -> groups.firstOrNull { it.id == id.removePrefix("group:") }?.name ?: "群聊"
+        id.startsWith("dm:") -> id.removePrefix("dm:").split(":").joinToString(" ⇄ ") { botName(it) }
+        else -> "?"
+    }
+
+    fun subtitle(id: String): String = when {
+        id.startsWith("bot:") -> {
+            val b = bot(id.removePrefix("bot:"))
+            (if (b?.isManager == true) "总经理 · " else "") + (b?.model ?: "")
+        }
+        id.startsWith("group:") -> "${groups.firstOrNull { it.id == id.removePrefix("group:") }?.memberIds?.size ?: 0} 位成员"
+        else -> "Bot 私聊(只读)"
+    }
+
+    private fun ensureChat(id: String) {
+        if (id.startsWith("dm:") && id !in dmIds) dmIds.add(id)
+    }
+
+    fun addDm(id: String, m: Msg) {
+        ensureChat(id)
+        chat(id).add(m)
+        save()
+    }
+
+    fun logGuard(botId: String, cmd: String, reason: String) {
+        guardLog.add(GuardEntry(System.currentTimeMillis(), botId, cmd.take(300), reason))
+        while (guardLog.size > 200) guardLog.removeAt(0)
+        save()
+    }
+
+    fun saveBot(b: Bot) {
+        val i = bots.indexOfFirst { it.id == b.id }
+        if (i >= 0) bots[i] = b else bots.add(b)
+        save()
+    }
+
+    fun deleteBot(id: String) {
+        bots.removeAll { it.id == id }
+        for (i in groups.indices) groups[i] = groups[i].copy(memberIds = groups[i].memberIds - id)
+        sandbox(id).dir.deleteRecursively()
+        lists.remove("bot:$id")
+        dmIds.removeAll { it.removePrefix("dm:").split(":").contains(id) }
+        save()
+    }
+
+    fun addGroup(g: Group) { groups.add(g); save() }
+
+    fun resetSandbox(botId: String) {
+        sandbox(botId).reset()
+        chat("bot:$botId").add(Msg(role = "system", text = "沙盒已重置"))
+        save()
+    }
+
+    // ---- projects ----
+    fun upd(pid: String, f: (Project) -> Project) {
+        val i = projects.indexOfFirst { it.id == pid }
+        if (i >= 0) { projects[i] = f(projects[i]); save() }
+    }
+
+    fun setA(pid: String, botId: String, f: (Assignment) -> Assignment) =
+        upd(pid) { p -> p.copy(assignments = p.assignments.map { if (it.botId == botId) f(it) else it }) }
+
+    fun startProject(chatId: String, text: String) {
+        val m = bot(chatId.removePrefix("bot:")) ?: return
+        chat(chatId).add(Msg(role = "user", text = text))
+        save()
+        Pipeline.start(this, m, text)
+    }
+
+    // ---- chatting ----
+    /** Runs [b] in [chatId]: adds a live placeholder message (tool calls stream into it) and returns the reply. Call on Main. */
+    suspend fun runBotIn(chatId: String, b: Bot, depth: Int = 0): String {
+        ensureChat(chatId)
+        val list = chat(chatId)
+        val history = list.toList()
+        list.add(Msg(role = "assistant", text = "", from = b.id))
+        val idx = list.lastIndex
+        val reply = Agent.run(this, b, history, depth) { tools ->
+            withContext(Dispatchers.Main) { list[idx] = list[idx].copy(tools = tools) }
+        }
+        list[idx] = list[idx].copy(text = reply)
+        save()
+        return reply
+    }
+
+    fun send(chatId: String, text: String) {
+        val list = chat(chatId)
+        list.add(Msg(role = "user", text = text))
+        save()
+        scope.launch {
+            busy.add(chatId)
+            try {
+                val targets = when {
+                    chatId.startsWith("bot:") -> listOfNotNull(bot(chatId.removePrefix("bot:")))
+                    chatId.startsWith("group:") ->
+                        groups.firstOrNull { it.id == chatId.removePrefix("group:") }
+                            ?.memberIds?.mapNotNull { bot(it) } ?: emptyList()
+                    else -> emptyList()
+                }
+                for (b in targets) runBotIn(chatId, b)
+            } finally {
+                busy.remove(chatId)
+            }
+        }
+    }
+
+    // ---- persistence ----
+    private fun msgJson(m: Msg) = JSONObject().apply {
+        put("id", m.id); put("role", m.role); put("text", m.text)
+        m.from?.let { put("from", it) }
+        put("tools", JSONArray(m.tools.map {
+            JSONObject().put("id", it.id).put("name", it.name).put("args", it.args).put("output", it.output)
+        }))
+    }
+
+    fun save() {
+        val o = JSONObject()
+        o.put("v", 2)
+        o.put("bots", JSONArray(bots.map {
+            JSONObject().put("id", it.id).put("name", it.name).put("prompt", it.prompt)
+                .put("baseUrl", it.baseUrl).put("apiKey", runCatching { Secrets.enc(it.apiKey) }.getOrDefault("")).put("model", it.model)
+                .put("manager", it.isManager)
+        }))
+        o.put("groups", JSONArray(groups.map {
+            JSONObject().put("id", it.id).put("name", it.name).put("members", JSONArray(it.memberIds))
+        }))
+        o.put("dms", JSONArray(dmIds.toList()))
+        o.put("projects", JSONArray(projects.map { p ->
+            JSONObject().put("id", p.id).put("manager", p.managerId).put("title", p.title)
+                .put("request", p.request).put("stage", p.stage.name).put("report", p.report).put("note", p.note)
+                .put("assignments", JSONArray(p.assignments.map { a ->
+                    JSONObject().put("bot", a.botId).put("task", a.task).put("status", a.status)
+                        .put("deliverable", a.deliverable).put("review", a.review).put("attempts", a.attempts)
+                }))
+        }))
+        o.put("guard", JSONArray(guardLog.map {
+            JSONObject().put("t", it.time).put("bot", it.botId).put("cmd", it.cmd).put("reason", it.reason)
+        }))
+        val chatsJson = JSONObject()
+        for ((k, v) in lists) chatsJson.put(k, JSONArray(v.toList().map { msgJson(it) }))
+        o.put("chats", chatsJson)
+        val s = o.toString()
+        scope.launch(Dispatchers.IO) { runCatching { file.writeText(s) } }
+    }
+
+    private fun load() {
+        if (!file.exists()) return
+        runCatching {
+            val o = JSONObject(file.readText())
+            o.optJSONArray("bots")?.let { a ->
+                for (i in 0 until a.length()) a.getJSONObject(i).let {
+                    bots.add(Bot(it.getString("id"), it.getString("name"), it.optString("prompt"),
+                        it.optString("baseUrl"), Secrets.dec(it.optString("apiKey")), it.optString("model"),
+                        it.optBoolean("manager", false)))
+                }
+            }
+            o.optJSONArray("groups")?.let { a ->
+                for (i in 0 until a.length()) a.getJSONObject(i).let { g ->
+                    val ms = g.getJSONArray("members")
+                    groups.add(Group(g.getString("id"), g.getString("name"), (0 until ms.length()).map { ms.getString(it) }))
+                }
+            }
+            o.optJSONArray("dms")?.let { a -> for (i in 0 until a.length()) dmIds.add(a.getString(i)) }
+            o.optJSONArray("projects")?.let { a ->
+                for (i in 0 until a.length()) a.getJSONObject(i).let { p ->
+                    val asg = p.optJSONArray("assignments")
+                    val list = if (asg == null) emptyList() else (0 until asg.length()).map {
+                        val x = asg.getJSONObject(it)
+                        Assignment(x.getString("bot"), x.optString("task"), x.optString("status", "pending"),
+                            x.optString("deliverable"), x.optString("review"), x.optInt("attempts", 0))
+                    }
+                    var stage = runCatching { Stage.valueOf(p.getString("stage")) }.getOrDefault(Stage.CANCELLED)
+                    var note = p.optString("note")
+                    if (stage in setOf(Stage.PLANNING, Stage.EXECUTING, Stage.REVIEWING, Stage.REPORTING)) {
+                        stage = Stage.INTERRUPTED
+                        note = "App 被关闭,项目中断,未自动恢复。"
+                    }
+                    projects.add(Project(p.getString("id"), p.getString("manager"), p.optString("title"),
+                        p.optString("request"), stage, list, p.optString("report"), note))
+                }
+            }
+            o.optJSONArray("guard")?.let { a ->
+                for (i in 0 until a.length()) a.getJSONObject(i).let {
+                    guardLog.add(GuardEntry(it.optLong("t"), it.optString("bot"), it.optString("cmd"), it.optString("reason")))
+                }
+            }
+            o.optJSONObject("chats")?.let { c ->
+                for (k in c.keys()) {
+                    val arr = c.getJSONArray(k)
+                    val l = chat(k)
+                    for (i in 0 until arr.length()) {
+                        val m = arr.getJSONObject(i)
+                        val ts = m.optJSONArray("tools")
+                        val tools = if (ts == null) emptyList() else (0 until ts.length()).map {
+                            val t = ts.getJSONObject(it)
+                            ToolCall(t.getString("id"), t.getString("name"), t.optString("args"), t.optString("output"))
+                        }
+                        l.add(Msg(m.getString("id"), m.getString("role"), m.optString("text"), tools,
+                            if (m.has("from")) m.getString("from") else null))
+                    }
+                }
+            }
+        }
+    }
+}
