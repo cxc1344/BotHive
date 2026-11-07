@@ -1,5 +1,7 @@
 # OpenGrokBot（Android）
 
+[![Build APK](https://github.com/cxc1344/OpenGrokBot-Android/actions/workflows/build.yml/badge.svg)](https://github.com/cxc1344/OpenGrokBot-Android/actions) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 安卓版多 Bot 协作应用：用你自己的 API Key 自建 AI「员工」，给每个 Bot 写人设、派模型、建群协作；还能立项让**总经理 Bot** 自己拆任务、派活、审查、打回返工，最后向你汇报。
 
 原生 Kotlin + Jetpack Compose 编写，无网页套壳。
@@ -7,6 +9,8 @@
 ## 下载
 
 到 [Releases](https://github.com/cxc1344/OpenGrokBot-Android/releases) 下载最新版 APK（当前 **v0.2.0**，P0 里程碑）。
+
+直达当前版 APK：[OpenGrokBot-P0.apk](https://github.com/cxc1344/OpenGrokBot-Android/releases/download/v0.2.0/OpenGrokBot-P0.apk)
 
 > 注意：发布包为调试签名（debug），尚未真机完整验收；后续版本可能无法覆盖安装，需先卸载旧版。包名 `app.opengrok`，可与同类应用并存。
 
@@ -49,3 +53,7 @@
 ## 缘起
 
 本项目代码由 Claude 编写，Muse 协助审查、打包与发布；设计目标对标同系列的 PocketGrok（Web 版内核），走的是安卓原生路线。欢迎 Issue 与 PR。
+
+## 许可
+
+[MIT](LICENSE)
