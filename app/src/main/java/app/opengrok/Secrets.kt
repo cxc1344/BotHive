@@ -1,1 +1,58 @@
-cGFja2FnZSBhcHAub3Blbmdyb2sKCmltcG9ydCBhbmRyb2lkLnNlY3VyaXR5LmtleXN0b3JlLktleUdlblBhcmFtZXRlclNwZWMKaW1wb3J0IGFuZHJvaWQuc2VjdXJpdHkua2V5c3RvcmUuS2V5UHJvcGVydGllcwppbXBvcnQgYW5kcm9pZC51dGlsLkJhc2U2NAppbXBvcnQgamF2YS5zZWN1cml0eS5LZXlTdG9yZQppbXBvcnQgamF2YXguY3J5cHRvLkNpcGhlcgppbXBvcnQgamF2YXguY3J5cHRvLktleUdlbmVyYXRvcgppbXBvcnQgamF2YXguY3J5cHRvLlNlY3JldEtleQppbXBvcnQgamF2YXguY3J5cHRvLnNwZWMuR0NNUGFyYW1ldGVyU3BlYwoKLyoqIEFQSSBrZXlzIGFyZSBzdG9yZWQgYXMgImVuYzo8YmFzZTY0KGl2K2NpcGhlcnRleHQpPiIsIEFFUy0yNTYtR0NNLCBrZXkgaGVsZCBpbiBBbmRyb2lkIEtleXN0b3JlLiAqLwpvYmplY3QgU2VjcmV0cyB7CiAgICBwcml2YXRlIGNvbnN0IHZhbCBBTElBUyA9ICJvZ19hcGlfa2V5IgoKICAgIHByaXZhdGUgZnVuIGtleSgpOiBTZWNyZXRLZXkgewogICAgICAgIHZhbCBrcyA9IEtleVN0b3JlLmdldEluc3RhbmNlKCJBbmRyb2lkS2V5U3RvcmUiKS5hcHBseSB7IGxvYWQobnVsbCkgfQogICAgICAgIChrcy5nZXRLZXkoQUxJQVMsIG51bGwpIGFzPyBTZWNyZXRLZXkpPy5sZXQgeyByZXR1cm4gaXQgfQogICAgICAgIHZhbCBnID0gS2V5R2VuZXJhdG9yLmdldEluc3RhbmNlKEtleVByb3BlcnRpZXMuS0VZX0FMR09SSVRITV9BRVMsICJBbmRyb2lkS2V5U3RvcmUiKQogICAgICAgIGcuaW5pdCgKICAgICAgICAgICAgS2V5R2VuUGFyYW1ldGVyU3BlYy5CdWlsZGVyKEFMSUFTLCBLZXlQcm9wZXJ0aWVzLlBVUlBPU0VfRU5DUllQVCBvciBLZXlQcm9wZXJ0aWVzLlBVUlBPU0VfREVDUllQVCkKICAgICAgICAgICAgICAgIC5zZXRCbG9ja01vZGVzKEtleVByb3BlcnRpZXMuQkxPQ0tfTU9ERV9HQ00pCiAgICAgICAgICAgICAgICAuc2V0RW5jcnlwdGlvblBhZGRpbmdzKEtleVByb3BlcnRpZXMuRU5DUllQVElPTl9QQURESU5HX05PTkUpCiAgICAgICAgICAgICAgICAuc2V0S2V5U2l6ZSgyNTYpCiAgICAgICAgICAgICAgICAuYnVpbGQoKQogICAgICAgICkKICAgICAgICByZXR1cm4gZy5nZW5lcmF0ZUtleSgpCiAgICB9CgogICAgcHJpdmF0ZSBmdW4gZW5jU3RyaWN0KHBsYWluOiBTdHJpbmcpOiBTdHJpbmcgewogICAgICAgIHZhbCBjID0gQ2lwaGVyLmdldEluc3RhbmNlKCJBRVMvR0NNL05vUGFkZGluZyIpCiAgICAgICAgYy5pbml0KENpcGhlci5FTkNSWVBUX01PREUsIGtleSgpKQogICAgICAgIHZhbCBjdCA9IGMuZG9GaW5hbChwbGFpbi50b0J5dGVBcnJheShDaGFyc2V0cy5VVEZfOCkpCiAgICAgICAgcmV0dXJuICJlbmM6IiArIEJhc2U2NC5lbmNvZGVUb1N0cmluZyhjLml2ICsgY3QsIEJhc2U2NC5OT19XUkFQKQogICAgfQoKICAgIHByaXZhdGUgZnVuIGRlY1N0cmljdChzOiBTdHJpbmcpOiBTdHJpbmcgewogICAgICAgIHZhbCByYXcgPSBCYXNlNjQuZGVjb2RlKHMucmVtb3ZlUHJlZml4KCJlbmM6IiksIEJhc2U2NC5OT19XUkFQKQogICAgICAgIHZhbCBjID0gQ2lwaGVyLmdldEluc3RhbmNlKCJBRVMvR0NNL05vUGFkZGluZyIpCiAgICAgICAgYy5pbml0KENpcGhlci5ERUNSWVBUX01PREUsIGtleSgpLCBHQ01QYXJhbWV0ZXJTcGVjKDEyOCwgcmF3LCAwLCAxMikpCiAgICAgICAgcmV0dXJuIFN0cmluZyhjLmRvRmluYWwocmF3LCAxMiwgcmF3LnNpemUgLSAxMiksIENoYXJzZXRzLlVURl84KQogICAgfQoKICAgIC8qKiBOZXZlciBzaWxlbnRseSBzdG9yZXMgQVBJIGtleXMgaW4gcGxhaW50ZXh0IHdoZW4gQW5kcm9pZCBLZXlzdG9yZSBpcyB1bmF2YWlsYWJsZS4gKi8KICAgIGZ1biBlbmMocGxhaW46IFN0cmluZyk6IFN0cmluZyB7CiAgICAgICAgaWYgKHBsYWluLmlzRW1wdHkoKSkgcmV0dXJuICIiCiAgICAgICAgcmV0dXJuIGVuY1N0cmljdChwbGFpbikKICAgIH0KCiAgICAvKiogTGVnYWN5IHBsYWludGV4dCB2YWx1ZXMgKG5vICJlbmM6IiBwcmVmaXgpIGFyZSByZXR1cm5lZCBhcy1pcyBhbmQgZ2V0IGVuY3J5cHRlZCBvbiB0aGUgbmV4dCBzYXZlLiAqLwogICAgZnVuIGRlYyhzOiBTdHJpbmcpOiBTdHJpbmcgewogICAgICAgIGlmICghcy5zdGFydHNXaXRoKCJlbmM6IikpIHJldHVybiBzCiAgICAgICAgcmV0dXJuIHRyeSB7IGRlY1N0cmljdChzKSB9IGNhdGNoIChfOiBFeGNlcHRpb24pIHsgIiIgfQogICAgfQoKICAgIGZ1biBpc0tleXN0b3JlV29ya2luZygpOiBCb29sZWFuID0KICAgICAgICB0cnkgeyBkZWNTdHJpY3QoZW5jU3RyaWN0KCJwcm9iZSIpKSA9PSAicHJvYmUiIH0gY2F0Y2ggKF86IEV4Y2VwdGlvbikgeyBmYWxzZSB9Cn0K
+package app.opengrok
+
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyProperties
+import android.util.Base64
+import java.security.KeyStore
+import javax.crypto.Cipher
+import javax.crypto.KeyGenerator
+import javax.crypto.SecretKey
+import javax.crypto.spec.GCMParameterSpec
+
+/** API keys are stored as "enc:<base64(iv+ciphertext)>", AES-256-GCM, key held in Android Keystore. */
+object Secrets {
+    private const val ALIAS = "og_api_key"
+
+    private fun key(): SecretKey {
+        val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+        (ks.getKey(ALIAS, null) as? SecretKey)?.let { return it }
+        val g = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore")
+        g.init(
+            KeyGenParameterSpec.Builder(ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setKeySize(256)
+                .build()
+        )
+        return g.generateKey()
+    }
+
+    private fun encStrict(plain: String): String {
+        val c = Cipher.getInstance("AES/GCM/NoPadding")
+        c.init(Cipher.ENCRYPT_MODE, key())
+        val ct = c.doFinal(plain.toByteArray(Charsets.UTF_8))
+        return "enc:" + Base64.encodeToString(c.iv + ct, Base64.NO_WRAP)
+    }
+
+    private fun decStrict(s: String): String {
+        val raw = Base64.decode(s.removePrefix("enc:"), Base64.NO_WRAP)
+        val c = Cipher.getInstance("AES/GCM/NoPadding")
+        c.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, raw, 0, 12))
+        return String(c.doFinal(raw, 12, raw.size - 12), Charsets.UTF_8)
+    }
+
+    /** Never silently stores API keys in plaintext when Android Keystore is unavailable. */
+    fun enc(plain: String): String {
+        if (plain.isEmpty()) return ""
+        return encStrict(plain)
+    }
+
+    /** Legacy plaintext values (no "enc:" prefix) are returned as-is and get encrypted on the next save. */
+    fun dec(s: String): String {
+        if (!s.startsWith("enc:")) return s
+        return try { decStrict(s) } catch (_: Exception) { "" }
+    }
+
+    fun isKeystoreWorking(): Boolean =
+        try { decStrict(encStrict("probe")) == "probe" } catch (_: Exception) { false }
+}
