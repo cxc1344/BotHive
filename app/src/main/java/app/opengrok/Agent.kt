@@ -2,20 +2,48 @@ package app.opengrok
 
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.IOException
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
+
+/** Per-Bot HTTP policy. HTTP is available only after an explicit opt-in in that Bot's settings. */
+object ApiEndpoint {
+    fun validate(bot: Bot): String {
+        val url = bot.baseUrl.trim().trimEnd('/').toHttpUrlOrNull()
+            ?: throw IOException("Base URL 格式无效")
+        if (url.username.isNotEmpty() || url.password.isNotEmpty()) {
+            throw IOException("Base URL 不允许包含账号密码")
+        }
+        if (!url.isHttps && !(url.scheme == "http" && bot.allowInsecureHttp)) {
+            throw IOException("默认只允许 HTTPS；如确实连接可信的本地 HTTP 服务，请在该 Bot 设置中明确开启")
+        }
+        return url.toString().trimEnd('/')
+    }
+}
 
 /** OpenAI-compatible chat/completions agent loop with two tools: shell, ask_bot. */
 object Agent {
     private val http = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(180, TimeUnit.SECONDS)
+        .callTimeout(210, TimeUnit.SECONDS)
+        // Avoid HTTPS-to-HTTP redirect downgrades that could expose an Authorization header.
+        .followRedirects(false)
+        .followSslRedirects(false)
         .build()
     private val JSON_MT = "application/json".toMediaType()
 
@@ -30,7 +58,7 @@ object Agent {
     private fun str(desc: String) = JSONObject().put("type", "string").put("description", desc)
 
     private fun toolDefs() = JSONArray().apply {
-        put(fn("shell", "在你自己的沙盒目录里执行 shell 命令,返回合并后的输出。",
+        put(fn("shell", "在你的 Bot 工作目录中执行命令；该目录不是 OS 级权限隔离边界。",
             JSONObject().put("command", str("要执行的命令")), "command"))
         put(fn("ask_bot", "向另一个 Bot 发私信求助,返回对方的回复。",
             JSONObject().put("bot_name", str("对方的名字")).put("message", str("要说的话")),
@@ -45,7 +73,8 @@ object Agent {
         onTools: suspend (List<ToolCall>) -> Unit
     ): String {
         val others = store.bots.filter { it.id != bot.id }.joinToString("、") { it.name }
-        val sys = bot.prompt + "\n\n你叫「${bot.name}」,运行在一部安卓手机上,有自己独立的沙盒目录,可用 shell 工具执行命令。" +
+        val sys = bot.prompt + "\n\n你叫「${bot.name}」,运行在一部安卓手机上,有自己独立的工作目录,可用 shell 工具执行命令。" +
+            "工作目录不是操作系统级安全隔离,只允许读写自己的工作目录,不得尝试访问应用数据或其他 Bot 的文件。" +
             (if (others.isNotEmpty()) "同伴 Bot:$others,可用 ask_bot 私信求助。" else "") +
             "群聊里其他 Bot 的发言会以 [名字] 开头。请使用用户的语言回复。"
         val msgs = JSONArray()
@@ -110,7 +139,9 @@ object Agent {
                 if (why != null) {
                     withContext(Dispatchers.Main) { store.logGuard(bot.id, cmd, why) }
                     "【安全策略已拦截】$why。该命令没有执行,请换一种更安全的做法。"
-                } else withContext(Dispatchers.IO) { sb.exec(cmd) }
+                } else store.withSandboxLock(bot.id) {
+                    runInterruptible(Dispatchers.IO) { sb.exec(cmd) }
+                }
             }
             "ask_bot" -> {
                 if (depth >= 1) return "为避免循环,被求助的 Bot 不能再求助其他 Bot。"
@@ -131,18 +162,39 @@ object Agent {
         }
     }
 
-    private fun call(bot: Bot, msgs: JSONArray, withTools: Boolean = true): JSONObject {
+    private suspend fun call(bot: Bot, msgs: JSONArray, withTools: Boolean = true): JSONObject {
+        val baseUrl = ApiEndpoint.validate(bot)
         val body = JSONObject().put("model", bot.model).put("messages", msgs)
         if (withTools) body.put("tools", toolDefs())
         val req = Request.Builder()
-            .url(bot.baseUrl.trimEnd('/') + "/chat/completions")
+            .url("$baseUrl/chat/completions")
             .header("Authorization", "Bearer ${bot.apiKey}")
             .post(body.toString().toRequestBody(JSON_MT))
             .build()
-        http.newCall(req).execute().use { r ->
-            val s = r.body?.string().orEmpty()
-            if (!r.isSuccessful) error("HTTP ${r.code}: ${s.take(300)}")
-            return JSONObject(s).getJSONArray("choices").getJSONObject(0).getJSONObject("message")
+
+        // Cancelling the coroutine now cancels the actual OkHttp call rather than merely
+        // abandoning a blocking execute() on an IO thread.
+        return suspendCancellableCoroutine { continuation ->
+            val call = http.newCall(req)
+            continuation.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    if (continuation.isActive) continuation.resumeWithException(e)
+                }
+
+                override fun onResponse(call: Call, response: Response) {
+                    try {
+                        val message = response.use { r ->
+                            val s = r.body?.string().orEmpty()
+                            if (!r.isSuccessful) throw IOException("HTTP ${r.code}: ${s.take(300)}")
+                            JSONObject(s).getJSONArray("choices").getJSONObject(0).getJSONObject("message")
+                        }
+                        if (continuation.isActive) continuation.resume(message)
+                    } catch (e: Exception) {
+                        if (continuation.isActive) continuation.resumeWithException(e)
+                    }
+                }
+            })
         }
     }
 }
