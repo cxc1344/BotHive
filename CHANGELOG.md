@@ -1,5 +1,26 @@
 # 更新日志
 
+## v0.4.0 — 2026-11-08
+
+双模式与 Ubuntu 环境升级：
+
+- **Bot / Agent 双模式**：主页顶部切换。Bot 模式保持原有全部功能；Agent 模式是一位住在手机本地的设备 Agent，拥有自己的对话、Ubuntu 沙盒与工具集
+- **Agent 设备工具**：手机文件夹读写（list_dir/read_file/write_file，作用域为用户通过系统选择器授权的单个文件夹，SAF 机制，越界路径拒绝）、device_status（电量/存储/内存/系统信息）、app_usage（今日应用使用时长，需用户在系统设置开启「使用情况访问」）、list_apps / launch_app（枚举并打开应用）
+- **Shizuku 特权通道（可选）**：接入 Shizuku SDK（Apache-2.0），用户安装并激活 Shizuku、授权本应用后，Agent 可用 shizuku_shell 以 shell 身份执行命令（input 点击/滑动、screencap、dumpsys、pm/am 等）；未激活时该工具给出明确引导，不影响其他功能
+- **无障碍屏幕操作**：Agent 新增 screen_dump（读取当前界面结构作为「看屏」）、tap_text / tap_xy（点击）、swipe（滑动）、input_text（向输入框写字）、press_key（返回/桌面/最近任务/通知栏）；基于系统无障碍服务，开关必须由用户在系统设置中亲手开启，Agent 页提供状态与跳转入口
+- **长期记忆**：所有 Bot 与 Agent 新增 remember / recall 工具，可把用户偏好、约定与关键结论存入各自的长期记忆，跨会话保留
+- **自己派任务（例行任务）**：所有 Bot 与 Agent 新增 schedule_task / list_tasks 工具，可给自己安排一次性或每日定时的任务，到点后在自己的对话里收到任务并执行；全部任务在设置页可见、可删。调度为进程内实现，App 被系统杀掉期间到点的任务会顺延到下次打开
+- **MCP 接入**：设置页可添加远程 MCP 服务（Streamable HTTP / JSON-RPC，请求头可带密钥、加密保存），其工具会以 mcp_ 前缀合并进所有 Bot 与 Agent 的工具列表被调用；编辑页可测试连接并列出工具。本地 stdio 型 MCP（npx/uvx）暂不支持
+- **工作流**：主页 + 菜单进入「工作流」：可视化编排步骤链，每步选一个执行者（Bot 或 Agent）并写指令，指令中 {prev} 引用上一步输出；运行记录沉淀为只读会话，可随时翻看
+- **后台保活**：设置页新增「后台保活」——前台服务常驻守进程（START_STICKY），被划掉后台时经精确闹钟自动拉起，重启手机后自启；附电池优化豁免与厂商自启动设置直达入口。保活效果最终取决于系统授权，强杀（系统设置里强行停止）后需重新打开 App
+- **技能包**：设置页可维护可复用的指令包（规范、风格、领域知识），在 Bot / Agent 编辑页勾选启用后拼入其 System Prompt
+- **命令批准（权限经纪）**：Bot / Agent 可开启「Shell 命令先经我批准」——命令先变成对话里的批准卡，用户点「执行」才真跑、点「拒绝」则作废，结果回流对话让它接着干；硬性安全拦截仍先生效
+- **通知读取**：Agent 新增 recent_notifications 工具（需用户开启「通知使用权」），可汇总最近的微信/短信/应用通知；另新增 open_url（浏览器打开链接）与 run_workflow（按名启动工作流）工具
+- **双向互通**：Agent 与云端 Bot 共用 ask_bot 体系——Bot 可向 Agent 派设备类任务，Agent 也可向 Bot 求助，私聊记录对用户只读可见
+- **Provider 预设**：设置页可保存多个服务商预设（名称、Base URL、Key、HTTP 选项；Key 经 Keystore 加密）。新建/编辑 Bot 与 Agent 时直接选用预设，并可一键拉取该服务商的模型列表点选，免去逐个 Bot 重复粘贴 Key 与模型名；Bot 自填字段保留为回退
+- **Linux 环境换 Ubuntu**：基础系统从 Alpine 3.24.4 换为 Ubuntu Base 24.04.3（apt 生态），官方 cdimage 下载并按 SHA256SUMS 校验，清华 TUNA 镜像兜底；首次初始化自动预装 python3、nodejs、git、curl、jq、zip、unzip、ca-certificates（预装失败不阻断，环境仍可用并留说明文件）；旧 Alpine rootfs 会被自动识别并替换（每个 Bot 的工作目录文件不受影响）
+- 未验证：本版本未在真机上运行；Ubuntu rootfs 的下载、解压、apt 预装与 Agent 文件/系统工具均以真机验收为准
+
 ## v0.3.2 — 2026-11-08
 
 - 修复 PRoot 启动参数：移除命令前的 `--` 分隔符，打包的 Termux PRoot 会把它当作未知选项并报 `unknown option '--'`（v0.3.1 真机截图确认 rootfs 已正确安装，失败发生在 PRoot 启动这一步；此前的 `--kill-on-exit --link2symlink -0 -r -b -w` 均被接受）

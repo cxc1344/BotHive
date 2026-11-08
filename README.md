@@ -2,21 +2,21 @@
 
 [![Build APK](https://github.com/cxc1344/OpenGrokBot-Android/actions/workflows/build.yml/badge.svg)](https://github.com/cxc1344/OpenGrokBot-Android/actions) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-安卓版多 Bot 协作应用：用你自己的 API Key 自建 AI「员工」，给每个 Bot 写人设、派模型、建群协作；还能立项让**总经理 Bot** 自己拆任务、派活、审查、打回返工，最后向你汇报。
+安卓版多 Bot 协作应用：用你自己的 API Key 自建 AI「员工」，给每个 Bot 写人设、派模型、建群协作；还能立项让**总经理 Bot** 自己拆任务、派活、审查、打回返工，最后向你汇报。v0.4 起新增 **Agent 模式**：一位住在手机本地的设备 Agent，能读写你授权的手机文件夹、查看设备状态与应用使用时长、打开应用，并与云端 Bot 互相派活。
 
 原生 Kotlin + Jetpack Compose 编写，无网页套壳。
 
 ## 下载
 
-到 [Releases](https://github.com/cxc1344/OpenGrokBot-Android/releases) 下载最新版 APK（当前 **v0.3.2**）。
+到 [Releases](https://github.com/cxc1344/OpenGrokBot-Android/releases) 下载最新版 APK（当前 **v0.4.0**）。
 
-直达当前版 APK：[OpenGrokBot-v0.3.2-debug.apk](https://github.com/cxc1344/OpenGrokBot-Android/releases/download/v0.3.2/OpenGrokBot-v0.3.2-debug.apk)
+直达当前版 APK：[OpenGrokBot-v0.4.0-debug.apk](https://github.com/cxc1344/OpenGrokBot-Android/releases/download/v0.4.0/OpenGrokBot-v0.4.0-debug.apk)
 
 > 注意：发布包为调试签名（debug），尚未真机完整验收；后续版本可能无法覆盖安装，需先卸载旧版。包名 `app.opengrok`，可与同类应用并存。
 
 ## 快速开始
 
-1. 安装并打开应用，在设置里填入你的 API 地址与 Key（Key 经 Android Keystore 加密保存）。默认只允许 HTTPS；确实需要连接可信内网 HTTP 服务时，可在对应 Bot 设置中明确开启，但 HTTP 会暴露请求内容与 API Key。
+1. 安装并打开应用，先在「设置 → Provider 预设」里把常用服务商的 Base URL 与 Key 存成预设（Key 经 Android Keystore 加密保存），之后建 Bot / Agent 时直接选用并点选模型。默认只允许 HTTPS；确实需要连接可信内网 HTTP 服务时，可在预设或对应 Bot 设置中明确开启，但 HTTP 会暴露请求内容与 API Key。
 2. 点「连接自检」确认模型列表、对话、沙盒都通。
 3. 新建 Bot：选预设（共 14 个，也可以把某个 Bot 设为总经理），或自写 System Prompt，并为它单独指定模型。
 4. 单聊、拉群，或在项目模式里立个项，看总经理带队干活。
@@ -27,9 +27,16 @@
 - **Bot 体系**：增删改、预设/自写 Prompt、逐 Bot 独立 BaseURL / Key / 模型、真头像（种子生成）与矢量图标
 - **协作可见**：群聊全员回复；Bot 之间用 `ask_bot` 私聊对齐进度，私聊记录对你只读可见
 - **原生工具调用**：OpenAI Function Calling，Bot 可执行沙盒命令、互相提问；调用过程有折叠时间线面板
-- **Linux 环境**：每个 Bot 独立的 Alpine 3.24.4 rootfs，通过 PRoot 提供 Termux 式 Linux 用户空间，工作目录挂载为 /workspace，可用 apk 安装软件；首次使用时自动下载 rootfs（官方源失败自动切换镜像）并做 SHA256 校验，安装失败会给出分步骤的诊断信息。注意：PRoot 不是独立内核，也不构成强安全边界。
+- **Linux 环境**：每个 Bot / Agent 独立的 Ubuntu 24.04 rootfs，通过 PRoot 提供 Termux 式 Linux 用户空间，工作目录挂载为 /workspace，用 apt 安装软件，首次初始化自动预装 python3、nodejs、git 等常用工具；rootfs 从 Ubuntu 官方 cdimage 下载（镜像兜底）并按 SHA256SUMS 校验，安装失败会给出分步骤的诊断信息。注意：PRoot 不是独立内核，也不构成强安全边界。
 - **危险命令守卫 Guard**：对部分明显危险命令做启发式拦截（如 fork 炸弹、管道远程执行、格式化、写块设备），拦截记录在设置页可查；不是安全边界，不能替代 OS 级进程隔离。
-- **连接自检**：一键检查模型接口、对话与 Keystore，并实际进入 Alpine 环境验证 PRoot 可执行
+- **Provider 预设**：服务商连接（Base URL + Key）一次保存、处处复用；建 Bot 时可拉取该服务商的模型列表点选，不再逐个粘贴 Key
+- **例行任务**：Bot 与 Agent 能用 schedule_task 给自己派定时活（一次性或每日），到点自动执行并在对话里汇报；设置页统一查看与删除
+- **MCP 接入**：可添加远程 MCP 服务，其工具与内置工具一起出现在 Bot / Agent 的工具列表里
+- **工作流**：步骤链编排——每步指定执行者与指令，{prev} 传递上一步输出，运行记录可翻看
+- **后台保活**：前台服务守进程、被划掉自动拉起、开机自启，例行任务与主动消息不掉线（效果取决于系统授权）
+- **技能包与命令批准**：可复用指令包可挂到任意 Bot / Agent；可开启「命令先批准」——每条 Shell 命令先过用户这关再执行
+- **Agent 模式（设备端）**：本地 Agent 可读写用户授权的手机文件夹、查看设备状态与今日应用使用时长、打开应用；可选接入 Shizuku 特权通道获得 shell 级能力；无障碍开启后还能看屏并操作其他应用（点击/滑动/输入）；与云端 Bot 通过同一套 ask_bot 私聊双向派活，全程可见
+- **连接自检**：一键检查模型接口、对话与 Keystore，并实际进入 Ubuntu 环境验证 PRoot 可执行
 - **请求控制**：API 请求可随时取消，接口地址会做格式与协议校验；明文 HTTP 默认禁止，可按 Bot 单独开启
 
 ## 截图
@@ -43,6 +50,9 @@
 - [x] M1：Bot 管理、聊天/群聊/私聊、工具调用、沙盒目录、图标与头像
 - [x] P0：总经理流水线、Guard 守卫、Keystore 加密、连接自检、预设扩充
 - [x] PRoot + Alpine Linux 用户空间（每 Bot 独立 rootfs；非内核级隔离，见 V0.3_ROADMAP.md）
+- [x] Ubuntu 24.04 环境、Provider 预设、Bot/Agent 双模式与设备工具（v0.4.0）
+- [x] Agent 屏幕操作（无障碍看屏/点击/滑动/输入）与长期记忆（v0.4.0）
+- [x] 例行任务（AI 自派定时任务）、远程 MCP 接入、工作流步骤链（v0.4.0）
 - [ ] 每 Bot 独立浏览器：独立 WebView + 截屏 + 点击/长按/右键/中键/滚轮/拖动
 - [ ] 收件箱与交付、主动消息治理、例行任务、用量账本
 

@@ -23,15 +23,22 @@ SHA-256 pins:
 
 The PRoot source is available from the upstream repository at the pinned revision. The release/build repository includes its own GPL-3.0 license for its build scripts; see https://github.com/ahmed-alnassif/proot/blob/main/LICENSE.
 
-## Alpine Linux minirootfs
+## Ubuntu Base root filesystem
 
-Alpine minirootfs is downloaded at first install, not embedded in this source bundle. The downloader tries the official Alpine CDN first and falls back to the public mirrors `mirrors.aliyun.com` and `mirrors.tuna.tsinghua.edu.cn` (same path layout). The downloaded archive is checked against the SHA-256 sidecar served alongside it **by the same host**; this detects corruption and truncated transfers but is not an authenticity guarantee against a malicious mirror or network intermediary (pinning the expected digests in the app is a possible future hardening). Alpine and its packages retain their own license notices inside each Bot's root filesystem.
+Ubuntu Base is downloaded at first install, not embedded in this source bundle. The downloader tries the official Ubuntu cdimage server first and falls back to a public mirror (same path layout). The downloaded archive is checked against the SHA-256 listed in the release directory's SHA256SUMS file served **by the same host**; this detects corruption and truncated transfers but is not an authenticity guarantee against a malicious mirror or network intermediary (pinning the expected digests in the app is a possible future hardening). Ubuntu and its packages retain their own license notices inside each Bot's root filesystem.
 
 The archive is unpacked by an in-app tar reader (`TarExtract.kt`, original code in this repository, no third-party tar library).
 
-- Alpine release: `3.24.4`
-- Official index: https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/
-- Alpine project: https://www.alpinelinux.org/
+- Ubuntu release: `24.04.3` (ubuntu-base tarball)
+- Official index: https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release/
+- Ubuntu project: https://ubuntu.com/
+
+## Shizuku
+
+The optional Shizuku channel uses the Shizuku API (`dev.rikka.shizuku:api` and `:provider`), licensed under the Apache License 2.0.
+
+- Project: https://github.com/RikkaApps/Shizuku
+- The channel is inert unless the user installs Shizuku separately and grants this app permission inside it.
 
 ## Important runtime limitation
 

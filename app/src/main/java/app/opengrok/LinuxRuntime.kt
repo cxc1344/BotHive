@@ -23,23 +23,27 @@ internal class LinuxSetupException(
 )
 
 /**
- * Downloads and unpacks an Alpine minirootfs for each Bot, then executes commands through
+ * Downloads and unpacks an Ubuntu Base rootfs for each Bot, then executes commands through
  * the Android PRoot binary packaged in nativeLibraryDir by tools/fetch_proot_android.sh.
  * The compressed archive is cached once per device ABI; unpacked rootfs trees are per-Bot.
  */
 internal object LinuxRuntime {
-    private const val ALPINE_VERSION = "3.24.4"
-    private const val ALPINE_BRANCH = "v3.24"
-    private const val MAX_ROOTFS_ARCHIVE_BYTES = 32L * 1024L * 1024L
+    private const val UBUNTU_VERSION = "24.04.3"
+    private const val MAX_ROOTFS_ARCHIVE_BYTES = 64L * 1024L * 1024L
     private const val DOWNLOAD_DEADLINE_MS = 300_000L
-    private const val TOTAL_STEPS = 8
-    private const val USER_AGENT = "OpenGrokBot-Android/0.3.2"
+    private const val TOTAL_STEPS = 9
+    private const val USER_AGENT = "OpenGrokBot-Android/0.4.0"
 
-    /** Official CDN first; well-known public mirrors as fallback for networks where the CDN is slow or blocked. */
+    /** First-run provisioning inside the fresh rootfs; failure is soft (install still succeeds). */
+    private const val PROVISION_CMD =
+        "export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && " +
+        "apt-get install -y -qq --no-install-recommends python3 nodejs git curl jq zip unzip ca-certificates && " +
+        "echo PROVISION_OK && python3 --version && node --version"
+
+    /** Ubuntu cdimage first; a public mirror of cdimage as fallback. Checksums come from the same directory's SHA256SUMS. */
     private val MIRRORS = listOf(
-        "dl-cdn.alpinelinux.org" to "https://dl-cdn.alpinelinux.org/alpine/$ALPINE_BRANCH/releases",
-        "mirrors.aliyun.com" to "https://mirrors.aliyun.com/alpine/$ALPINE_BRANCH/releases",
-        "mirrors.tuna.tsinghua.edu.cn" to "https://mirrors.tuna.tsinghua.edu.cn/alpine/$ALPINE_BRANCH/releases"
+        "cdimage.ubuntu.com" to "https://cdimage.ubuntu.com/ubuntu-base/releases/24.04/release",
+        "mirrors.tuna.tsinghua.edu.cn" to "https://mirrors.tuna.tsinghua.edu.cn/ubuntu-cdimage/ubuntu-base/releases/24.04/release"
     )
 
     private val botLocks = ConcurrentHashMap<String, Any>()
@@ -48,13 +52,12 @@ internal object LinuxRuntime {
     @Volatile
     private var seccompDisabled = false
 
-    private data class Abi(val android: String, val alpine: String)
+    private data class Abi(val android: String, val ubuntu: String, val loader: String)
 
     private val supported = listOf(
-        Abi("arm64-v8a", "aarch64"),
-        Abi("armeabi-v7a", "armhf"),
-        Abi("x86_64", "x86_64"),
-        Abi("x86", "x86")
+        Abi("arm64-v8a", "arm64", "ld-linux-aarch64.so.1"),
+        Abi("armeabi-v7a", "armhf", "ld-linux-armhf.so.3"),
+        Abi("x86_64", "amd64", "ld-linux-x86-64.so.2")
     )
 
     fun describe(e: Throwable): String {
@@ -105,11 +108,19 @@ internal object LinuxRuntime {
     }
 
     /**
-     * Alpine's bin/sh is an ABSOLUTE symlink (/bin/busybox). File.exists() resolves it against the HOST
-     * filesystem, where /bin/busybox does not exist on Android, so it must be resolved inside the rootfs instead.
+     * Ubuntu's bin/sh is a relative symlink (→ dash). Links are still resolved inside the rootfs,
+     * never against the host. The marker records the distro so a stale Alpine tree from <= 0.3.x
+     * is detected and replaced instead of being reused.
      */
-    private fun isInstalled(rootfs: File): Boolean =
-        File(rootfs, ".opengrok-rootfs").isFile && TarExtract.resolveInGuest(rootfs, "bin/sh")?.isFile == true
+    private fun isInstalled(rootfs: File): Boolean {
+        val marker = File(rootfs, ".opengrok-rootfs")
+        if (!marker.isFile) return false
+        val text = try { marker.readText() } catch (_: Exception) { return false }
+        if (!text.startsWith("Ubuntu")) return false
+        if (File(rootfs, ".opengrok-provision-pending").isFile) return false
+        return TarExtract.resolveInGuest(rootfs, "usr/bin/apt")?.isFile == true &&
+            TarExtract.resolveInGuest(rootfs, "bin/bash")?.isFile == true
+    }
 
     private class Installer(
         val context: Context,
@@ -141,7 +152,7 @@ internal object LinuxRuntime {
 
         fun install() {
             note("abi", abi.android)
-            note("alpine", ALPINE_VERSION)
+            note("ubuntu", UBUNTU_VERSION)
             val parent = step(2, "准备目录") {
                 val p = rootfs.parentFile ?: throw IOException("rootfs 路径没有父目录: ${rootfs.path}")
                 if (!p.exists() && !p.mkdirs()) throw IOException("无法创建 ${p.path}")
@@ -154,7 +165,7 @@ internal object LinuxRuntime {
             }
             try {
                 val archive = fetchArchive()
-                val result = step(5, "解压 Alpine") { TarExtract.extractTarGz(archive, staging) }
+                val result = step(5, "解压 Ubuntu") { TarExtract.extractTarGz(archive, staging) }
                 note("extracted", result.summary())
                 step(6, "完整性检查") { verifyLayout(staging) }
                 step(7, "安装 rootfs") {
@@ -162,12 +173,14 @@ internal object LinuxRuntime {
                     File(staging, "tmp").mkdirs()
                     File(staging, "workspace").mkdirs()
                     writeResolver(staging)
-                    File(staging, ".opengrok-rootfs").writeText("Alpine $ALPINE_VERSION\n")
+                    File(staging, ".opengrok-rootfs").writeText("Ubuntu $UBUNTU_VERSION\n")
+                    File(staging, ".opengrok-provision-pending").writeText("pending\n")
                     TarExtract.deleteTree(rootfs)
                     if (!staging.renameTo(rootfs)) {
                         throw IOException("重命名失败 ${staging.path} → ${rootfs.path}")
                     }
                 }
+                step(8, "预装常用软件") { provision() }
                 workspace.mkdirs()
             } catch (e: Exception) {
                 try { TarExtract.deleteTree(staging) } catch (_: Exception) {}
@@ -175,23 +188,55 @@ internal object LinuxRuntime {
             }
         }
 
+        /**
+         * Runs apt inside the freshly installed rootfs (via PRoot) to pre-install the common toolchain.
+         * Soft-fail: on any failure the pending flag is removed and a note file records what happened,
+         * so the environment stays usable and the user can apt-install manually later.
+         */
+        private fun provision() {
+            workspace.mkdirs()
+            val nativeDir = File(context.applicationInfo.nativeLibraryDir)
+            val proot = File(nativeDir, "libproot.so")
+            val loader = File(nativeDir, "libloader.so")
+            try {
+                val r = runProotOnce(context, botId, proot, loader, rootfs, workspace, PROVISION_CMD, 900, false, 900)
+                val ok = !r.timedOut && r.exit == 0 && "PROVISION_OK" in r.text
+                File(rootfs, ".opengrok-provision-pending").delete()
+                if (!ok) {
+                    note("provision", "failed exit=${r.exit}")
+                    File(rootfs, ".opengrok-provision-note").writeText(
+                        "预装未完成(exit ${r.exit}${if (r.timedOut) ",超时" else ""}),可让 Bot 手动执行 apt-get update && apt-get install -y python3 nodejs git curl jq zip unzip。输出摘要:${r.text.take(500)}"
+                    )
+                } else {
+                    note("provision", "ok")
+                }
+            } catch (e: Exception) {
+                File(rootfs, ".opengrok-provision-pending").delete()
+                note("provision", "error ${describe(e)}")
+                runCatching {
+                    File(rootfs, ".opengrok-provision-note").writeText("预装异常:${describe(e)},可手动 apt 安装。")
+                }
+            }
+        }
+
         private fun verifyLayout(root: File) {
             val problems = mutableListOf<String>()
-            val bb = File(root, "bin/busybox")
-            if (!bb.isFile || bb.length() == 0L) problems.add("bin/busybox 缺失或为空")
-            else if (!bb.canExecute()) problems.add("bin/busybox 没有可执行权限")
-            val sh = TarExtract.resolveInGuest(root, "bin/sh")
-            if (sh == null || !sh.isFile) problems.add("bin/sh 在 rootfs 内解析不到可执行文件")
-            val rel = File(root, "etc/alpine-release")
-            if (!rel.isFile) problems.add("etc/alpine-release 缺失")
-            val hasLoader = File(root, "lib").list()?.any { it.startsWith("ld-musl-") } == true
-            if (!hasLoader) problems.add("lib/ld-musl-* 缺失")
+            val bash = TarExtract.resolveInGuest(root, "bin/bash")
+            if (bash == null || !bash.isFile) problems.add("bin/bash 在 rootfs 内解析不到")
+            else if (!bash.canExecute()) problems.add("bin/bash 没有可执行权限")
+            val apt = File(root, "usr/bin/apt")
+            if (!apt.isFile || apt.length() == 0L) problems.add("usr/bin/apt 缺失或为空")
+            val rel = File(root, "etc/os-release")
+            if (!rel.isFile) problems.add("etc/os-release 缺失")
+            else if (!rel.readText().contains("Ubuntu")) problems.add("etc/os-release 不是 Ubuntu")
+            val loader = TarExtract.resolveInGuest(root, "lib/${abi.loader}")
+            if (loader == null || !loader.isFile) problems.add("lib/${abi.loader} 在 rootfs 内解析不到")
             if (problems.isNotEmpty()) throw IOException("rootfs 内容不完整: " + problems.joinToString("; "))
         }
 
         /** Returns a verified archive: previously verified local copy first, then each mirror in turn. */
         private fun fetchArchive(): File {
-            val name = "alpine-minirootfs-$ALPINE_VERSION-${abi.alpine}.tar.gz"
+            val name = "ubuntu-base-$UBUNTU_VERSION-base-${abi.ubuntu}.tar.gz"
             val cache = File(context.cacheDir, name)
             val okFile = File(context.cacheDir, "$name.sha256ok")
 
@@ -209,10 +254,10 @@ internal object LinuxRuntime {
 
             val failures = mutableListOf<String>()
             for ((host, base) in MIRRORS) {
-                val url = "$base/${abi.alpine}/$name"
+                val url = "$base/$name"
                 val part = File(context.cacheDir, "$name.part")
                 try {
-                    val expected = tag("取 SHA256 校验文件") { fetchSha256("$url.sha256") }
+                    val expected = tag("取 SHA256 校验文件") { fetchSha256For("$base/SHA256SUMS", name) }
                     part.delete()
                     val bytes = tag("下载压缩包") { download(url, part) }
                     val actual = tag("计算 SHA256") { sha256(part) }
@@ -232,7 +277,7 @@ internal object LinuxRuntime {
                 }
             }
             throw LinuxSetupException(
-                "步骤 3/$TOTAL_STEPS 下载 Alpine",
+                "步骤 3/$TOTAL_STEPS 下载 Ubuntu",
                 "所有下载源均失败:\n" + failures.joinToString("\n"),
                 diag = diag.toString()
             )
@@ -271,12 +316,15 @@ internal object LinuxRuntime {
         throw IOException("重定向次数过多(${url.host})")
     }
 
-    private fun fetchSha256(url: String): String {
-        val c = open(url, 30_000)
+    /** SHA256SUMS lists one file per line ("<hash> *<name>"); pick the line for our archive. */
+    private fun fetchSha256For(sumsUrl: String, fileName: String): String {
+        val c = open(sumsUrl, 30_000)
         try {
-            val text = c.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText().take(4096) }
-            return Regex("(?i)(?<![0-9a-f])([0-9a-f]{64})(?![0-9a-f])").find(text)?.groupValues?.get(1)?.lowercase()
-                ?: throw IOException("校验文件内容无法解析(前 80 字符: '${text.take(80).replace("\n", "\\n")}')")
+            val text = c.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText().take(16_384) }
+            val line = text.lineSequence().firstOrNull { it.contains(fileName) }
+                ?: throw IOException("SHA256SUMS 中找不到 $fileName")
+            return Regex("(?i)(?<![0-9a-f])([0-9a-f]{64})(?![0-9a-f])").find(line)?.groupValues?.get(1)?.lowercase()
+                ?: throw IOException("校验行无法解析:'${line.take(80)}'")
         } finally {
             c.disconnect()
         }
@@ -395,7 +443,8 @@ internal object LinuxRuntime {
         workspace: File,
         command: String,
         timeoutSec: Long,
-        noSeccomp: Boolean
+        noSeccomp: Boolean,
+        capSec: Long = 180
     ): ProotRun {
         val temp = File(context.cacheDir, "proot-tmp/$botId").apply { mkdirs() }
         val args = ProotArgs.build(proot.absolutePath, rootfs.absolutePath, workspace.canonicalPath, command)
@@ -416,7 +465,7 @@ internal object LinuxRuntime {
             pb.start()
         } catch (e: Exception) {
             throw LinuxSetupException(
-                "步骤 8/$TOTAL_STEPS 启动 PRoot",
+                "步骤 9/$TOTAL_STEPS 启动 PRoot",
                 describe(e),
                 e,
                 "proot=${proot.path} exists=${proot.exists()} canExecute=${proot.canExecute()} size=${proot.length()} " +
@@ -440,7 +489,7 @@ internal object LinuxRuntime {
             }
         }.apply { isDaemon = true; start() }
 
-        val limit = timeoutSec.coerceIn(1, 180)
+        val limit = timeoutSec.coerceIn(1, capSec)
         var timedOut = false
         var exit = -1
         if (!process.waitFor(limit, TimeUnit.SECONDS)) {

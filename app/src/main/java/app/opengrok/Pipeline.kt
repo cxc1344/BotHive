@@ -77,7 +77,7 @@ object Pipeline {
         val user = "用户任务:${p.request}" +
             (if (previous != null) "\n\n(用户不满意上一版方案,请换一种分工思路。上一版:" +
                 previous.assignments.joinToString(";") { "${store.botName(it.botId)}→${it.task.take(40)}" } + ")" else "")
-        val raw = Agent.once(manager, sys, user)
+        val raw = Agent.once(store, manager, sys, user)
         val j = extractJson(raw) ?: return fail(store, pid, "总经理没有给出可解析的方案,请重新立项。原始输出:${raw.take(200)}")
         val arr = j.optJSONArray("assignments")
         val list = mutableListOf<Assignment>()
@@ -116,7 +116,7 @@ object Pipeline {
         val manager = store.bot(p.managerId)!!
         val sys = manager.prompt + "\n\n你现在以总经理身份审查员工提交的成果。只输出一个 JSON,不要其他文字:" +
             "{\"verdict\":\"pass\"或\"rework\",\"comments\":\"具体、可执行的意见\"}。成果没有达成任务、无法验证或有明显错误时才打回。"
-        val raw = Agent.once(manager, sys,
+        val raw = Agent.once(store, manager, sys,
             "项目:${p.title}\n员工:${store.botName(botId)}\n任务:${a.task}\n\n员工提交的成果:\n${a.deliverable.take(6000)}")
         val j = extractJson(raw)
             ?: return false to "(审查结果无效，不能自动通过。请检查总经理输出并重新审查。原文:${raw.take(120)})"
@@ -163,7 +163,7 @@ object Pipeline {
         val body = done.assignments.joinToString("\n\n") {
             "【${store.botName(it.botId)}】任务:${it.task}\n审查:${statusLabel(it.status)} ${it.review}\n成果摘要:${it.deliverable.take(1500)}"
         }
-        val report = Agent.once(manager,
+        val report = Agent.once(store, manager,
             manager.prompt + "\n\n你要向用户做结项汇报:先一句话结论,再逐人说明完成度与审查结果,列出产出位置,最后给出风险或建议。用简洁中文。",
             "项目:${done.title}\n用户原始任务:${done.request}\n\n$body")
         store.upd(pid) { it.copy(stage = Stage.DONE, report = report) }

@@ -20,8 +20,81 @@ data class Bot(
     val apiKey: String,
     val model: String,
     val isManager: Boolean = false,
+    val allowInsecureHttp: Boolean = false,
+    /** When set (and the provider still exists), baseUrl/apiKey/allowInsecureHttp come from the provider preset. */
+    val providerId: String = "",
+    /** Attached skill packs whose content joins the system prompt. */
+    val skillIds: List<String> = emptyList(),
+    /** When true, shell commands pause for the user's in-chat approval before running. */
+    val shellApproval: Boolean = false
+)
+
+/** A reusable API connection preset (Operit-style model config): one base URL + key, many Bots can share it. */
+data class Provider(
+    val id: String,
+    val name: String,
+    val baseUrl: String,
+    val apiKey: String,
     val allowInsecureHttp: Boolean = false
 )
+
+/** Reserved Bot id of the on-device Agent (Agent mode). It is stored separately from the cloud Bot list. */
+const val AGENT_ID = "agent"
+
+/** A reusable instruction pack ("技能") that can be attached to Bots / the Agent; its content joins the system prompt. */
+data class Skill(
+    val id: String,
+    val name: String,
+    val content: String
+)
+
+/** A shell command waiting for the user's in-chat approval (permission broker). */
+data class Approval(
+    val id: String,
+    val chatId: String,
+    val botId: String,
+    val command: String,
+    val createdMs: Long
+)
+
+/** A remote MCP server (Streamable HTTP JSON-RPC). headers may carry secrets; stored Keystore-encrypted. */
+data class McpServer(
+    val id: String,
+    val name: String,
+    val url: String,
+    val headers: String = "",
+    val enabled: Boolean = true
+)
+
+/** A self-scheduled task an AI (or the user) assigned to a Bot / the Agent. */
+data class Routine(
+    val id: String,
+    val ownerId: String,
+    val task: String,
+    val nextRunMs: Long,
+    val repeatDaily: Boolean = false,
+    val createdBy: String = "user",
+    val lastRunMs: Long = 0,
+    val lastResult: String = ""
+)
+
+data class WStep(val botId: String, val instruction: String)
+
+/** A user-built workflow: steps run in order, each step's output feeds the next via {prev}. */
+data class Workflow(
+    val id: String,
+    val name: String,
+    val steps: List<WStep>,
+    val lastOutputs: List<String> = emptyList(),
+    val lastRunMs: Long = 0
+)
+
+const val AGENT_DEFAULT_PROMPT =
+    "你是一个运行在用户安卓手机上的设备 Agent。你有这些工具:shell(Ubuntu Linux 环境,可装软件、跑脚本)、" +
+    "手机文件工具 list_dir/read_file/write_file(作用域是用户授权的文件夹)、系统工具(device_status 设备状态、app_usage 应用使用时长、list_apps/launch_app 应用管理、shizuku_shell 可选的 shell 级特权通道)、" +
+    "屏幕操作工具(screen_dump 看屏、tap_text/tap_xy 点击、swipe 滑动、input_text 输入、press_key 系统键;需无障碍已开启;操作其他应用时先用 screen_dump 确认界面,点完关键步骤再 dump 核对)、" +
+    "remember/recall(长期记忆)、ask_bot(向云端 Bot 同伴求助或派活)。" +
+    "动手前先想清楚步骤;涉及写/删文件先确认路径在授权目录内。完成任务后简洁汇报做了什么、结果如何。"
 
 data class Group(val id: String, val name: String, val memberIds: List<String>)
 

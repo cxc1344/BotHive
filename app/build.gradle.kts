@@ -11,8 +11,8 @@ android {
         applicationId = "app.opengrok"
         minSdk = 26
         targetSdk = 34
-        versionCode = 6
-        versionName = "0.3.2"
+        versionCode = 7
+        versionName = "0.4.0"
     }
     buildTypes {
         release { isMinifyEnabled = false }
@@ -36,6 +36,9 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.9.2")
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("androidx.documentfile:documentfile:1.0.1")
+    implementation("dev.rikka.shizuku:api:13.1.5")
+    implementation("dev.rikka.shizuku:provider:13.1.5")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     testImplementation("junit:junit:4.13.2")
 }

@@ -8,6 +8,7 @@ import androidx.compose.runtime.snapshots.SnapshotStateList
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
@@ -20,6 +21,101 @@ import java.util.concurrent.ConcurrentHashMap
 
 class Store(private val ctx: Context) {
     val bots = mutableStateListOf<Bot>()
+    val providers = mutableStateListOf<Provider>()
+    /** Long-term memory entries per Bot (and the Agent), written via the remember tool. */
+    val memories = HashMap<String, MutableList<String>>()
+    val mcpServers = mutableStateListOf<McpServer>()
+    val routines = mutableStateListOf<Routine>()
+    val workflows = mutableStateListOf<Workflow>()
+    val skills = mutableStateListOf<Skill>()
+    val pendingApprovals = mutableStateListOf<Approval>()
+
+    fun saveSkill(s: Skill) {
+        val i = skills.indexOfFirst { it.id == s.id }
+        if (i >= 0) skills[i] = s else skills.add(s)
+        save()
+    }
+
+    fun deleteSkill(id: String) {
+        skills.removeAll { it.id == id }
+        save()
+    }
+
+    /** Called by the agent loop when a Bot with shellApproval wants to run a command. */
+    fun requestApproval(chatId: String, botId: String, command: String) {
+        if (pendingApprovals.any { it.chatId == chatId && it.botId == botId && it.command == command }) return
+        pendingApprovals.add(
+            Approval(java.util.UUID.randomUUID().toString().take(8), chatId, botId, command, System.currentTimeMillis())
+        )
+        save()
+    }
+
+    /** Re-runs one Bot on an existing chat without adding a user message (approval follow-ups). */
+    fun nudgeBot(chatId: String, botId: String) {
+        val b = (if (botId == AGENT_ID) agent.value else bot(botId)) ?: return
+        if (chatId in busy) return
+        scope.launch {
+            busy.add(chatId)
+            try { runBotIn(chatId, b) } finally { busy.remove(chatId) }
+        }
+    }
+
+    fun executeApproval(ap: Approval) {
+        if (!pendingApprovals.removeAll { it.id == ap.id }) return
+        save()
+        scope.launch {
+            val out = try {
+                val sb = sandbox(ap.botId)
+                val why = Guard.check(ap.command, sb.dir.absolutePath)
+                if (why != null) {
+                    logGuard(ap.botId, ap.command, why)
+                    "【安全策略已拦截】$why"
+                } else withContext(Dispatchers.IO) {
+                    withSandboxLock(ap.botId) { sb.exec(ap.command) }
+                }
+            } catch (e: Exception) {
+                "执行出错:${e.message}"
+            }
+            chat(ap.chatId).add(Msg(role = "bot", from = ap.botId, text = "【已批准执行的命令】${ap.command}\n$out"))
+            save()
+            nudgeBot(ap.chatId, ap.botId)
+        }
+    }
+
+    fun rejectApproval(ap: Approval) {
+        if (!pendingApprovals.removeAll { it.id == ap.id }) return
+        chat(ap.chatId).add(Msg(role = "bot", from = ap.botId, text = "【用户拒绝了这条命令】${ap.command}"))
+        save()
+        nudgeBot(ap.chatId, ap.botId)
+    }
+
+    fun mcpServer(id: String?) = mcpServers.firstOrNull { it.id == id }
+
+    fun saveMcpServer(s: McpServer) {
+        val i = mcpServers.indexOfFirst { it.id == s.id }
+        if (i >= 0) mcpServers[i] = s else mcpServers.add(s)
+        Mcp.invalidate(s.id)
+        save()
+    }
+
+    fun deleteMcpServer(id: String) {
+        mcpServers.removeAll { it.id == id }
+        Mcp.invalidate(id)
+        save()
+    }
+
+    fun remember(botId: String, text: String) {
+        val list = memories.getOrPut(botId) { mutableListOf() }
+        list.add(text.take(500))
+        while (list.size > 100) list.removeAt(0)
+        save()
+    }
+
+    fun recall(botId: String): List<String> = memories[botId]?.toList() ?: emptyList()
+    /** The on-device Agent (Agent mode), kept apart from the cloud Bot list. Null until configured. */
+    val agent = mutableStateOf<Bot?>(null)
+    /** SAF tree URI string of the folder the user granted the Agent access to. */
+    val agentTreeUri = mutableStateOf<String?>(null)
     val groups = mutableStateListOf<Group>()
     val dmIds = mutableStateListOf<String>()
     val busy = mutableStateListOf<String>()
@@ -35,7 +131,107 @@ class Store(private val ctx: Context) {
     private val sandboxes = ConcurrentHashMap<String, Sandbox>()
     private val sandboxLocks = ConcurrentHashMap<String, Mutex>()
 
-    init { load() }
+    init {
+        load()
+        // In-process routine scheduler: fires due self-assigned tasks while the app process lives.
+        scope.launch {
+            while (true) {
+                delay(45_000)
+                runCatching { runDueRoutines() }
+            }
+        }
+    }
+
+    private fun ownerBot(ownerId: String): Bot? =
+        if (ownerId == AGENT_ID) agent.value else bot(ownerId)
+
+    private fun ownerChatId(ownerId: String): String =
+        if (ownerId == AGENT_ID) AGENT_ID else "bot:$ownerId"
+
+    private fun runDueRoutines() {
+        val now = System.currentTimeMillis()
+        val due = routines.filter { it.nextRunMs <= now }
+        for (r in due) {
+            val owner = ownerBot(r.ownerId) ?: continue
+            val chatId = ownerChatId(r.ownerId)
+            if (chatId in busy) continue
+            scope.launch {
+                busy.add(chatId)
+                var reply = ""
+                try {
+                    chat(chatId).add(Msg(role = "user", text = "【例行任务】${r.task}"))
+                    save()
+                    reply = runBotIn(chatId, owner)
+                } catch (e: Exception) {
+                    reply = "执行出错:${e.message}"
+                } finally {
+                    busy.remove(chatId)
+                }
+                val i = routines.indexOfFirst { it.id == r.id }
+                if (i >= 0) {
+                    if (r.repeatDaily) {
+                        var next = r.nextRunMs + 86_400_000L
+                        while (next <= System.currentTimeMillis()) next += 86_400_000L
+                        routines[i] = routines[i].copy(nextRunMs = next, lastRunMs = System.currentTimeMillis(), lastResult = reply.take(200))
+                    } else {
+                        routines.removeAt(i)
+                    }
+                    save()
+                }
+            }
+        }
+    }
+
+    fun addRoutine(r: Routine) {
+        routines.add(r)
+        save()
+    }
+
+    fun deleteRoutine(id: String) {
+        routines.removeAll { it.id == id }
+        save()
+    }
+
+    fun saveWorkflow(w: Workflow) {
+        val i = workflows.indexOfFirst { it.id == w.id }
+        if (i >= 0) workflows[i] = w else workflows.add(w)
+        save()
+    }
+
+    fun deleteWorkflow(id: String) {
+        workflows.removeAll { it.id == id }
+        lists.remove("wf:$id")
+        save()
+    }
+
+    /** Runs a workflow's steps in order in its own chat ("wf:<id>"); each output feeds the next step's {prev}. */
+    fun runWorkflow(wf: Workflow) {
+        val chatId = "wf:${wf.id}"
+        if (chatId in busy) return
+        scope.launch {
+            busy.add(chatId)
+            try {
+                var prev = ""
+                val outputs = mutableListOf<String>()
+                wf.steps.forEachIndexed { idx, step ->
+                    val owner = ownerBot(step.botId)
+                    val instruction = step.instruction.replace("{prev}", prev.take(4_000))
+                    chat(chatId).add(
+                        Msg(role = "user", text = "【步骤 ${idx + 1}/${wf.steps.size} · ${owner?.name ?: step.botId}】\n$instruction")
+                    )
+                    save()
+                    val reply = if (owner == null) "(执行者不存在,跳过)" else runBotIn(chatId, owner)
+                    outputs.add(reply)
+                    prev = reply
+                }
+                val i = workflows.indexOfFirst { it.id == wf.id }
+                if (i >= 0) workflows[i] = workflows[i].copy(lastOutputs = outputs, lastRunMs = System.currentTimeMillis())
+                save()
+            } finally {
+                busy.remove(chatId)
+            }
+        }
+    }
 
     fun chat(id: String): SnapshotStateList<Msg> = lists.getOrPut(id) { mutableStateListOf() }
     fun sandbox(botId: String): Sandbox = sandboxes.computeIfAbsent(botId) {
@@ -45,7 +241,20 @@ class Store(private val ctx: Context) {
     suspend fun <T> withSandboxLock(botId: String, block: suspend () -> T): T =
         sandboxLocks.computeIfAbsent(botId) { Mutex() }.withLock { block() }
     fun bot(id: String?) = bots.firstOrNull { it.id == id }
-    fun botName(id: String?) = bot(id)?.name ?: "?"
+    fun provider(id: String?) = providers.firstOrNull { it.id == id }
+
+    /** Effective connection for [b]: a linked provider preset wins; the Bot's own fields are the fallback. */
+    fun resolved(b: Bot): Bot {
+        val p = provider(b.providerId) ?: return b
+        return b.copy(baseUrl = p.baseUrl, apiKey = p.apiKey, allowInsecureHttp = p.allowInsecureHttp)
+    }
+
+    fun contentResolver() = ctx.contentResolver
+
+    fun appContext(): Context = ctx.applicationContext
+
+    fun botName(id: String?): String =
+        if (id == AGENT_ID) agent.value?.name ?: "Agent" else bot(id)?.name ?: "?"
     fun dmId(a: String, b: String) = "dm:" + listOf(a, b).sorted().joinToString(":")
     fun project(id: String) = projects.firstOrNull { it.id == id }
 
@@ -53,6 +262,8 @@ class Store(private val ctx: Context) {
         bots.map { "bot:${it.id}" } + groups.map { "group:${it.id}" } + dmIds.toList()
 
     fun title(id: String): String = when {
+        id == AGENT_ID -> agent.value?.name ?: "Agent"
+        id.startsWith("wf:") -> workflows.firstOrNull { it.id == id.removePrefix("wf:") }?.name ?: "工作流"
         id.startsWith("bot:") -> botName(id.removePrefix("bot:"))
         id.startsWith("group:") -> groups.firstOrNull { it.id == id.removePrefix("group:") }?.name ?: "群聊"
         id.startsWith("dm:") -> id.removePrefix("dm:").split(":").joinToString(" ⇄ ") { botName(it) }
@@ -60,6 +271,8 @@ class Store(private val ctx: Context) {
     }
 
     fun subtitle(id: String): String = when {
+        id == AGENT_ID -> (agent.value?.model ?: "") + " · 设备 Agent"
+        id.startsWith("wf:") -> "工作流运行记录"
         id.startsWith("bot:") -> {
             val b = bot(id.removePrefix("bot:"))
             (if (b?.isManager == true) "总经理 · " else "") + (b?.model ?: "")
@@ -95,6 +308,32 @@ class Store(private val ctx: Context) {
             val current = bots.indexOfFirst { it.id == b.id }
             if (current >= 0) bots[current] = previous
         }
+        return false
+    }
+
+    fun saveProvider(p: Provider): Boolean {
+        val i = providers.indexOfFirst { it.id == p.id }
+        val previous = if (i >= 0) providers[i] else null
+        if (i >= 0) providers[i] = p else providers.add(p)
+        if (save()) return true
+        if (previous == null) providers.removeAll { it.id == p.id }
+        else {
+            val current = providers.indexOfFirst { it.id == p.id }
+            if (current >= 0) providers[current] = previous
+        }
+        return false
+    }
+
+    fun deleteProvider(id: String) {
+        providers.removeAll { it.id == id }
+        save()
+    }
+
+    fun saveAgent(b: Bot): Boolean {
+        val previous = agent.value
+        agent.value = b
+        if (save()) return true
+        agent.value = previous
         return false
     }
 
@@ -144,7 +383,7 @@ class Store(private val ctx: Context) {
         val history = list.toList()
         list.add(Msg(role = "assistant", text = "", from = b.id))
         val idx = list.lastIndex
-        val reply = Agent.run(this, b, history, depth) { tools ->
+        val reply = Agent.run(this, b, history, depth, chatId) { tools ->
             withContext(Dispatchers.Main) { list[idx] = list[idx].copy(tools = tools) }
         }
         list[idx] = list[idx].copy(text = reply)
@@ -173,6 +412,22 @@ class Store(private val ctx: Context) {
         }
     }
 
+    /** Sends a user message to the on-device Agent (chat id "agent"). */
+    fun sendAgent(text: String) {
+        val a = agent.value ?: return
+        val list = chat(AGENT_ID)
+        list.add(Msg(role = "user", text = text))
+        save()
+        scope.launch {
+            busy.add(AGENT_ID)
+            try {
+                runBotIn(AGENT_ID, a)
+            } finally {
+                busy.remove(AGENT_ID)
+            }
+        }
+    }
+
     // ---- persistence ----
     private fun msgJson(m: Msg) = JSONObject().apply {
         put("id", m.id); put("role", m.role); put("text", m.text)
@@ -182,14 +437,62 @@ class Store(private val ctx: Context) {
         }))
     }
 
+    private fun botJson(b: Bot) = JSONObject().put("id", b.id).put("name", b.name).put("prompt", b.prompt)
+        .put("baseUrl", b.baseUrl).put("apiKey", Secrets.enc(b.apiKey)).put("model", b.model)
+        .put("manager", b.isManager).put("allowInsecureHttp", b.allowInsecureHttp)
+        .put("providerId", b.providerId)
+        .put("skillIds", JSONArray(b.skillIds))
+        .put("shellApproval", b.shellApproval)
+
+    private fun botFromJson(o: JSONObject): Bot {
+        val sk = o.optJSONArray("skillIds")
+        return Bot(
+            o.getString("id"), o.getString("name"), o.optString("prompt"),
+            o.optString("baseUrl"), Secrets.dec(o.optString("apiKey")), o.optString("model"),
+            o.optBoolean("manager", false), o.optBoolean("allowInsecureHttp", false),
+            o.optString("providerId"),
+            if (sk == null) emptyList() else (0 until sk.length()).map { sk.getString(it) },
+            o.optBoolean("shellApproval", false)
+        )
+    }
+
     fun save(): Boolean {
         val s = try {
         val o = JSONObject()
         o.put("v", 2)
-        o.put("bots", JSONArray(bots.map {
-            JSONObject().put("id", it.id).put("name", it.name).put("prompt", it.prompt)
-                .put("baseUrl", it.baseUrl).put("apiKey", Secrets.enc(it.apiKey)).put("model", it.model)
-                .put("manager", it.isManager).put("allowInsecureHttp", it.allowInsecureHttp)
+        o.put("bots", JSONArray(bots.map { botJson(it) }))
+        o.put("providers", JSONArray(providers.map {
+            JSONObject().put("id", it.id).put("name", it.name)
+                .put("baseUrl", it.baseUrl).put("apiKey", Secrets.enc(it.apiKey))
+                .put("allowInsecureHttp", it.allowInsecureHttp)
+        }))
+        agent.value?.let { o.put("agent", botJson(it)) }
+        agentTreeUri.value?.let { o.put("agentTreeUri", it) }
+        o.put("memories", JSONObject().apply {
+            for ((k, v) in memories) put(k, JSONArray(v))
+        })
+        o.put("mcpServers", JSONArray(mcpServers.map {
+            JSONObject().put("id", it.id).put("name", it.name).put("url", it.url)
+                .put("headersEnc", Secrets.enc(it.headers)).put("enabled", it.enabled)
+        }))
+        o.put("routines", JSONArray(routines.map {
+            JSONObject().put("id", it.id).put("owner", it.ownerId).put("task", it.task)
+                .put("nextRunMs", it.nextRunMs).put("repeatDaily", it.repeatDaily)
+                .put("createdBy", it.createdBy).put("lastRunMs", it.lastRunMs).put("lastResult", it.lastResult)
+        }))
+        o.put("workflows", JSONArray(workflows.map { w ->
+            JSONObject().put("id", w.id).put("name", w.name)
+                .put("steps", JSONArray(w.steps.map {
+                    JSONObject().put("bot", it.botId).put("instruction", it.instruction)
+                }))
+                .put("lastOutputs", JSONArray(w.lastOutputs)).put("lastRunMs", w.lastRunMs)
+        }))
+        o.put("skills", JSONArray(skills.map {
+            JSONObject().put("id", it.id).put("name", it.name).put("content", it.content)
+        }))
+        o.put("approvals", JSONArray(pendingApprovals.map {
+            JSONObject().put("id", it.id).put("chatId", it.chatId).put("botId", it.botId)
+                .put("command", it.command).put("createdMs", it.createdMs)
         }))
         o.put("groups", JSONArray(groups.map {
             JSONObject().put("id", it.id).put("name", it.name).put("members", JSONArray(it.memberIds))
@@ -243,10 +546,58 @@ class Store(private val ctx: Context) {
         runCatching {
             val o = JSONObject(file.readText())
             o.optJSONArray("bots")?.let { a ->
+                for (i in 0 until a.length()) bots.add(botFromJson(a.getJSONObject(i)))
+            }
+            o.optJSONArray("providers")?.let { a ->
                 for (i in 0 until a.length()) a.getJSONObject(i).let {
-                    bots.add(Bot(it.getString("id"), it.getString("name"), it.optString("prompt"),
-                        it.optString("baseUrl"), Secrets.dec(it.optString("apiKey")), it.optString("model"),
-                        it.optBoolean("manager", false), it.optBoolean("allowInsecureHttp", false)))
+                    providers.add(Provider(it.getString("id"), it.getString("name"),
+                        it.optString("baseUrl"), Secrets.dec(it.optString("apiKey")),
+                        it.optBoolean("allowInsecureHttp", false)))
+                }
+            }
+            o.optJSONObject("agent")?.let { agent.value = botFromJson(it) }
+            agentTreeUri.value = o.optString("agentTreeUri").ifBlank { null }
+            o.optJSONObject("memories")?.let { m ->
+                for (k in m.keys()) {
+                    val arr = m.optJSONArray(k) ?: continue
+                    memories[k] = (0 until arr.length()).map { arr.getString(it) }.toMutableList()
+                }
+            }
+            o.optJSONArray("mcpServers")?.let { a ->
+                for (i in 0 until a.length()) a.getJSONObject(i).let {
+                    mcpServers.add(McpServer(it.getString("id"), it.getString("name"), it.optString("url"),
+                        Secrets.dec(it.optString("headersEnc")), it.optBoolean("enabled", true)))
+                }
+            }
+            o.optJSONArray("routines")?.let { a ->
+                for (i in 0 until a.length()) a.getJSONObject(i).let {
+                    routines.add(Routine(it.getString("id"), it.optString("owner"), it.optString("task"),
+                        it.optLong("nextRunMs"), it.optBoolean("repeatDaily", false),
+                        it.optString("createdBy", "user"), it.optLong("lastRunMs", 0), it.optString("lastResult")))
+                }
+            }
+            o.optJSONArray("workflows")?.let { a ->
+                for (i in 0 until a.length()) a.getJSONObject(i).let { w ->
+                    val st = w.optJSONArray("steps")
+                    val steps = if (st == null) emptyList() else (0 until st.length()).map {
+                        val x = st.getJSONObject(it)
+                        WStep(x.optString("bot"), x.optString("instruction"))
+                    }
+                    val lo = w.optJSONArray("lastOutputs")
+                    workflows.add(Workflow(w.getString("id"), w.optString("name"), steps,
+                        if (lo == null) emptyList() else (0 until lo.length()).map { lo.getString(it) },
+                        w.optLong("lastRunMs", 0)))
+                }
+            }
+            o.optJSONArray("skills")?.let { a ->
+                for (i in 0 until a.length()) a.getJSONObject(i).let {
+                    skills.add(Skill(it.getString("id"), it.optString("name"), it.optString("content")))
+                }
+            }
+            o.optJSONArray("approvals")?.let { a ->
+                for (i in 0 until a.length()) a.getJSONObject(i).let {
+                    pendingApprovals.add(Approval(it.getString("id"), it.optString("chatId"), it.optString("botId"),
+                        it.optString("command"), it.optLong("createdMs", 0)))
                 }
             }
             o.optJSONArray("groups")?.let { a ->

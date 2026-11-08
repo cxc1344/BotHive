@@ -1,1 +1,5 @@
-<resources><string name="app_name">Open GrokBot</string></resources>
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Open GrokBot</string>
+    <string name="a11y_desc">让设备 Agent 能查看屏幕内容并执行点击、滑动与文字输入。仅在 Agent 执行任务时使用。</string>
+</resources>

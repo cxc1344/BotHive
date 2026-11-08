@@ -37,6 +37,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 import java.util.UUID
 
 val Bg = Color(0xFF0B0B0C)
@@ -49,6 +50,13 @@ sealed interface Screen {
     data object Home : Screen
     data class Chat(val id: String) : Screen
     data class EditBot(val id: String?) : Screen
+    data class EditProvider(val id: String?) : Screen
+    data object AgentChat : Screen
+    data object EditAgent : Screen
+    data object Workflows : Screen
+    data class EditWorkflow(val id: String?) : Screen
+    data class EditMcp(val id: String?) : Screen
+    data class EditSkill(val id: String?) : Screen
     data object NewGroup : Screen
     data object Settings : Screen
 }
@@ -69,6 +77,13 @@ fun App(store: Store) {
                 Screen.Home -> Home(store) { screen = it }
                 is Screen.Chat -> ChatScreen(store, s.id) { screen = it }
                 is Screen.EditBot -> EditBotScreen(store, s.id) { screen = it }
+                is Screen.EditProvider -> EditProviderScreen(store, s.id) { screen = it }
+                Screen.AgentChat -> AgentChatScreen(store) { screen = it }
+                Screen.EditAgent -> EditAgentScreen(store) { screen = it }
+                Screen.Workflows -> WorkflowsScreen(store) { screen = it }
+                is Screen.EditWorkflow -> EditWorkflowScreen(store, s.id) { screen = it }
+                is Screen.EditMcp -> EditMcpScreen(store, s.id) { screen = it }
+                is Screen.EditSkill -> EditSkillScreen(store, s.id) { screen = it }
                 Screen.NewGroup -> NewGroupScreen(store) { screen = it }
                 Screen.Settings -> SettingsScreen(store) { screen = it }
             }
@@ -103,21 +118,38 @@ fun Avatar(seed: String, size: Dp, group: Boolean = false) {
 @Composable
 fun Home(store: Store, go: (Screen) -> Unit) {
     var menu by remember { mutableStateOf(false) }
+    var mode by remember { mutableStateOf("bot") }
     Column(Modifier.fillMaxSize()) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text("Bots", color = Fg, fontSize = 30.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            Text(if (mode == "agent") "Agent" else "Bots", color = Fg, fontSize = 30.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
             IconButton(onClick = { go(Screen.Settings) }) { Icon(Ic.Tune, null, tint = Fg) }
             Box {
                 IconButton(onClick = { menu = true }) { Icon(Ic.Add, null, tint = Fg) }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                     DropdownMenuItem(text = { Text("新建 Bot") }, onClick = { menu = false; go(Screen.EditBot(null)) })
                     DropdownMenuItem(text = { Text("新建群聊") }, onClick = { menu = false; go(Screen.NewGroup) })
+                    DropdownMenuItem(text = { Text("工作流") }, onClick = { menu = false; go(Screen.Workflows) })
                 }
             }
         }
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            listOf("bot" to "Bot 模式", "agent" to "Agent 模式").forEach { (m, label) ->
+                val sel = mode == m
+                Box(
+                    Modifier.clip(RoundedCornerShape(20.dp)).background(if (sel) Color.White else Card)
+                        .clickable { mode = m }.padding(horizontal = 18.dp, vertical = 8.dp)
+                ) { Text(label, color = if (sel) Color.Black else Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
+            }
+        }
+        if (mode == "agent") {
+            AgentPanel(store, go)
+        } else {
         val rows = store.chatList()
         if (rows.isEmpty()) {
             Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
@@ -152,6 +184,7 @@ fun Home(store: Store, go: (Screen) -> Unit) {
                 }
             }
         }
+        }
     }
 }
 
@@ -159,7 +192,7 @@ fun Home(store: Store, go: (Screen) -> Unit) {
 fun ChatScreen(store: Store, id: String, go: (Screen) -> Unit) {
     val msgs = store.chat(id)
     val busy = id in store.busy
-    val readOnly = id.startsWith("dm:")
+    val readOnly = id.startsWith("dm:") || id.startsWith("wf:")
     val isBot = id.startsWith("bot:")
     var input by remember { mutableStateOf("") }
     var confirm by remember { mutableStateOf(false) }
@@ -186,6 +219,7 @@ fun ChatScreen(store: Store, id: String, go: (Screen) -> Unit) {
             }
         }
         HorizontalDivider(color = Line)
+        ApprovalCards(store, id)
         LazyColumn(
             state = listState, modifier = Modifier.weight(1f),
             contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -336,11 +370,17 @@ fun EditBotScreen(store: Store, botId: String?, go: (Screen) -> Unit) {
     var prompt by remember { mutableStateOf(old?.prompt ?: PRESETS[1].prompt) }
     var preset by remember { mutableStateOf(if (old == null) PRESETS[1].name else "自定义") }
     var isManager by remember { mutableStateOf(old?.isManager ?: PRESETS[1].manager) }
+    val skillSel = remember { mutableStateListOf<String>().apply { addAll(old?.skillIds ?: emptyList()) } }
+    var shellAppr by remember { mutableStateOf(old?.shellApproval ?: false) }
     var baseUrl by remember { mutableStateOf(old?.baseUrl ?: "https://api.openai.com/v1") }
     var model by remember { mutableStateOf(old?.model ?: "gpt-4o-mini") }
     var key by remember { mutableStateOf(old?.apiKey ?: "") }
     var allowInsecureHttp by remember { mutableStateOf(old?.allowInsecureHttp ?: false) }
     var showKey by remember { mutableStateOf(false) }
+    var providerId by remember { mutableStateOf(old?.providerId ?: "") }
+    var models by remember { mutableStateOf<List<String>>(emptyList()) }
+    var modelMsg by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
     val back = { go(if (botId != null) Screen.Chat("bot:$botId") else Screen.Home) }
 
     Column(Modifier.fillMaxSize()) {
@@ -376,25 +416,81 @@ fun EditBotScreen(store: Store, botId: String?, go: (Screen) -> Unit) {
                 Switch(checked = isManager, onCheckedChange = { isManager = it })
             }
             HorizontalDivider(color = Line)
-            Text("模型(每个 Bot 独立配置,兼容 OpenAI 接口)", color = Sub, fontSize = 13.sp)
-            Field("Base URL", baseUrl, { baseUrl = it }, keyboard = KeyboardType.Uri)
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("允许 HTTP 明文连接", color = Fg, fontSize = 14.sp)
-                    Text("仅对可信的本地或内网 API 开启，HTTP 可能泄露 API Key", color = Sub, fontSize = 11.sp)
+            Text("连接(Provider 预设一次配置、处处复用;或为这个 Bot 单独填写)", color = Sub, fontSize = 13.sp)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                val selCustom = providerId.isEmpty()
+                Box(
+                    Modifier.clip(RoundedCornerShape(20.dp)).background(if (selCustom) Color.White else Card)
+                        .clickable { providerId = "" }.padding(horizontal = 16.dp, vertical = 8.dp)
+                ) { Text("自定义", color = if (selCustom) Color.Black else Fg, fontSize = 14.sp) }
+                store.providers.forEach { p ->
+                    val sel = providerId == p.id
+                    Box(
+                        Modifier.clip(RoundedCornerShape(20.dp)).background(if (sel) Color.White else Card)
+                            .clickable { providerId = p.id; models = emptyList(); modelMsg = "" }
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                    ) { Text(p.name, color = if (sel) Color.Black else Fg, fontSize = 14.sp) }
                 }
-                Switch(checked = allowInsecureHttp, onCheckedChange = { allowInsecureHttp = it })
+            }
+            val prov = store.provider(providerId)
+            if (prov != null) {
+                Text("使用预设「${prov.name}」:${prov.baseUrl} · Key 已保存在预设中(在设置里管理)", color = Sub, fontSize = 12.sp)
+            } else {
+                if (store.providers.isEmpty()) Text("还没有预设:可在「设置 → Provider 预设」里添加,之后所有 Bot 直接选用", color = Sub, fontSize = 12.sp)
+                Field("Base URL", baseUrl, { baseUrl = it }, keyboard = KeyboardType.Uri)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("允许 HTTP 明文连接", color = Fg, fontSize = 14.sp)
+                        Text("仅对可信的本地或内网 API 开启,HTTP 可能泄露 API Key", color = Sub, fontSize = 11.sp)
+                    }
+                    Switch(checked = allowInsecureHttp, onCheckedChange = { allowInsecureHttp = it })
+                }
+                // Plain text keyboard + visual masking: never triggers the system secure keyboard,
+                // so paste/copy always works.
+                Field(
+                    "API Key", key, { key = it }, keyboard = KeyboardType.Uri,
+                    visual = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
+                    trailing = {
+                        TextButton(onClick = { showKey = !showKey }) { Text(if (showKey) "隐藏" else "显示", color = Sub) }
+                    }
+                )
             }
             Field("模型名", model, { model = it }, keyboard = KeyboardType.Uri)
-            // Plain text keyboard + visual masking: never triggers the system secure keyboard,
-            // so paste/copy always works.
-            Field(
-                "API Key", key, { key = it }, keyboard = KeyboardType.Uri,
-                visual = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
-                trailing = {
-                    TextButton(onClick = { showKey = !showKey }) { Text(if (showKey) "隐藏" else "显示", color = Sub) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = {
+                    val eu = prov?.baseUrl ?: baseUrl; val ek = prov?.apiKey ?: key; val eh = prov?.allowInsecureHttp ?: allowInsecureHttp
+                    modelMsg = "拉取中…"
+                    scope.launch {
+                        try {
+                            models = ModelsApi.list(eu, ek, eh)
+                            modelMsg = "共 ${models.size} 个模型,点选即可填入"
+                        } catch (e: Exception) {
+                            modelMsg = "拉取失败:${e.message}"
+                        }
+                    }
+                }) { Text("从服务商拉取模型列表", color = Fg, fontSize = 13.sp) }
+                if (modelMsg.isNotBlank()) Text(modelMsg, color = Sub, fontSize = 12.sp, modifier = Modifier.weight(1f))
+            }
+            if (models.isNotEmpty()) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    models.forEach { mid ->
+                        val sel = model == mid
+                        Box(
+                            Modifier.clip(RoundedCornerShape(16.dp)).background(if (sel) Color.White else Card)
+                                .clickable { model = mid }.padding(horizontal = 12.dp, vertical = 6.dp)
+                        ) { Text(mid, color = if (sel) Color.Black else Fg, fontSize = 12.sp) }
+                    }
                 }
-            )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Shell 命令先经我批准", color = Fg, fontSize = 14.sp)
+                    Text("开启后,它每次想执行命令都会先在对话里发一张批准卡,你点执行才会真跑(安全策略拦截仍然先生效)", color = Sub, fontSize = 11.sp)
+                }
+                Switch(checked = shellAppr, onCheckedChange = { shellAppr = it })
+            }
+            Text("技能包", color = Fg, fontSize = 14.sp)
+            SkillsPicker(store, skillSel)
             store.persistenceError.value?.let {
                 Text(it, color = Color(0xFFFF8A80), fontSize = 12.sp)
             }
@@ -404,7 +500,12 @@ fun EditBotScreen(store: Store, botId: String?, go: (Screen) -> Unit) {
             PillButton("保存", modifier = Modifier.fillMaxWidth()) {
                 if (name.isNotBlank()) {
                     val id = old?.id ?: UUID.randomUUID().toString().take(8)
-                    val saved = store.saveBot(Bot(id, name.trim(), prompt, baseUrl.trim(), key.trim(), model.trim(), isManager, allowInsecureHttp))
+                    val provToSave = store.provider(providerId)
+                    val saved = if (provToSave != null) {
+                        store.saveBot(Bot(id, name.trim(), prompt, provToSave.baseUrl, "", model.trim(), isManager, provToSave.allowInsecureHttp, provToSave.id, skillSel.toList(), shellAppr))
+                    } else {
+                        store.saveBot(Bot(id, name.trim(), prompt, baseUrl.trim(), key.trim(), model.trim(), isManager, allowInsecureHttp, "", skillSel.toList(), shellAppr))
+                    }
                     if (saved) go(Screen.Chat("bot:$id"))
                 }
             }
