@@ -41,17 +41,21 @@ fetch_one() {
     "https://ghfast.top/${BASE}/${path}"
     "https://ghproxy.net/${BASE}/${path}"
   )
-  local url
-  for url in "${urls[@]}"; do
-    if curl --fail --location --retry 2 --retry-all-errors --silent --show-error "${url}" -o "${zip}"; then
-      if echo "${SHA256[$arch]}  ${zip}" | sha256sum --check --status; then
-        echo "Fetched ${path} from ${url}"
-        return 0
+  local url round
+  for round in 1 2 3 4; do
+    for url in "${urls[@]}"; do
+      if curl --fail --location --retry 1 --retry-all-errors --silent --show-error "${url}" -o "${zip}"; then
+        if echo "${SHA256[$arch]}  ${zip}" | sha256sum --check --status; then
+          echo "Fetched ${path} from ${url}"
+          return 0
+        fi
+        echo "SHA-256 mismatch from ${url}; trying next source" >&2
+      else
+        echo "Download failed from ${url}; trying next source" >&2
       fi
-      echo "SHA-256 mismatch from ${url}; trying next source" >&2
-    else
-      echo "Download failed from ${url}; trying next source" >&2
-    fi
+    done
+    echo "Round ${round} exhausted for ${path}; retrying all sources" >&2
+    sleep 5
   done
   echo "All download sources failed for ${path}" >&2
   return 1
