@@ -33,7 +33,7 @@ internal object LinuxRuntime {
     private const val MAX_ROOTFS_ARCHIVE_BYTES = 32L * 1024L * 1024L
     private const val DOWNLOAD_DEADLINE_MS = 300_000L
     private const val TOTAL_STEPS = 8
-    private const val USER_AGENT = "OpenGrokBot-Android/0.3.1"
+    private const val USER_AGENT = "OpenGrokBot-Android/0.3.2"
 
     /** Official CDN first; well-known public mirrors as fallback for networks where the CDN is slow or blocked. */
     private val MIRRORS = listOf(
@@ -357,6 +357,12 @@ internal object LinuxRuntime {
     /** proot's own startup failures print "proot error: ..." and exit non-zero before the guest command ever runs. */
     private fun prootItselfFailed(r: ProotRun) = !r.timedOut && r.exit != 0 && r.text.trimStart().lowercase().startsWith("proot")
 
+    /** Only seccomp/ptrace-looking startup failures justify the PROOT_NO_SECCOMP retry; option/usage errors do not. */
+    private fun looksSeccompRelated(r: ProotRun): Boolean {
+        val t = r.text.lowercase()
+        return prootItselfFailed(r) && ("seccomp" in t || "ptrace" in t || "operation not permitted" in t)
+    }
+
     private fun runProot(
         context: Context,
         botId: String,
@@ -368,7 +374,7 @@ internal object LinuxRuntime {
         timeoutSec: Long
     ): String {
         val first = runProotOnce(context, botId, proot, loader, rootfs, workspace, command, timeoutSec, seccompDisabled)
-        if (!seccompDisabled && prootItselfFailed(first)) {
+        if (!seccompDisabled && looksSeccompRelated(first)) {
             // Some kernels/ROMs reject PRoot's seccomp acceleration; retry once without it (the guest command never ran).
             val second = runProotOnce(context, botId, proot, loader, rootfs, workspace, command, timeoutSec, true)
             if (!prootItselfFailed(second)) {
@@ -392,19 +398,7 @@ internal object LinuxRuntime {
         noSeccomp: Boolean
     ): ProotRun {
         val temp = File(context.cacheDir, "proot-tmp/$botId").apply { mkdirs() }
-        val args = listOf(
-            proot.absolutePath,
-            "--kill-on-exit",
-            "--link2symlink",
-            "-0",
-            "-r", rootfs.absolutePath,
-            "-b", "/dev",
-            "-b", "/proc",
-            "-b", "${workspace.canonicalPath}:/workspace",
-            "-w", "/workspace",
-            "--",
-            "/bin/sh", "-lc", command
-        )
+        val args = ProotArgs.build(proot.absolutePath, rootfs.absolutePath, workspace.canonicalPath, command)
         val pb = ProcessBuilder(args).directory(workspace).redirectErrorStream(true)
         pb.environment().apply {
             clear() // Do not leak unrelated Android process environment into the guest.
