@@ -37,6 +37,22 @@ Shizuku.requestPermission(4242)
 }
 }
 
+/**
+ * Shizuku 13.x keeps newProcess private (the UserService route is the blessed one);
+ * the method still exists in the shipped library, so call it reflectively. Any failure
+ * surfaces as a readable error to the caller.
+ */
+private fun newProcessReflect(cmd: Array<String>): Process {
+val m = Shizuku::class.java.getDeclaredMethod(
+"newProcess",
+Array<String>::class.java,
+Array<String>::class.java,
+String::class.java
+)
+m.isAccessible = true
+return m.invoke(null, cmd, null, null) as Process
+}
+
 suspend fun shell(command: String): String = withContext(Dispatchers.IO) {
 refresh()
 if (!running.value) {
@@ -47,11 +63,11 @@ requestPermission()
 return@withContext "已弹出授权请求,请让用户在 Shizuku 的弹窗里允许 OpenGrokBot 后再试。"
 }
 try {
-val process = Shizuku.newProcess(arrayOf("sh", "-c", command), null, null)
+val process = newProcessReflect(arrayOf("sh", "-c", command))
 val output = StringBuilder()
-val reader = Thread {
+fun drain(stream: java.io.InputStream) {
 try {
-process.inputStream.bufferedReader().use { r ->
+stream.bufferedReader().use { r ->
 val buf = CharArray(1024)
 while (true) {
 val n = r.read(buf)
@@ -63,7 +79,9 @@ if (output.length < 20_000) output.append(buf, 0, n)
 }
 } catch (_: Exception) {
 }
-}.apply { isDaemon = true; start()}
+}
+val reader = Thread { drain(process.inputStream) }.apply { isDaemon = true; start() }
+Thread { drain(process.errorStream) }.apply { isDaemon = true; start() }
 if (!process.waitFor(30, TimeUnit.SECONDS)) {
 process.destroyForcibly()
 return@withContext "命令超时(30 秒):$command\n已输出:${synchronized(output) { output.toString()}.take(2000)}"

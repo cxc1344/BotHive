@@ -74,7 +74,8 @@ pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString()
 pkg
 }
 val min = ms / 60000
-"$label:$ {if (min >= 60) "${min / 60} 小时 ${min % 60} 分" else "$min 分"}($pkg)".replace("$ ", "")
+val dur = if (min >= 60) "${min / 60} 小时 ${min % 60} 分" else "$min 分"
+"$label:$dur($pkg)"
 }
 }
 
