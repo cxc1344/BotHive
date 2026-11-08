@@ -339,6 +339,7 @@ fun EditBotScreen(store: Store, botId: String?, go: (Screen) -> Unit) {
     var baseUrl by remember { mutableStateOf(old?.baseUrl ?: "https://api.openai.com/v1") }
     var model by remember { mutableStateOf(old?.model ?: "gpt-4o-mini") }
     var key by remember { mutableStateOf(old?.apiKey ?: "") }
+    var allowInsecureHttp by remember { mutableStateOf(old?.allowInsecureHttp ?: false) }
     var showKey by remember { mutableStateOf(false) }
     val back = { go(if (botId != null) Screen.Chat("bot:$botId") else Screen.Home) }
 
@@ -377,6 +378,13 @@ fun EditBotScreen(store: Store, botId: String?, go: (Screen) -> Unit) {
             HorizontalDivider(color = Line)
             Text("模型(每个 Bot 独立配置,兼容 OpenAI 接口)", color = Sub, fontSize = 13.sp)
             Field("Base URL", baseUrl, { baseUrl = it }, keyboard = KeyboardType.Uri)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("允许 HTTP 明文连接", color = Fg, fontSize = 14.sp)
+                    Text("仅对可信的本地或内网 API 开启，HTTP 可能泄露 API Key", color = Sub, fontSize = 11.sp)
+                }
+                Switch(checked = allowInsecureHttp, onCheckedChange = { allowInsecureHttp = it })
+            }
             Field("模型名", model, { model = it }, keyboard = KeyboardType.Uri)
             // Plain text keyboard + visual masking: never triggers the system secure keyboard,
             // so paste/copy always works.
@@ -387,14 +395,17 @@ fun EditBotScreen(store: Store, botId: String?, go: (Screen) -> Unit) {
                     TextButton(onClick = { showKey = !showKey }) { Text(if (showKey) "隐藏" else "显示", color = Sub) }
                 }
             )
+            store.persistenceError.value?.let {
+                Text(it, color = Color(0xFFFF8A80), fontSize = 12.sp)
+            }
             Spacer(Modifier.height(4.dp))
         }
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             PillButton("保存", modifier = Modifier.fillMaxWidth()) {
                 if (name.isNotBlank()) {
                     val id = old?.id ?: UUID.randomUUID().toString().take(8)
-                    store.saveBot(Bot(id, name.trim(), prompt, baseUrl.trim(), key.trim(), model.trim(), isManager))
-                    go(Screen.Chat("bot:$id"))
+                    val saved = store.saveBot(Bot(id, name.trim(), prompt, baseUrl.trim(), key.trim(), model.trim(), isManager, allowInsecureHttp))
+                    if (saved) go(Screen.Chat("bot:$id"))
                 }
             }
             if (old != null) PillButton("删除这个 Bot", filled = false, modifier = Modifier.fillMaxWidth()) {
