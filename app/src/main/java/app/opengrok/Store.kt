@@ -1,16 +1,22 @@
 package app.opengrok
 
 import android.content.Context
+import android.system.Os
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.io.FileOutputStream
+import java.util.concurrent.ConcurrentHashMap
 
 class Store(private val ctx: Context) {
     val bots = mutableStateListOf<Bot>()
@@ -22,11 +28,22 @@ class Store(private val ctx: Context) {
     private val lists = HashMap<String, SnapshotStateList<Msg>>()
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val file = File(ctx.filesDir, "state.json")
+    val persistenceError = mutableStateOf<String?>(null)
+    private val writeMutex = Mutex()
+    private var saveRevision = 0L
+    private var persistedRevision = 0L
+    private val sandboxes = ConcurrentHashMap<String, Sandbox>()
+    private val sandboxLocks = ConcurrentHashMap<String, Mutex>()
 
     init { load() }
 
     fun chat(id: String): SnapshotStateList<Msg> = lists.getOrPut(id) { mutableStateListOf() }
-    fun sandbox(botId: String) = Sandbox(File(ctx.filesDir, "sandbox/$botId"))
+    fun sandbox(botId: String): Sandbox = sandboxes.computeIfAbsent(botId) {
+        Sandbox(ctx, $it)
+    }
+
+    suspend fun <T> withSandboxLock(botId: String, block: suspend () -> T): T =
+        sandboxLocks.computeIfAbsent(botId) { Mutex() }.withLock { block() }
     fun bot(id: String?) = bots.firstOrNull { it.id == id }
     fun botName(id: String?) = bot(id)?.name ?: "?"
     fun dmId(a: String, b: String) = "dm:" + listOf(a, b).sorted().joinToString(":")
@@ -67,16 +84,25 @@ class Store(private val ctx: Context) {
         save()
     }
 
-    fun saveBot(b: Bot) {
+    fun saveBot(b: Bot): Boolean {
         val i = bots.indexOfFirst { it.id == b.id }
+        val previous = if (i >= 0) bots[i] else null
         if (i >= 0) bots[i] = b else bots.add(b)
-        save()
+        if (save()) return true
+        // Roll back the in-memory Bot edit when encryption/serialization fails synchronously.
+        if (previous == null) bots.removeAll { it.id == b.id }
+        else {
+            val current = bots.indexOfFirst { it.id == b.id }
+            if (current >= 0) bots[current] = previous
+        }
+        return false
     }
 
     fun deleteBot(id: String) {
         bots.removeAll { it.id == id }
         for (i in groups.indices) groups[i] = groups[i].copy(memberIds = groups[i].memberIds - id)
-        sandbox(id).dir.deleteRecursively()
+        sandbox(id).deleteAll()
+        sandboxes.remove(id)
         lists.remove("bot:$id")
         dmIds.removeAll { it.removePrefix("dm:").split(":").contains(id) }
         save()
@@ -85,9 +111,13 @@ class Store(private val ctx: Context) {
     fun addGroup(g: Group) { groups.add(g); save() }
 
     fun resetSandbox(botId: String) {
-        sandbox(botId).reset()
-        chat("bot:$botId").add(Msg(role = "system", text = "沙盒已重置"))
-        save()
+        scope.launch {
+            withSandboxLock(botId) {
+                withContext(Dispatchers.IO) { sandbox(botId).reset() }
+            }
+            chat("bot:$botId").add(Msg(role = "system", text = "沙盒已重置"))
+            save()
+        }
     }
 
     // ---- projects ----
@@ -152,13 +182,14 @@ class Store(private val ctx: Context) {
         }))
     }
 
-    fun save() {
+    fun save(): Boolean {
+        val s = try {
         val o = JSONObject()
         o.put("v", 2)
         o.put("bots", JSONArray(bots.map {
             JSONObject().put("id", it.id).put("name", it.name).put("prompt", it.prompt)
-                .put("baseUrl", it.baseUrl).put("apiKey", runCatching { Secrets.enc(it.apiKey) }.getOrDefault("")).put("model", it.model)
-                .put("manager", it.isManager)
+                .put("baseUrl", it.baseUrl).put("apiKey", Secrets.enc(it.apiKey)).put("model", it.model)
+                .put("manager", it.isManager).put("allowInsecureHttp", it.allowInsecureHttp)
         }))
         o.put("groups", JSONArray(groups.map {
             JSONObject().put("id", it.id).put("name", it.name).put("members", JSONArray(it.memberIds))
@@ -178,8 +209,33 @@ class Store(private val ctx: Context) {
         val chatsJson = JSONObject()
         for ((k, v) in lists) chatsJson.put(k, JSONArray(v.toList().map { msgJson(it) }))
         o.put("chats", chatsJson)
-        val s = o.toString()
-        scope.launch(Dispatchers.IO) { runCatching { file.writeText(s) } }
+        o.toString()
+        } catch (e: Exception) {
+            persistenceError.value = "本地数据未保存：${e.message ?: e.javaClass.simpleName}"
+            return false
+        }
+        val revision = ++saveRevision
+        scope.launch(Dispatchers.IO) {
+            writeMutex.withLock {
+                if (revision != saveRevision) return@withLock
+                try {
+                    val temp = File(file.parentFile, file.name + ".tmp")
+                    FileOutputStream(temp).use { stream ->
+                        stream.write(s.toByteArray(Charsets.UTF_8))
+                        stream.fd.sync()
+                    }
+                    // Same-directory rename is atomic on Android/Linux filesystems.
+                    Os.rename(temp.absolutePath, file.absolutePath)
+                    persistedRevision = revision
+                    withContext(Dispatchers.Main) { persistenceError.value = null }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        persistenceError.value = "本地数据保存失败：${e.message ?: e.javaClass.simpleName}"
+                    }
+                }
+            }
+        }
+        return true
     }
 
     private fun load() {
@@ -190,7 +246,7 @@ class Store(private val ctx: Context) {
                 for (i in 0 until a.length()) a.getJSONObject(i).let {
                     bots.add(Bot(it.getString("id"), it.getString("name"), it.optString("prompt"),
                         it.optString("baseUrl"), Secrets.dec(it.optString("apiKey")), it.optString("model"),
-                        it.optBoolean("manager", false)))
+                        it.optBoolean("manager", false), it.optBoolean("allowInsecureHttp", false)))
                 }
             }
             o.optJSONArray("groups")?.let { a ->
