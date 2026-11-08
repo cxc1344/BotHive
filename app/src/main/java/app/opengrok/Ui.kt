@@ -2,7 +2,12 @@ package app.opengrok
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -231,7 +236,7 @@ fun ChatScreen(store: Store, id: String, go: (Screen) -> Unit) {
         if (!readOnly) {
             AttachChips(staged) { staged.remove(it) }
             Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.Bottom) {
-                IconButton(onClick = { pickFiles() }, modifier = Modifier.size(52.dp)) {
+                IconButton(onClick = { pickFiles() }, modifier = Modifier.size(48.dp)) {
                     Icon(Ic.Attach, null, tint = Fg)
                 }
                 TextField(
@@ -249,16 +254,12 @@ fun ChatScreen(store: Store, id: String, go: (Screen) -> Unit) {
                     StopButton { store.stopChat(id) }
                 } else {
                     val can = input.isNotBlank() || staged.isNotEmpty()
-                    Box(
-                        Modifier.size(52.dp).clip(CircleShape).background(if (can) Color.White else Line)
-                            .clickable(enabled = can) {
-                                if (isManager && projectMode && staged.isEmpty()) store.startProject(id, input.trim())
-                                else store.send(id, input.trim(), staged.toList())
-                                input = ""
-                                staged.clear()
-                            },
-                        contentAlignment = Alignment.Center
-                    ) { Icon(Ic.Send, null, tint = Color.Black) }
+                    SendButton(can) {
+                        if (isManager && projectMode && staged.isEmpty()) store.startProject(id, input.trim())
+                        else store.send(id, input.trim(), staged.toList())
+                        input = ""
+                        staged.clear()
+                    }
                 }
             }
         }
@@ -283,7 +284,7 @@ fun MsgView(store: Store, m: Msg, showName: Boolean, thinking: Boolean, go: (Scr
         m.role == "system" -> Text(m.text, color = Sub, fontSize = 12.sp,
             modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
         m.from == null -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            Surface(color = Color(0xFF2B2D31), shape = RoundedCornerShape(20.dp), modifier = Modifier.widthIn(max = 300.dp)) {
+            Surface(color = Color(0xFF2B2D31), shape = RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp), modifier = Modifier.widthIn(max = 300.dp)) {
                 Column(Modifier.padding(14.dp, 10.dp)) {
                     if (m.images.isNotEmpty()) {
                         val ctx = androidx.compose.ui.platform.LocalContext.current
@@ -310,47 +311,139 @@ fun MsgView(store: Store, m: Msg, showName: Boolean, thinking: Boolean, go: (Scr
         }
         else -> Column(Modifier.fillMaxWidth()) {
             if (showName) Text(store.botName(m.from), color = Sub, fontSize = 12.sp, modifier = Modifier.padding(bottom = 4.dp))
-            if (m.tools.isNotEmpty()) ToolsPanel(m.tools)
+            if (m.tools.isNotEmpty()) ToolsPanel(m.tools, m.id, thinking)
             if (m.text.isNotBlank()) SelectionContainer {
                 Text(m.text, color = Fg, fontSize = 16.sp, lineHeight = 24.sp)
-            } else if (thinking) Text("思考中…", color = Sub, fontSize = 15.sp)
+            } else if (thinking) ThinkingDots()
+        }
+    }
+}
+
+/** Expanded/collapsed state of each tool row, keyed by message id + position + tool id so it survives list recycling. */
+private val toolOpen = mutableStateMapOf<String, Boolean>()
+
+private val SUMMARY_KEYS = listOf("command", "path", "url", "bot_name", "query", "title", "name", "text", "package", "action")
+private val EXIT_RE = Regex("""\[exit (-?\d+)\]""")
+
+private fun parseArgs(args: String): org.json.JSONObject? =
+    try { org.json.JSONObject(args) } catch (_: Exception) { null }
+
+/** One-line summary of a tool call's arguments (command / path / target), at most ~60 chars. */
+private fun toolSummary(args: String): String {
+    val o = parseArgs(args)
+    val raw: String = if (o == null) {
+        args
+    } else {
+        var pick: String? = null
+        for (k in SUMMARY_KEYS) {
+            if (o.has(k) && !o.isNull(k)) { pick = o.opt(k).toString(); break }
+        }
+        if (pick == null) {
+            val keys = o.keys()
+            if (keys.hasNext()) pick = o.opt(keys.next()).toString()
+        }
+        pick ?: ""
+    }
+    val one = raw.replace(Regex("\\s+"), " ").trim()
+    return if (one.length > 60) one.take(60) + "…" else one
+}
+
+private fun prettyArgs(args: String): String {
+    val o = parseArgs(args) ?: return args
+    val keys = o.keys()
+    val sb = StringBuilder()
+    while (keys.hasNext()) {
+        val k = keys.next()
+        if (sb.isNotEmpty()) sb.append('\n')
+        sb.append(k).append(": ").append(o.opt(k).toString())
+    }
+    return sb.toString().ifBlank { args }
+}
+
+/** Short badge for calls that did not succeed (blocked by the safety policy, or non-zero exit). */
+private fun toolBadge(t: ToolCall): String? {
+    if (t.output.startsWith("【安全策略已拦截】")) return "已拦截"
+    val m = EXIT_RE.findAll(t.output).lastOrNull()
+    if (m != null && m.groupValues[1] != "0") return "exit " + m.groupValues[1]
+    return null
+}
+
+/** Every tool call is its own collapsible row: one-line summary, tap to expand full args and output. */
+@Composable
+fun ToolsPanel(tools: List<ToolCall>, scopeKey: String, live: Boolean) {
+    Column(Modifier.fillMaxWidth().padding(bottom = 10.dp).clip(RoundedCornerShape(14.dp)).background(Card)) {
+        tools.forEachIndexed { i, t ->
+            if (i > 0) HorizontalDivider(color = Line)
+            ToolRow(t, "$scopeKey#$i:${t.id}", live && i == tools.lastIndex && t.output.isBlank())
         }
     }
 }
 
 @Composable
-fun ToolsPanel(tools: List<ToolCall>) {
-    var open by remember { mutableStateOf(false) }
+private fun ToolRow(t: ToolCall, key: String, running: Boolean) {
+    val open = toolOpen[key] ?: running
     val rot by animateFloatAsState(if (open) 180f else 0f, label = "rot")
-    Column(Modifier.padding(bottom = 8.dp)) {
+    val badge = toolBadge(t)
+    Column(Modifier.fillMaxWidth()) {
         Row(
-            Modifier.clip(RoundedCornerShape(12.dp)).background(Card).clickable { open = !open }
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+            Modifier.fillMaxWidth().clickable { toolOpen[key] = !open }.padding(horizontal = 12.dp, vertical = 11.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(Ic.Terminal, null, tint = Sub, modifier = Modifier.size(16.dp))
-            Spacer(Modifier.width(6.dp))
-            Text("已调用 ${tools.size} 个工具", color = Sub, fontSize = 13.sp)
-            Spacer(Modifier.width(2.dp))
+            if (running) CircularProgressIndicator(Modifier.size(14.dp), color = Sub, strokeWidth = 2.dp)
+            else Icon(Ic.Terminal, null, tint = Sub, modifier = Modifier.size(15.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(t.name, color = Fg, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+            Spacer(Modifier.width(8.dp))
+            Text(
+                toolSummary(t.args), color = Sub, fontSize = 12.sp, fontFamily = FontFamily.Monospace,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f)
+            )
+            if (badge != null) {
+                Spacer(Modifier.width(6.dp))
+                Text(badge, color = Color(0xFFFF8A80), fontSize = 11.sp)
+            }
+            Spacer(Modifier.width(4.dp))
             Icon(Ic.Down, null, tint = Sub, modifier = Modifier.size(18.dp).rotate(rot))
         }
         AnimatedVisibility(open) {
-            Column(Modifier.padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                tools.forEach { t ->
-                    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Card).padding(12.dp)) {
-                        SelectionContainer {
-                            Column {
-                                Text(t.name, color = Fg, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                                Text(t.args, color = Sub, fontSize = 12.sp, fontFamily = FontFamily.Monospace,
-                                    modifier = Modifier.padding(top = 2.dp))
-                                HorizontalDivider(color = Line, modifier = Modifier.padding(vertical = 8.dp))
-                                Text(t.output.ifBlank { "运行中…" }, color = Fg, fontSize = 12.sp,
-                                    fontFamily = FontFamily.Monospace)
-                            }
-                        }
+            SelectionContainer {
+                Column(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 12.dp)) {
+                    Text("参数", color = Sub, fontSize = 11.sp)
+                    Text(
+                        prettyArgs(t.args), color = Fg, fontSize = 12.sp, fontFamily = FontFamily.Monospace,
+                        modifier = Modifier.padding(top = 2.dp, bottom = 10.dp)
+                    )
+                    Text("输出", color = Sub, fontSize = 11.sp)
+                    Box(Modifier.fillMaxWidth().heightIn(max = 280.dp).padding(top = 2.dp)) {
+                        val empty = t.output.isBlank()
+                        Text(
+                            if (empty) (if (running) "运行中…" else "(无输出)") else t.output,
+                            color = if (empty) Sub else Fg, fontSize = 12.sp, fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.verticalScroll(rememberScrollState())
+                        )
                     }
                 }
             }
+        }
+    }
+}
+
+/** Three-dot loading indicator shown while a Bot is preparing its reply. */
+@Composable
+fun ThinkingDots() {
+    val t = rememberInfiniteTransition(label = "dots")
+    val phase by t.animateFloat(
+        initialValue = 0f, targetValue = 3f,
+        animationSpec = infiniteRepeatable(tween(1200, easing = LinearEasing)),
+        label = "phase"
+    )
+    Row(
+        Modifier.padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        for (i in 0..2) {
+            Box(Modifier.size(7.dp).clip(CircleShape).background(if (phase.toInt() == i) Fg else Line))
         }
     }
 }

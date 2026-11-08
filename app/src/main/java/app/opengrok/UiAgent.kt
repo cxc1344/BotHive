@@ -181,7 +181,7 @@ fun AgentChatScreen(store: Store, go: (Screen) -> Unit) {
         }
         AttachChips(staged) { staged.remove(it) }
         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.Bottom) {
-            IconButton(onClick = { pickFiles() }, modifier = Modifier.size(52.dp)) {
+            IconButton(onClick = { pickFiles() }, modifier = Modifier.size(48.dp)) {
                 Icon(Ic.Attach, null, tint = Fg)
             }
             TextField(
@@ -199,15 +199,11 @@ fun AgentChatScreen(store: Store, go: (Screen) -> Unit) {
                 StopButton { store.stopChat(AGENT_ID) }
             } else {
                 val can = (input.isNotBlank() || staged.isNotEmpty()) && agent != null
-                Box(
-                    Modifier.size(52.dp).clip(CircleShape).background(if (can) Color.White else Line)
-                        .clickable(enabled = can) {
-                            store.sendAgent(input.trim(), staged.toList())
-                            input = ""
-                            staged.clear()
-                        },
-                    contentAlignment = Alignment.Center
-                ) { Icon(Ic.Send, null, tint = Color.Black) }
+                SendButton(can) {
+                    store.sendAgent(input.trim(), staged.toList())
+                    input = ""
+                    staged.clear()
+                }
             }
         }
     }

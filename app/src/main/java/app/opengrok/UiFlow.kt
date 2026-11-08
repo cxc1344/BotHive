@@ -335,7 +335,9 @@ fun AttachChips(items: List<AttachItem>, onRemove: (AttachItem) -> Unit) {
             ) {
                 Text(item.name, color = Fg, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 160.dp))
                 Spacer(Modifier.width(6.dp))
-                Text("✕", color = Sub, fontSize = 12.sp, modifier = Modifier.clickable { onRemove(item) })
+                Box(Modifier.size(24.dp).clickable { onRemove(item) }, contentAlignment = Alignment.Center) {
+                    Icon(Ic.Close, null, tint = Sub, modifier = Modifier.size(14.dp))
+                }
             }
         }
     }
@@ -345,8 +347,19 @@ fun AttachChips(items: List<AttachItem>, onRemove: (AttachItem) -> Unit) {
 @Composable
 fun StopButton(onStop: () -> Unit) {
     Box(
-        Modifier.size(52.dp).clip(androidx.compose.foundation.shape.CircleShape).background(Color(0xFFE5484D))
+        Modifier.size(48.dp).clip(androidx.compose.foundation.shape.CircleShape).background(Color(0xFFE5484D))
             .clickable { onStop() },
         contentAlignment = Alignment.Center
     ) { Icon(Ic.Stop, null, tint = Color.White) }
+}
+
+/** Round send button shared by every composer (white when there is something to send, muted otherwise). */
+@Composable
+fun SendButton(enabled: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier.size(48.dp).clip(androidx.compose.foundation.shape.CircleShape)
+            .background(if (enabled) Color.White else Line)
+            .clickable(enabled = enabled) { onClick() },
+        contentAlignment = Alignment.Center
+    ) { Icon(Ic.Send, null, tint = if (enabled) Color.Black else Sub) }
 }
