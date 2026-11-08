@@ -54,7 +54,8 @@ object SelfCheck {
         }
 
         val r = store.sandbox(bot.id).exec("echo ok && pwd && uname -m && cat /etc/alpine-release")
-        out.add((r.contains("ok") && r.contains("[exit 0]")) to "PRoot/Alpine:${if (r.contains("[exit 0]")) "可执行" else "异常"} — ${r.replace("\n", " ").take(100)}")
+        val linuxOk = r.contains("ok") && r.contains("[exit 0]")
+        out.add(linuxOk to "PRoot/Alpine:${if (linuxOk) "可执行" else "异常"} — ${r.replace("\n", " ").take(if (linuxOk) 100 else 700)}")
 
         out.add(Secrets.isKeystoreWorking() to if (Secrets.isKeystoreWorking()) "Key 存储:Keystore 加密正常" else "Key 存储:Keystore 不可用,不会明文保存 API Key")
         out
