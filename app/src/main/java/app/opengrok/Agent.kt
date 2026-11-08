@@ -81,6 +81,9 @@ object Agent {
         put(fn("list_tasks", "列出你自己的全部待执行定时任务。", JSONObject()))
         put(fn("run_workflow", "按名称启动一个用户建好的工作流(步骤链),它会自己运行,你不用等结果。",
             JSONObject().put("name", str("工作流名称")), "name"))
+        put(fn("list_skills", "列出全部技能包,以及哪些已经挂在你身上。", JSONObject()))
+        put(fn("create_skill", "把一套可复用的方法、规范或领域知识写成新技能包,并立刻挂到你自己身上(之后每次对话都生效)。内容要具体、可执行,不要空话。",
+            JSONObject().put("name", str("技能名")).put("content", str("技能内容")), "name", "content"))
         if (isAgent) {
             put(fn("fs_list", "列出任意目录的内容(绝对路径,如 /sdcard/Download)。channel 通道:auto(默认,普通优先、自动回退 Shizuku)/ standard(普通文件权限,需用户给了所有文件访问)/ shizuku(shell 身份,能到 /data/local/tmp 等)/ root(root 身份,能进其他应用的 /data 私有目录,需 Shizuku 以 root 运行或有 su)。",
                 JSONObject().put("path", str("绝对路径")).put("channel", str("通道,可选,默认 auto")), "path"))
@@ -131,7 +134,7 @@ object Agent {
         val others = (store.bots.filter { it.id != bot.id }.map { it.name } +
             listOfNotNull(store.agent.value?.name).filter { !isAgent }).distinct().joinToString("、")
         val sys = if (isAgent) {
-            bot.prompt + "\n\n你叫「${bot.name}」,是运行在用户安卓手机上的设备 Agent,有自己独立的工作目录(Ubuntu 环境),可用 shell 工具执行命令。" +
+            bot.prompt + "\n\n你叫「${bot.name}」,是运行在用户安卓手机上的设备 Agent,有一台自己的 Ubuntu 沙盒可用 shell 干活。" +
                 (if (others.isNotEmpty()) "云端 Bot 同伴:$others,可用 ask_bot 私信求助或给他们派活。" else "") +
                 "你能管理手机文件:fs_* 工具用绝对路径,分普通(需所有文件访问授权,管共享存储)/ Shizuku(shell 身份)/ Root(能进其他应用 /data)三档通道,默认 auto 自动选。无障碍通道负责看屏与操作,不增加文件权限。请使用用户的语言回复。" + skillSuffix
         } else {
@@ -319,6 +322,30 @@ object Agent {
                     else -> {
                         withContext(Dispatchers.Main) { store.runWorkflow(wf) }
                         "已启动工作流「$wfName」,它会自己跑完,记录在工作流的会话里。"
+                    }
+                }
+            }
+            "list_skills" -> {
+                if (store.skills.isEmpty()) "(还没有技能包,用 create_skill 可以自己写一个)"
+                else store.skills.joinToString("\n") { "- ${it.name}${if (it.id in bot.skillIds) "(已挂在你身上)" else ""}" }
+            }
+            "create_skill" -> {
+                val sName = a.optString("name").trim()
+                val sContent = a.optString("content").trim()
+                when {
+                    sName.isBlank() || sContent.isBlank() -> "技能名与内容都要填。"
+                    store.skills.any { it.name == sName } -> "已存在同名技能「$sName」,换个名字,或让用户在设置里改现成的。"
+                    else -> {
+                        val id = java.util.UUID.randomUUID().toString().take(8)
+                        withContext(Dispatchers.Main) {
+                            store.saveSkill(Skill(id, sName, sContent.take(4_000)))
+                            if (bot.id == AGENT_ID) {
+                                store.agent.value?.let { store.saveAgent(it.copy(skillIds = it.skillIds + id)) }
+                            } else {
+                                store.bot(bot.id)?.let { store.saveBot(it.copy(skillIds = it.skillIds + id)) }
+                            }
+                        }
+                        "已创建技能「$sName」并挂到你身上,从下一轮对话起生效。"
                     }
                 }
             }

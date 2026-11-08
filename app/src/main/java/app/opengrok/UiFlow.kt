@@ -27,6 +27,29 @@ import java.util.UUID
 private fun fmtTime(ms: Long): String =
     if (ms <= 0) "—" else SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(ms))
 
+/** Top-center capsule switching between Bot mode (chat list) and Agent mode (device Agent chat). */
+@Composable
+fun ModeCapsule(current: String, go: (Screen) -> Unit) {
+    Row(
+        Modifier.clip(RoundedCornerShape(999.dp)).background(Card).padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        listOf("bot" to "Bot", "agent" to "Agent").forEach { (m, label) ->
+            val sel = current == m
+            Box(
+                Modifier.clip(RoundedCornerShape(999.dp))
+                    .background(if (sel) Color.White else Color.Transparent)
+                    .clickable {
+                        if (!sel) go(if (m == "agent") Screen.AgentChat else Screen.Home)
+                    }
+                    .padding(horizontal = 24.dp, vertical = 8.dp)
+            ) {
+                Text(label, color = if (sel) Color.Black else Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+}
+
 /** In-chat approval cards (permission broker): pending shell commands for this chat. */
 @Composable
 fun ApprovalCards(store: Store, chatId: String) {

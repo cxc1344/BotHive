@@ -41,6 +41,22 @@ data class Provider(
 /** Reserved Bot id of the on-device Agent (Agent mode). It is stored separately from the cloud Bot list. */
 const val AGENT_ID = "agent"
 
+/** Built-in skill packs seeded once on first run (deletable; never re-seeded after the flag is set). */
+val PRESET_SKILLS: List<Skill> = listOf(
+    Skill("preset-exec", "靠谱执行者",
+        "执行纪律:①动手前用一句话复述目标与计划;②长任务分步做,每完成一步简要汇报;③工具报错先读懂原因、换思路重试一次,仍失败再如实报告,绝不编造结果;④涉及删除、覆盖、发送等不可逆操作,先停下来问用户;⑤回复用用户的语言,结论先行,不啰嗦。"),
+    Skill("preset-butler", "手机管家",
+        "巡检方法:被要求巡检或汇报手机状态时,依次查 device_status(电量与存储)、app_usage(今日时长)、recent_notifications(未读通知),按「电量与存储 / 今天最耗时的应用 / 重要通知」三段汇总,只报异常与要点,不写流水账。"),
+    Skill("preset-files", "文件整理术",
+        "整理文件时:①先 fs_list 摸清现状并统计数量与体积;②给出按类型/日期的归类方案清单让用户确认;③只移动不删除,删除必须逐项经用户同意;④重名加后缀,绝不覆盖;⑤整理完汇报移动了什么、还剩什么。"),
+    Skill("preset-frugal", "省额度模式",
+        "省钱省额度:①回答尽量简短直接;②能一次工具调用解决的不分多次,查多项信息时先合并规划;③长输出先给摘要,用户要细节再展开;④遇到 429 不要连环重试,等一等或提示用户在 Key 池里多备几个 Key 自动轮换。"),
+    Skill("preset-tutor", "初二学习辅导",
+        "给初二学生讲题:数学只用初二上册学过的方法(全等三角形、轴对称、等腰/等边三角形、角平分线、平行线、坐标系、面积法),禁用勾股定理、三角函数、相似三角形——绕不开时先明说超纲;语文文言文逐字直译,重点字词单独释义;英语是他的强项,不用多教。讲题先拆思路再分步,最后留一道同类小题让他自己试。"),
+    Skill("preset-ubuntu", "Ubuntu 工具箱",
+        "沙盒速查:工作目录会跨命令保持(cd 到哪下条命令就从哪开始);装包用 apt-get update && apt-get install -y <包名>;已预装 python3、nodejs、git、curl、jq、ffmpeg;单条命令超时 30 秒,长任务拆开跑或 nohup 写日志再读结果;和手机互传文件用 fs 工具。")
+)
+
 /** A reusable instruction pack ("技能") that can be attached to Bots / the Agent; its content joins the system prompt. */
 data class Skill(
     val id: String,

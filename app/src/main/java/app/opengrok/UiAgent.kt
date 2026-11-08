@@ -118,194 +118,54 @@ fun ConnSection(
 }
 
 @Composable
-fun AgentPanel(store: Store, go: (Screen) -> Unit) {
-    val context = LocalContext.current
-    val agent = store.agent.value
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        if (uri != null) {
-            try {
-                context.contentResolver.takePersistableUriPermission(
-                    uri,
-                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                )
-            } catch (_: Exception) {
-            }
-            store.agentTreeUri.value = uri.toString()
-            store.save()
-        }
-    }
-    Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        if (agent == null) {
-            Spacer(Modifier.height(30.dp))
-            Text("设备 Agent", color = Fg, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-            Text(
-                "住在手机本地的一位 Agent:能管理手机文件(普通 / Shizuku / Root 分档通道)、查看设备状态与应用使用时长、打开应用," +
-                    "还有自己的 Ubuntu 环境。它能和 Bot 模式里的云端 Bot 互相派活:在对话里用 ask_bot 找对方即可,私聊全程可见。",
-                color = Sub, fontSize = 14.sp, lineHeight = 21.sp
-            )
-            PillButton("创建 Agent", modifier = Modifier.fillMaxWidth()) { go(Screen.EditAgent) }
-        } else {
-            Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Card)
-                    .clickable { go(Screen.AgentChat) }.padding(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Avatar(AGENT_ID, 52.dp)
-                Spacer(Modifier.width(14.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(agent.name, color = Fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    val provName = store.provider(agent.providerId)?.name
-                    Text(
-                        listOfNotNull(agent.model, provName).joinToString(" · "),
-                        color = Sub, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
-                    )
-                }
-                if (AGENT_ID in store.busy) Text("工作中", color = Sub, fontSize = 12.sp)
-                IconButton(onClick = { go(Screen.EditAgent) }) { Icon(Ic.Edit, null, tint = Fg) }
-            }
-            Text("权限与能力", color = Fg, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-            Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Card).padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text("全部文件访问(普通通道)", color = Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                Text(
-                    if (FsTools.allFilesGranted()) "状态:已授权。Agent 的 fs_* 工具可用普通通道管理整个共享存储(绝对路径,如 /sdcard/Download)。"
-                    else "状态:未授权。开启后 Agent 能用普通通道读写整个共享存储;其他应用的 /data 私有目录仍需 Shizuku / Root 通道。",
-                    color = Sub, fontSize = 12.sp
-                )
-                if (!FsTools.allFilesGranted()) {
-                    PillButton("开启全部文件访问", filled = false, modifier = Modifier.fillMaxWidth()) {
-                        try {
-                            context.startActivity(
-                                Intent(
-                                    Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                                    android.net.Uri.parse("package:" + context.packageName)
-                                )
-                            )
-                        } catch (_: Exception) {
-                            try {
-                                context.startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
-                            } catch (_: Exception) {
-                            }
-                        }
-                    }
-                }
-            }
-            Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Card).padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text("应用使用时长", color = Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                Text("Agent 查看「今天各应用用了多久」需要系统「使用情况访问」授权。", color = Sub, fontSize = 12.sp)
-                PillButton("开启使用情况访问", filled = false, modifier = Modifier.fillMaxWidth()) {
-                    try {
-                        context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
-                    } catch (_: Exception) {
-                    }
-                }
-            }
-            Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Card).padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text("通知读取", color = Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                Text(
-                    if (Notifications.isEnabled(context)) "状态:已开启。Agent 可用 recent_notifications 查看最近通知(微信、短信、应用提醒等)。"
-                    else "状态:未开启。开启后 Agent 能读最近的通知,适合让它盯消息、汇总提醒。",
-                    color = Sub, fontSize = 12.sp
-                )
-                if (!Notifications.isEnabled(context)) {
-                    PillButton("开启通知使用权", filled = false, modifier = Modifier.fillMaxWidth()) {
-                        try {
-                            context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-                        } catch (_: Exception) {
-                        }
-                    }
-                }
-            }
-            Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Card).padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text("无障碍(屏幕操作)", color = Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                Text(
-                    if (A11y.enabled.value) "状态:已开启。Agent 可用 screen_dump 看屏、tap_text/tap_xy 点击、swipe 滑动、input_text 输入、press_key 按系统键。"
-                    else "状态:未开启。开启后 Agent 能看屏并操作其他应用(点按、滑动、输入)。开关必须由你在系统无障碍设置里亲手打开,任何应用都无法代开。",
-                    color = Sub, fontSize = 12.sp
-                )
-                if (!A11y.enabled.value) {
-                    PillButton("去开启无障碍", filled = false, modifier = Modifier.fillMaxWidth()) {
-                        try {
-                            context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-                        } catch (_: Exception) {
-                        }
-                    }
-                }
-            }
-            Column(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Card).padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text("Shizuku 特权通道(可选)", color = Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                LaunchedEffect(Unit) { ShizukuTools.refresh() }
-                val szRunning = ShizukuTools.running.value
-                val szGranted = ShizukuTools.granted.value
-                Text(
-                    when {
-                        szGranted -> "状态:已激活并授权。Agent 可用 shizuku_shell 执行 shell 级命令(点击/滑动/截屏/系统状态)。"
-                        szRunning -> "状态:Shizuku 已运行,尚未授权本应用。"
-                        else -> "状态:未运行。安装 Shizuku 应用并通过无线调试或电脑 ADB 激活后,Agent 能获得 shell 级能力(模拟点击、截屏、dumpsys 等)。"
-                    },
-                    color = Sub, fontSize = 12.sp
-                )
-                if (szRunning && !szGranted) {
-                    PillButton("请求 Shizuku 授权", filled = false, modifier = Modifier.fillMaxWidth()) {
-                        ShizukuTools.requestPermission()
-                    }
-                }
-                PillButton("刷新状态", filled = false, modifier = Modifier.fillMaxWidth()) { ShizukuTools.refresh() }
-            }
-            Text(
-                "已有工具:shell(Ubuntu)、list_dir/read_file/write_file(授权文件夹)、device_status、app_usage、list_apps、launch_app、shizuku_shell(可选特权通道)、" +
-                    "screen_dump/tap_text/tap_xy/swipe/input_text/press_key(无障碍屏幕操作)、remember/recall(长期记忆)、ask_bot(找云端 Bot)。" +
-                    "云端 Bot 也能用 ask_bot 找 Agent 派设备类任务。",
-                color = Sub, fontSize = 12.sp, lineHeight = 18.sp
-            )
-            Spacer(Modifier.height(10.dp))
-        }
-    }
-}
-
-@Composable
 fun AgentChatScreen(store: Store, go: (Screen) -> Unit) {
     val agent = store.agent.value
     val msgs = store.chat(AGENT_ID)
     val busy = AGENT_ID in store.busy
     var input by remember { mutableStateOf("") }
-    var confirm by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     val last = msgs.lastOrNull()
     LaunchedEffect(msgs.size, last?.tools?.size, last?.text) {
         if (msgs.isNotEmpty()) listState.animateScrollToItem(msgs.lastIndex)
     }
-    Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { go(Screen.Home) }) { Icon(Ic.Back, null, tint = Fg) }
-            Avatar(AGENT_ID, 36.dp)
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                Text(agent?.name ?: "Agent", color = Fg, fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(agent?.model ?: "", color = Sub, fontSize = 12.sp, maxLines = 1)
+    if (agent == null) {
+        Column(Modifier.fillMaxSize()) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Spacer(Modifier.weight(1f))
+                ModeCapsule("agent", go)
+                Spacer(Modifier.weight(1f))
             }
-            IconButton(onClick = { confirm = true }) { Icon(Ic.Refresh, null, tint = Fg) }
-            IconButton(onClick = { go(Screen.EditAgent) }) { Icon(Ic.Edit, null, tint = Fg) }
+            Column(
+                Modifier.fillMaxSize().padding(horizontal = 32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text("设备 Agent", color = Fg, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "住在手机本地的一位 Agent:管理手机文件(普通 / Shizuku / Root 分档)、看屏操作、查状态与通知," +
+                        "还有自己的 Ubuntu 沙盒;能和云端 Bot 互相派活。",
+                    color = Sub, fontSize = 14.sp, lineHeight = 21.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+                Spacer(Modifier.height(20.dp))
+                PillButton("创建 Agent", modifier = Modifier.fillMaxWidth()) { go(Screen.EditAgent) }
+            }
+        }
+        return
+    }
+    Column(Modifier.fillMaxSize()) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = { go(Screen.Home) }) { Icon(Ic.Back, null, tint = Fg) }
+            Spacer(Modifier.weight(1f))
+            ModeCapsule("agent", go)
+            Spacer(Modifier.weight(1f))
+            IconButton(onClick = { go(Screen.AgentSettings) }) { Icon(Ic.Tune, null, tint = Fg) }
         }
         HorizontalDivider(color = Line)
         ApprovalCards(store, AGENT_ID)
@@ -339,26 +199,6 @@ fun AgentChatScreen(store: Store, go: (Screen) -> Unit) {
                 contentAlignment = Alignment.Center
             ) { Icon(Ic.Send, null, tint = Color.Black) }
         }
-    }
-    if (confirm) {
-        AlertDialog(
-            onDismissRequest = { confirm = false },
-            title = { Text("重置沙盒?") },
-            text = { Text("会清空 Agent 沙盒(含 Ubuntu 环境)里的所有文件,聊天记录保留。") },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirm = false
-                    scope.launch {
-                        store.withSandboxLock(AGENT_ID) {
-                            withContext(Dispatchers.IO) { store.sandbox(AGENT_ID).reset() }
-                        }
-                        store.chat(AGENT_ID).add(Msg(role = "system", text = "沙盒已重置"))
-                        store.save()
-                    }
-                }) { Text("重置") }
-            },
-            dismissButton = { TextButton(onClick = { confirm = false }) { Text("取消") } }
-        )
     }
 }
 
@@ -417,7 +257,7 @@ fun EditAgentScreen(store: Store, go: (Screen) -> Unit) {
                     } else {
                         Bot(AGENT_ID, name.trim(), prompt, baseUrl.trim(), key.trim(), model.trim(), false, allowHttp, "", skillSel.toList(), shellAppr)
                     }
-                    if (store.saveAgent(b)) go(Screen.Home)
+                    if (store.saveAgent(b)) go(Screen.AgentChat)
                 }
             }
         }
@@ -491,5 +331,220 @@ fun EditProviderScreen(store: Store, providerId: String?, go: (Screen) -> Unit) 
                 store.deleteProvider(old.id); go(Screen.Settings)
             }
         }
+    }
+}
+
+/** The Agent's connection & behaviour form (provider / model / prompt / approval / skills), shared by the create page and Agent settings. */
+@Composable
+fun AgentForm(store: Store, onSaved: () -> Unit) {
+    val old = store.agent.value
+    var name by remember { mutableStateOf(old?.name ?: "Agent") }
+    var prompt by remember { mutableStateOf(old?.prompt ?: AGENT_DEFAULT_PROMPT) }
+    var baseUrl by remember { mutableStateOf(old?.baseUrl ?: "https://api.openai.com/v1") }
+    var model by remember { mutableStateOf(old?.model ?: "gpt-4o-mini") }
+    var key by remember { mutableStateOf(old?.apiKey ?: "") }
+    var allowHttp by remember { mutableStateOf(old?.allowInsecureHttp ?: false) }
+    var providerId by remember { mutableStateOf(old?.providerId ?: "") }
+    val skillSel = remember { mutableStateListOf<String>().apply { addAll(old?.skillIds ?: emptyList()) } }
+    var shellAppr by remember { mutableStateOf(old?.shellApproval ?: false) }
+    Field("名字", name, { name = it })
+    Spacer(Modifier.height(14.dp))
+    Field("System Prompt", prompt, { prompt = it }, singleLine = false, minLines = 5)
+    Spacer(Modifier.height(14.dp))
+    ConnSection(
+        store,
+        providerId, { providerId = it },
+        baseUrl, { baseUrl = it },
+        key, { key = it },
+        allowHttp, { allowHttp = it },
+        model, { model = it }
+    )
+    Spacer(Modifier.height(14.dp))
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text("Shell 命令先经我批准", color = Fg, fontSize = 14.sp)
+            Text("开启后,Agent 的每条命令都先在对话里等你点「执行」(Shizuku 命令不受此限,请谨慎授权 Shizuku)", color = Sub, fontSize = 11.sp)
+        }
+        Switch(checked = shellAppr, onCheckedChange = { shellAppr = it })
+    }
+    Spacer(Modifier.height(14.dp))
+    Text("技能包", color = Fg, fontSize = 14.sp)
+    Spacer(Modifier.height(8.dp))
+    SkillsPicker(store, skillSel)
+    store.persistenceError.value?.let {
+        Spacer(Modifier.height(10.dp))
+        Text(it, color = Color(0xFFFF8A80), fontSize = 12.sp)
+    }
+    Spacer(Modifier.height(16.dp))
+    PillButton("保存", modifier = Modifier.fillMaxWidth()) {
+        if (name.isNotBlank()) {
+            val prov = store.provider(providerId)
+            val b = if (prov != null) {
+                Bot(AGENT_ID, name.trim(), prompt, prov.baseUrl, "", model.trim(), false, prov.allowInsecureHttp, prov.id, skillSel.toList(), shellAppr)
+            } else {
+                Bot(AGENT_ID, name.trim(), prompt, baseUrl.trim(), key.trim(), model.trim(), false, allowHttp, "", skillSel.toList(), shellAppr)
+            }
+            if (store.saveAgent(b)) onSaved()
+        }
+    }
+}
+
+/** Permission & channel cards for the Agent (all-files access, usage stats, notifications, accessibility, Shizuku). */
+@Composable
+fun AgentPermissions(store: Store) {
+    val context = LocalContext.current
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Card).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text("全部文件访问(普通通道)", color = Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        Text(
+            if (FsTools.allFilesGranted()) "状态:已授权。Agent 的 fs_* 工具可用普通通道管理整个共享存储(绝对路径,如 /sdcard/Download)。"
+            else "状态:未授权。开启后 Agent 能用普通通道读写整个共享存储;其他应用的 /data 私有目录仍需 Shizuku / Root 通道。",
+            color = Sub, fontSize = 12.sp
+        )
+        if (!FsTools.allFilesGranted()) {
+            PillButton("开启全部文件访问", filled = false, modifier = Modifier.fillMaxWidth()) {
+                try {
+                    context.startActivity(
+                        Intent(
+                            Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                            android.net.Uri.parse("package:" + context.packageName)
+                        )
+                    )
+                } catch (_: Exception) {
+                    try {
+                        context.startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+                    } catch (_: Exception) {
+                    }
+                }
+            }
+        }
+    }
+    Spacer(Modifier.height(14.dp))
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Card).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text("应用使用时长", color = Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        Text("Agent 查看「今天各应用用了多久」需要系统「使用情况访问」授权。", color = Sub, fontSize = 12.sp)
+        PillButton("开启使用情况访问", filled = false, modifier = Modifier.fillMaxWidth()) {
+            try {
+                context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+            } catch (_: Exception) {
+            }
+        }
+    }
+    Spacer(Modifier.height(14.dp))
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Card).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text("通知读取", color = Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        Text(
+            if (Notifications.isEnabled(context)) "状态:已开启。Agent 可用 recent_notifications 查看最近通知(微信、短信、应用提醒等)。"
+            else "状态:未开启。开启后 Agent 能读最近的通知,适合让它盯消息、汇总提醒。",
+            color = Sub, fontSize = 12.sp
+        )
+        if (!Notifications.isEnabled(context)) {
+            PillButton("开启通知使用权", filled = false, modifier = Modifier.fillMaxWidth()) {
+                try {
+                    context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                } catch (_: Exception) {
+                }
+            }
+        }
+    }
+    Spacer(Modifier.height(14.dp))
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Card).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text("无障碍(屏幕操作)", color = Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        Text(
+            if (A11y.enabled.value) "状态:已开启。Agent 可用 screen_dump 看屏、tap_text/tap_xy 点击、swipe 滑动、input_text 输入、press_key 按系统键。"
+            else "状态:未开启。开启后 Agent 能看屏并操作其他应用(点按、滑动、输入)。开关必须由你在系统无障碍设置里亲手打开,任何应用都无法代开。",
+            color = Sub, fontSize = 12.sp
+        )
+        if (!A11y.enabled.value) {
+            PillButton("去开启无障碍", filled = false, modifier = Modifier.fillMaxWidth()) {
+                try {
+                    context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+                } catch (_: Exception) {
+                }
+            }
+        }
+    }
+    Spacer(Modifier.height(14.dp))
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Card).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text("Shizuku 特权通道(可选)", color = Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        LaunchedEffect(Unit) { ShizukuTools.refresh() }
+        val szRunning = ShizukuTools.running.value
+        val szGranted = ShizukuTools.granted.value
+        Text(
+            when {
+                szGranted -> "状态:已激活并授权。Agent 可用 shizuku_shell 执行 shell 级命令(点击/滑动/截屏/系统状态),fs 工具的 Shizuku / Root 通道也走这里。"
+                szRunning -> "状态:Shizuku 已运行,尚未授权本应用。"
+                else -> "状态:未运行。安装 Shizuku 应用并通过无线调试或电脑 ADB 激活后,Agent 能获得 shell 级能力(模拟点击、截屏、dumpsys 等)。"
+            },
+            color = Sub, fontSize = 12.sp
+        )
+        if (szRunning && !szGranted) {
+            PillButton("请求 Shizuku 授权", filled = false, modifier = Modifier.fillMaxWidth()) {
+                ShizukuTools.requestPermission()
+            }
+        }
+        PillButton("刷新状态", filled = false, modifier = Modifier.fillMaxWidth()) { ShizukuTools.refresh() }
+    }
+}
+
+/** Agent settings: everything in one page — connection & behaviour, permissions & channels, sandbox reset. */
+@Composable
+fun AgentSettingsScreen(store: Store, go: (Screen) -> Unit) {
+    var confirmReset by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = { go(Screen.AgentChat) }) { Icon(Ic.Back, null, tint = Fg) }
+            Text("Agent 设置", color = Fg, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+        }
+        Column(
+            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Text("连接与行为", color = Fg, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            AgentForm(store) { go(Screen.AgentChat) }
+            HorizontalDivider(color = Line)
+            Text("权限与通道", color = Fg, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            AgentPermissions(store)
+            HorizontalDivider(color = Line)
+            Text("危险区", color = Fg, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            PillButton("重置 Agent 沙盒", filled = false, modifier = Modifier.fillMaxWidth()) { confirmReset = true }
+            Text("会清空 Agent 沙盒(含 Ubuntu 环境)里的所有文件,聊天记录保留。", color = Sub, fontSize = 12.sp)
+            Spacer(Modifier.height(12.dp))
+        }
+    }
+    if (confirmReset) {
+        AlertDialog(
+            onDismissRequest = { confirmReset = false },
+            title = { Text("重置沙盒?") },
+            text = { Text("会清空 Agent 沙盒(含 Ubuntu 环境)里的所有文件,聊天记录保留。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmReset = false
+                    scope.launch {
+                        store.withSandboxLock(AGENT_ID) {
+                            withContext(Dispatchers.IO) { store.sandbox(AGENT_ID).reset() }
+                        }
+                        store.chat(AGENT_ID).add(Msg(role = "system", text = "沙盒已重置"))
+                        store.save()
+                    }
+                }) { Text("重置") }
+            },
+            dismissButton = { TextButton(onClick = { confirmReset = false }) { Text("取消") } }
+        )
     }
 }

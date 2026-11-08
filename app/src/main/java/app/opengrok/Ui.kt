@@ -53,6 +53,7 @@ sealed interface Screen {
     data class EditProvider(val id: String?) : Screen
     data object AgentChat : Screen
     data object EditAgent : Screen
+    data object AgentSettings : Screen
     data object Workflows : Screen
     data class EditWorkflow(val id: String?) : Screen
     data class EditMcp(val id: String?) : Screen
@@ -80,6 +81,7 @@ fun App(store: Store) {
                 is Screen.EditProvider -> EditProviderScreen(store, s.id) { screen = it }
                 Screen.AgentChat -> AgentChatScreen(store) { screen = it }
                 Screen.EditAgent -> EditAgentScreen(store) { screen = it }
+                Screen.AgentSettings -> AgentSettingsScreen(store) { screen = it }
                 Screen.Workflows -> WorkflowsScreen(store) { screen = it }
                 is Screen.EditWorkflow -> EditWorkflowScreen(store, s.id) { screen = it }
                 is Screen.EditMcp -> EditMcpScreen(store, s.id) { screen = it }
@@ -118,38 +120,25 @@ fun Avatar(seed: String, size: Dp, group: Boolean = false) {
 @Composable
 fun Home(store: Store, go: (Screen) -> Unit) {
     var menu by remember { mutableStateOf(false) }
-    var mode by remember { mutableStateOf("bot") }
     Column(Modifier.fillMaxSize()) {
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(if (mode == "agent") "Agent" else "Bots", color = Fg, fontSize = 30.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-            IconButton(onClick = { go(Screen.Settings) }) { Icon(Ic.Tune, null, tint = Fg) }
-            Box {
-                IconButton(onClick = { menu = true }) { Icon(Ic.Add, null, tint = Fg) }
-                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                    DropdownMenuItem(text = { Text("新建 Bot") }, onClick = { menu = false; go(Screen.EditBot(null)) })
-                    DropdownMenuItem(text = { Text("新建群聊") }, onClick = { menu = false; go(Screen.NewGroup) })
-                    DropdownMenuItem(text = { Text("工作流") }, onClick = { menu = false; go(Screen.Workflows) })
+            Spacer(Modifier.weight(1f))
+            ModeCapsule("bot", go)
+            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { go(Screen.Settings) }) { Icon(Ic.Tune, null, tint = Fg) }
+                Box {
+                    IconButton(onClick = { menu = true }) { Icon(Ic.Add, null, tint = Fg) }
+                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        DropdownMenuItem(text = { Text("新建 Bot") }, onClick = { menu = false; go(Screen.EditBot(null)) })
+                        DropdownMenuItem(text = { Text("新建群聊") }, onClick = { menu = false; go(Screen.NewGroup) })
+                        DropdownMenuItem(text = { Text("工作流") }, onClick = { menu = false; go(Screen.Workflows) })
+                    }
                 }
             }
         }
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            listOf("bot" to "Bot 模式", "agent" to "Agent 模式").forEach { (m, label) ->
-                val sel = mode == m
-                Box(
-                    Modifier.clip(RoundedCornerShape(20.dp)).background(if (sel) Color.White else Card)
-                        .clickable { mode = m }.padding(horizontal = 18.dp, vertical = 8.dp)
-                ) { Text(label, color = if (sel) Color.Black else Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
-            }
-        }
-        if (mode == "agent") {
-            AgentPanel(store, go)
-        } else {
         val rows = store.chatList()
         if (rows.isEmpty()) {
             Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
@@ -183,7 +172,6 @@ fun Home(store: Store, go: (Screen) -> Unit) {
                     }
                 }
             }
-        }
         }
     }
 }

@@ -29,6 +29,7 @@ class Store(private val ctx: Context) {
     val workflows = mutableStateListOf<Workflow>()
     val skills = mutableStateListOf<Skill>()
     val pendingApprovals = mutableStateListOf<Approval>()
+    private var skillsSeeded = false
 
     fun saveSkill(s: Skill) {
         val i = skills.indexOfFirst { it.id == s.id }
@@ -133,6 +134,12 @@ class Store(private val ctx: Context) {
 
     init {
         load()
+        if (!skillsSeeded) {
+            // First run (or first run of this version): seed the built-in skill packs once.
+            skills.addAll(PRESET_SKILLS.filter { p -> skills.none { it.id == p.id } })
+            skillsSeeded = true
+            save()
+        }
         // In-process routine scheduler: fires due self-assigned tasks while the app process lives.
         scope.launch {
             while (true) {
@@ -490,6 +497,7 @@ class Store(private val ctx: Context) {
         o.put("skills", JSONArray(skills.map {
             JSONObject().put("id", it.id).put("name", it.name).put("content", it.content)
         }))
+        o.put("skillsSeeded", skillsSeeded)
         o.put("approvals", JSONArray(pendingApprovals.map {
             JSONObject().put("id", it.id).put("chatId", it.chatId).put("botId", it.botId)
                 .put("command", it.command).put("createdMs", it.createdMs)
@@ -594,6 +602,7 @@ class Store(private val ctx: Context) {
                     skills.add(Skill(it.getString("id"), it.optString("name"), it.optString("content")))
                 }
             }
+            skillsSeeded = o.optBoolean("skillsSeeded", false)
             o.optJSONArray("approvals")?.let { a ->
                 for (i in 0 until a.length()) a.getJSONObject(i).let {
                     pendingApprovals.add(Approval(it.getString("id"), it.optString("chatId"), it.optString("botId"),
