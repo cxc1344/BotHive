@@ -165,7 +165,7 @@ object Agent {
             for (i in 0 until extra.length()) put(extra.get(i))
         }
         try {
-            for (step in 0 until 30) {
+            while (true) {
                 val message = withContext(Dispatchers.IO) { call(bot, msgs, allDefs) }
                 val calls = message.optJSONArray("tool_calls")
                 if (calls == null || calls.length() == 0) {
@@ -187,7 +187,6 @@ object Agent {
                     msgs.put(JSONObject().put("role", "tool").put("tool_call_id", c.getString("id")).put("content", out))
                 }
             }
-            return "(已达到最大步数 30,先停在这里)"
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
