@@ -1,48 +1,50 @@
 package app.opengrok
 
+import android.content.Context
 import java.io.File
-import java.util.concurrent.TimeUnit
 
 /**
- * Per-Bot sandbox. Milestone 1: a private working directory + Android's own /system/bin/sh.
- * Milestone 2 will swap exec() for a proot-based Alpine/Debian rootfs (same interface).
+ * One persistent PRoot/Alpine rootfs per Bot, plus that Bot's existing workspace.
+ * This is a Termux-like Linux userspace, NOT a VM or a kernel security boundary.
  */
-class Sandbox(val dir: File) {
-    fun exec(cmd: String, timeoutSec: Long = 30): String {
-        dir.mkdirs()
-        val pb = ProcessBuilder("/system/bin/sh", "-c", cmd).directory(dir).redirectErrorStream(true)
-        pb.environment().apply {
-            put("HOME", dir.absolutePath)
-            put("TMPDIR", dir.absolutePath)
-        }
-        val p = pb.start()
-        val sb = StringBuilder()
-        val reader = Thread {
-            try {
-                p.inputStream.bufferedReader().use { r ->
-                    val buf = CharArray(1024)
-                    while (true) {
-                        val n = r.read(buf)
-                        if (n < 0) break
-                        synchronized(sb) { if (sb.length < 20000) sb.append(buf, 0, n) }
-                    }
-                }
-            } catch (_: Exception) {
-            }
-        }
-        reader.start()
-        if (!p.waitFor(timeoutSec, TimeUnit.SECONDS)) {
-            p.destroyForcibly()
-            synchronized(sb) { sb.append("\n[超时 ${timeoutSec}s,已终止]") }
-        }
-        reader.join(1000)
-        val out = synchronized(sb) { sb.toString() }
-        val cut = if (out.length > 4000) out.take(4000) + "\n…(已截断)" else out
-        return cut.ifBlank { "(无输出)" }
+class Sandbox(context: Context, botId: String) {
+    private val app = context.applicationContext
+    private val safeId = botId.also {
+        require(it.matches(Regex("[A-Za-z0-9_-]{1,64}"))) { "Invalid Bot id" }
     }
 
+    /** Host-side workspace, retained at the old path for existing Guard and file handling. */
+    val dir: File = File(app.filesDir, "sandbox/$safeId")
+
+    /** Each Bot gets its own full unpacked Alpine tree and package database. */
+    private val rootfs: File = File(app.filesDir, "linux-rootfs/$safeId")
+
+    fun exec(cmd: String, timeoutSec: Long = 30): String {
+        if (cmd.isBlank()) return "(空命令)"
+        return try {
+            LinuxRuntime.exec(
+                context = app,
+                botId = safeId,
+                rootfs = rootfs,
+                workspace = dir,
+                command = cmd,
+                timeoutSec = timeoutSec
+            )
+        } catch (e: Exception) {
+            "[Linux 环境错误] ${e.message ?: e.javaClass.simpleName}"
+        }
+    }
+
+    /** Reset both the Bot's workspace and its Linux installation. */
     fun reset() {
         dir.deleteRecursively()
+        rootfs.deleteRecursively()
         dir.mkdirs()
+    }
+
+    fun deleteAll() {
+        reset()
+        dir.deleteRecursively()
+        rootfs.parentFile?.let { if (it.exists() && it.list()?.isEmpty() == true) it.delete() }
     }
 }
