@@ -93,6 +93,8 @@ object Agent {
                 JSONObject().put("path", str("绝对路径")).put("content", str("文件内容")).put("channel", str("通道,可选,默认 auto")), "path", "content"))
             put(fn("fs_delete", "删除任意文件或目录(绝对路径,递归删除,务必谨慎)。channel 含义同 fs_list。",
                 JSONObject().put("path", str("绝对路径")).put("channel", str("通道,可选,默认 auto")), "path"))
+            put(fn("fs_scan", "统计空间占用(普通通道,需所有文件访问授权):返回某目录下各子项的总大小并按大小降序排列。清理存储、找大文件时先用它摸底,一次顶几十次 fs_list。depth=统计层级(1 只看一级子项、2 看到二级,默认 2,最大 3)。",
+                JSONObject().put("path", str("绝对路径")).put("depth", JSONObject().put("type", "integer").put("description", "统计层级 1-3,默认 2")), "path"))
             put(fn("device_status", "查看手机状态:电量、充电、存储空间、内存、系统版本、已开机时长。", JSONObject()))
             put(fn("app_usage", "查看今天各应用的前台使用时长排行(需要用户已开启「使用情况访问」)。", JSONObject()))
             put(fn("list_apps", "列出手机上可启动的应用(名称与包名)。", JSONObject()))
@@ -163,7 +165,7 @@ object Agent {
             for (i in 0 until extra.length()) put(extra.get(i))
         }
         try {
-            for (step in 0 until 8) {
+            for (step in 0 until 30) {
                 val message = withContext(Dispatchers.IO) { call(bot, msgs, allDefs) }
                 val calls = message.optJSONArray("tool_calls")
                 if (calls == null || calls.length() == 0) {
@@ -185,7 +187,7 @@ object Agent {
                     msgs.put(JSONObject().put("role", "tool").put("tool_call_id", c.getString("id")).put("content", out))
                 }
             }
-            return "(已达到最大步数 8,先停在这里)"
+            return "(已达到最大步数 30,先停在这里)"
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -238,7 +240,7 @@ object Agent {
                 }
                 reply
             }
-            "fs_list", "fs_read", "fs_write", "fs_delete" -> {
+            "fs_list", "fs_read", "fs_write", "fs_delete", "fs_scan" -> {
                 if (bot.id != AGENT_ID) return "该工具只有设备 Agent 可用。"
                 val ch = a.optString("channel", "auto").ifBlank { "auto" }
                 val p = a.optString("path")
@@ -246,6 +248,7 @@ object Agent {
                     "fs_list" -> FsTools.list(store.appContext(), p, ch)
                     "fs_read" -> FsTools.read(store.appContext(), p, ch)
                     "fs_write" -> FsTools.write(store.appContext(), p, a.optString("content"), ch)
+                    "fs_scan" -> FsTools.scan(p, a.optInt("depth", 2))
                     else -> FsTools.delete(store.appContext(), p, ch)
                 }
             }

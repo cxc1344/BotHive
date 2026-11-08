@@ -49,6 +49,57 @@ private fun channelError(channel: String): String = when (channel) {
 else -> "该通道不可用。"
 }
 
+private fun humanSize(n: Long): String = when {
+n >= 1_073_741_824 -> "%.1f GB".format(n / 1_073_741_824.0)
+n >= 1_048_576 -> "%.1f MB".format(n / 1_048_576.0)
+n >= 1024 -> "%.1f KB".format(n / 1024.0)
+else -> "$n B"
+}
+
+/** Recursive size report (standard channel): sub-item totals down to [depth] levels, biggest first. */
+fun scan(path: String, depth: Int): String {
+if (!allFilesGranted()) return channelError("standard")
+val root = File(path.ifBlank { "/sdcard" })
+if (!root.isDirectory) return "目录不存在:${root.path}"
+val d = depth.coerceIn(1, 3)
+val rootCanon = runCatching { root.canonicalPath }.getOrNull() ?: root.path
+var visited = 0
+fun sizeOf(f: File): Long {
+if (f.isFile) return f.length()
+var total = 0L
+val kids = f.listFiles() ?: return 0
+for (k in kids) {
+if (++visited > 80_000) break
+val kc = runCatching { k.canonicalPath }.getOrNull() ?: continue
+if (!kc.startsWith(rootCanon)) continue
+total += sizeOf(k)
+}
+return total
+}
+val rows = mutableListOf<Pair<String, Long>>()
+var frontier = listOf("" to root)
+repeat(d) {
+val next = mutableListOf<Pair<String, File>>()
+for ((rel, f) in frontier) {
+val kids = f.listFiles() ?: continue
+for (k in kids) {
+val krel = if (rel.isEmpty()) k.name else "$rel/${k.name}"
+if (k.isDirectory) next.add(krel to k) else rows.add(krel to k.length())
+}
+}
+frontier = next
+}
+for ((rel, f) in frontier) rows.add(rel to sizeOf(f))
+val totalAll = rows.sumOf { it.second }
+val sb = StringBuilder()
+sb.append("${root.path} 共 ${humanSize(totalAll)},按大小排列(前 40):\n")
+for ((rel, sz) in rows.sortedByDescending { it.second }.take(40)) {
+sb.append("- $rel  ${humanSize(sz)}\n")
+}
+if (visited > 80_000) sb.append("(文件太多,统计已截断)\n")
+return sb.toString().trimEnd()
+}
+
 suspend fun list(ctx: Context, path: String, channel: String): String {
 val p = path.ifBlank { "/sdcard"}
 return when (channel) {
