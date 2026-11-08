@@ -25,7 +25,9 @@ The PRoot source is available from the upstream repository at the pinned revisio
 
 ## Alpine Linux minirootfs
 
-Alpine minirootfs is downloaded at first install from the official Alpine CDN, not embedded in this source bundle. The downloaded archive is checked against the SHA-256 sidecar served alongside it. Alpine and its packages retain their own license notices inside each Bot's root filesystem.
+Alpine minirootfs is downloaded at first install, not embedded in this source bundle. The downloader tries the official Alpine CDN first and falls back to the public mirrors `mirrors.aliyun.com` and `mirrors.tuna.tsinghua.edu.cn` (same path layout). The downloaded archive is checked against the SHA-256 sidecar served alongside it **by the same host**; this detects corruption and truncated transfers but is not an authenticity guarantee against a malicious mirror or network intermediary (pinning the expected digests in the app is a possible future hardening). Alpine and its packages retain their own license notices inside each Bot's root filesystem.
+
+The archive is unpacked by an in-app tar reader (`TarExtract.kt`, original code in this repository, no third-party tar library).
 
 - Alpine release: `3.24.4`
 - Official index: https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/
