@@ -4,6 +4,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -26,6 +27,7 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -183,6 +185,8 @@ fun ChatScreen(store: Store, id: String, go: (Screen) -> Unit) {
     val readOnly = id.startsWith("dm:") || id.startsWith("wf:")
     val isBot = id.startsWith("bot:")
     var input by remember { mutableStateOf("") }
+    val staged = remember { mutableStateListOf<AttachItem>() }
+    val pickFiles = AttachPickerLauncher { staged.addAll(it) }
     var confirm by remember { mutableStateOf(false) }
     var projectMode by remember { mutableStateOf(true) }
     val isManager = isBot && store.bot(id.removePrefix("bot:"))?.isManager == true
@@ -225,7 +229,11 @@ fun ChatScreen(store: Store, id: String, go: (Screen) -> Unit) {
             }
         }
         if (!readOnly) {
+            AttachChips(staged) { staged.remove(it) }
             Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.Bottom) {
+                IconButton(onClick = { pickFiles() }, modifier = Modifier.size(52.dp)) {
+                    Icon(Ic.Attach, null, tint = Fg)
+                }
                 TextField(
                     value = input, onValueChange = { input = it },
                     modifier = Modifier.weight(1f), placeholder = { Text(if (isManager && projectMode) "下达任务,总经理先出分工方案…" else "发消息…") },
@@ -237,15 +245,21 @@ fun ChatScreen(store: Store, id: String, go: (Screen) -> Unit) {
                     )
                 )
                 Spacer(Modifier.width(8.dp))
-                val can = input.isNotBlank() && !busy
-                Box(
-                    Modifier.size(52.dp).clip(CircleShape).background(if (can) Color.White else Line)
-                        .clickable(enabled = can) {
-                            if (isManager && projectMode) store.startProject(id, input.trim()) else store.send(id, input.trim())
-                            input = ""
-                        },
-                    contentAlignment = Alignment.Center
-                ) { Icon(Ic.Send, null, tint = Color.Black) }
+                if (busy) {
+                    StopButton { store.stopChat(id) }
+                } else {
+                    val can = input.isNotBlank() || staged.isNotEmpty()
+                    Box(
+                        Modifier.size(52.dp).clip(CircleShape).background(if (can) Color.White else Line)
+                            .clickable(enabled = can) {
+                                if (isManager && projectMode && staged.isEmpty()) store.startProject(id, input.trim())
+                                else store.send(id, input.trim(), staged.toList())
+                                input = ""
+                                staged.clear()
+                            },
+                        contentAlignment = Alignment.Center
+                    ) { Icon(Ic.Send, null, tint = Color.Black) }
+                }
             }
         }
     }
@@ -270,7 +284,28 @@ fun MsgView(store: Store, m: Msg, showName: Boolean, thinking: Boolean, go: (Scr
             modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
         m.from == null -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             Surface(color = Color(0xFF2B2D31), shape = RoundedCornerShape(20.dp), modifier = Modifier.widthIn(max = 300.dp)) {
-                SelectionContainer { Text(m.text, color = Fg, fontSize = 16.sp, modifier = Modifier.padding(14.dp, 10.dp)) }
+                Column(Modifier.padding(14.dp, 10.dp)) {
+                    if (m.images.isNotEmpty()) {
+                        val ctx = androidx.compose.ui.platform.LocalContext.current
+                        m.images.forEachIndexed { i, name ->
+                            val bmp = remember(name) {
+                                runCatching {
+                                    android.graphics.BitmapFactory.decodeFile(
+                                        java.io.File(ctx.filesDir, "attachments/$name").absolutePath
+                                    )
+                                }.getOrNull()
+                            }
+                            if (bmp != null) {
+                                Image(
+                                    bmp.asImageBitmap(), null,
+                                    Modifier.fillMaxWidth().heightIn(max = 220.dp).clip(RoundedCornerShape(12.dp))
+                                )
+                                if (i < m.images.lastIndex || m.text.isNotBlank()) Spacer(Modifier.height(8.dp))
+                            }
+                        }
+                    }
+                    if (m.text.isNotBlank()) SelectionContainer { Text(m.text, color = Fg, fontSize = 16.sp) }
+                }
             }
         }
         else -> Column(Modifier.fillMaxWidth()) {

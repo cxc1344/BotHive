@@ -123,6 +123,8 @@ fun AgentChatScreen(store: Store, go: (Screen) -> Unit) {
     val msgs = store.chat(AGENT_ID)
     val busy = AGENT_ID in store.busy
     var input by remember { mutableStateOf("") }
+    val staged = remember { mutableStateListOf<AttachItem>() }
+    val pickFiles = AttachPickerLauncher { staged.addAll(it) }
     val listState = rememberLazyListState()
     val last = msgs.lastOrNull()
     LaunchedEffect(msgs.size, last?.tools?.size, last?.text) {
@@ -177,7 +179,11 @@ fun AgentChatScreen(store: Store, go: (Screen) -> Unit) {
                 MsgView(store, m, showName = false, thinking = busy && m.id == msgs.last().id, go = go)
             }
         }
+        AttachChips(staged) { staged.remove(it) }
         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.Bottom) {
+            IconButton(onClick = { pickFiles() }, modifier = Modifier.size(52.dp)) {
+                Icon(Ic.Attach, null, tint = Fg)
+            }
             TextField(
                 value = input, onValueChange = { input = it },
                 modifier = Modifier.weight(1f), placeholder = { Text("吩咐 Agent 做点什么…") },
@@ -189,15 +195,20 @@ fun AgentChatScreen(store: Store, go: (Screen) -> Unit) {
                 )
             )
             Spacer(Modifier.width(8.dp))
-            val can = input.isNotBlank() && !busy && agent != null
-            Box(
-                Modifier.size(52.dp).clip(CircleShape).background(if (can) Color.White else Line)
-                    .clickable(enabled = can) {
-                        store.sendAgent(input.trim())
-                        input = ""
-                    },
-                contentAlignment = Alignment.Center
-            ) { Icon(Ic.Send, null, tint = Color.Black) }
+            if (busy) {
+                StopButton { store.stopChat(AGENT_ID) }
+            } else {
+                val can = (input.isNotBlank() || staged.isNotEmpty()) && agent != null
+                Box(
+                    Modifier.size(52.dp).clip(CircleShape).background(if (can) Color.White else Line)
+                        .clickable(enabled = can) {
+                            store.sendAgent(input.trim(), staged.toList())
+                            input = ""
+                            staged.clear()
+                        },
+                    contentAlignment = Alignment.Center
+                ) { Icon(Ic.Send, null, tint = Color.Black) }
+            }
         }
     }
 }

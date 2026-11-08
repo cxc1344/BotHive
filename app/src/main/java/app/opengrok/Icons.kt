@@ -14,6 +14,8 @@ private fun vec(name: String, d: String): ImageVector =
 /** All icons are rendered vectors — no emoji anywhere. */
 object Ic {
     val Add = vec("add", "M19,13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z")
+    val Attach = vec("attach", "M16.5,6v11.5c0,2.21 -1.79,4 -4,4s-4,-1.79 -4,-4V5c0,-1.66 1.34,-3 3,-3s3,1.34 3,3v10.5c0,1.1 -0.9,2 -2,2s-2,-0.9 -2,-2V6H8.5v9.5C8.5,17.99 10.51,20 13,20s4.5,-2.01 4.5,-4.5V5c0,-2.76 -2.24,-5 -5,-5S7,2.24 7,5v12.5C7,20.43 9.57,23 12.5,23s5.5,-2.57 5.5,-5.5V6H16.5z")
+    val Stop = vec("stop", "M6,6h12v12H6z")
     val Send = vec("send", "M2.01,21L23,12 2.01,3 2,10l15,2 -15,2z")
     val Back = vec("back", "M20,11H7.83l5.59,-5.59L12,4l-8,8 8,8 1.41,-1.41L7.83,13H20v-2z")
     val Down = vec("down", "M16.59,8.59L12,13.17 7.41,8.59 6,10l6,6 6,-6z")

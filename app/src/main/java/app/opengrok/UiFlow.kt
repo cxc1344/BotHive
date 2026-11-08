@@ -1,5 +1,7 @@
 package app.opengrok
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -13,12 +15,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -284,4 +289,64 @@ fun EditMcpScreen(store: Store, serverId: String?, go: (Screen) -> Unit) {
             }
         }
     }
+}
+
+/** Document/photo picker for chat inputs: returns a launcher function; picked files are read into memory (25MB cap each). */
+@Composable
+fun AttachPickerLauncher(onPicked: (List<AttachItem>) -> Unit): () -> Unit {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+        scope.launch {
+            val items = withContext(Dispatchers.IO) {
+                uris.mapNotNull { uri ->
+                    runCatching {
+                        val cr = context.contentResolver
+                        val mime = cr.getType(uri) ?: "application/octet-stream"
+                        var name = "file"
+                        cr.query(uri, null, null, null, null)?.use { c ->
+                            val idx = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                            if (idx >= 0 && c.moveToFirst()) c.getString(idx)?.let { name = it }
+                        }
+                        val bytes = cr.openInputStream(uri)?.use { it.readBytes() } ?: return@runCatching null
+                        if (bytes.size > 25 * 1024 * 1024) null else AttachItem(name, mime, bytes)
+                    }.getOrNull()
+                }
+            }
+            if (items.isNotEmpty()) onPicked(items)
+        }
+    }
+    return { launcher.launch(arrayOf("*/*")) }
+}
+
+/** Chips row showing files staged for the next message, each removable. */
+@Composable
+fun AttachChips(items: List<AttachItem>, onRemove: (AttachItem) -> Unit) {
+    if (items.isEmpty()) return
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp).horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items.forEach { item ->
+            Row(
+                Modifier.clip(RoundedCornerShape(16.dp)).background(Card).padding(horizontal = 10.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(item.name, color = Fg, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 160.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("✕", color = Sub, fontSize = 12.sp, modifier = Modifier.clickable { onRemove(item) })
+            }
+        }
+    }
+}
+
+/** Red stop button shown while a chat is working; cancels the current run. */
+@Composable
+fun StopButton(onStop: () -> Unit) {
+    Box(
+        Modifier.size(52.dp).clip(androidx.compose.foundation.shape.CircleShape).background(Color(0xFFE5484D))
+            .clickable { onStop() },
+        contentAlignment = Alignment.Center
+    ) { Icon(Ic.Stop, null, tint = Color.White) }
 }

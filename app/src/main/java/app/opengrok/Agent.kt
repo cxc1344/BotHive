@@ -15,6 +15,7 @@ import okhttp3.Response
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
@@ -145,13 +146,36 @@ object Agent {
                 (if (others.isNotEmpty()) "同伴:$others(其中设备 Agent 在用户手机本地,能读写用户授权的手机文件夹),可用 ask_bot 私信求助。" else "") +
                 "群聊里其他 Bot 的发言会以 [名字] 开头。请使用用户的语言回复。" + skillSuffix
         }
+        // Attached images are inlined as base64 vision parts on the user's own messages.
+        val imgB64 = withContext(Dispatchers.IO) {
+            val dir = File(store.appContext().filesDir, "attachments")
+            history.flatMap { it.images }.distinct().mapNotNull { name ->
+                val f = File(dir, name)
+                if (f.exists()) runCatching {
+                    name to java.util.Base64.getEncoder().encodeToString(f.readBytes())
+                }.getOrNull() else null
+            }.toMap()
+        }
         val msgs = JSONArray()
         msgs.put(JSONObject().put("role", "system").put("content", sys))
         for (m in history) {
-            if (m.text.isBlank() || m.role == "system" || m.role == "project") continue
+            if (m.text.isBlank() && m.images.isEmpty() || m.role == "system" || m.role == "project") continue
             when {
                 m.from == bot.id -> msgs.put(JSONObject().put("role", "assistant").put("content", m.text))
-                m.from == null -> msgs.put(JSONObject().put("role", "user").put("content", m.text))
+                m.from == null -> {
+                    val usable = m.images.mapNotNull { imgB64[it] }
+                    if (usable.isEmpty()) {
+                        msgs.put(JSONObject().put("role", "user").put("content", m.text))
+                    } else {
+                        val parts = JSONArray()
+                        if (m.text.isNotBlank()) parts.put(JSONObject().put("type", "text").put("text", m.text))
+                        for (b64 in usable) parts.put(
+                            JSONObject().put("type", "image_url")
+                                .put("image_url", JSONObject().put("url", "data:image/jpeg;base64,$b64"))
+                        )
+                        msgs.put(JSONObject().put("role", "user").put("content", parts))
+                    }
+                }
                 else -> msgs.put(JSONObject().put("role", "user")
                     .put("content", "[${store.botName(m.from)}] ${m.text}"))
             }

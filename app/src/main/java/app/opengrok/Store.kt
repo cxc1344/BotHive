@@ -6,7 +6,9 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -390,19 +392,85 @@ class Store(private val ctx: Context) {
         val history = list.toList()
         list.add(Msg(role = "assistant", text = "", from = b.id))
         val idx = list.lastIndex
-        val reply = Agent.run(this, b, history, depth, chatId) { tools ->
-            withContext(Dispatchers.Main) { list[idx] = list[idx].copy(tools = tools) }
+        val reply = try {
+            Agent.run(this, b, history, depth, chatId) { tools ->
+                withContext(Dispatchers.Main) { list[idx] = list[idx].copy(tools = tools) }
+            }
+        } catch (e: CancellationException) {
+            if (list[idx].text.isBlank()) list[idx] = list[idx].copy(text = "(已停止)")
+            save()
+            throw e
         }
         list[idx] = list[idx].copy(text = reply)
         save()
         return reply
     }
 
-    fun send(chatId: String, text: String) {
-        val list = chat(chatId)
-        list.add(Msg(role = "user", text = text))
-        save()
-        scope.launch {
+    private val jobs = mutableMapOf<String, Job>()
+
+    /** User pressed stop: cancel whatever this chat is currently running. */
+    fun stopChat(chatId: String) {
+        jobs[chatId]?.cancel()
+    }
+
+    private val textExts = listOf(".txt", ".md", ".json", ".csv", ".log", ".xml", ".html", ".kt", ".py", ".js", ".ts", ".yaml", ".yml", ".ini", ".properties")
+
+    /**
+     * Turns picked attachments into (extra message text, stored image names):
+     * images are downscaled to JPEG and kept for vision models; small text files are
+     * inlined into the message; anything else is copied into each target Bot's
+     * sandbox uploads/ and referenced by path in the text.
+     */
+    private suspend fun processAttachments(targetIds: List<String>, items: List<AttachItem>): Pair<String, List<String>> =
+        withContext(Dispatchers.IO) {
+            val suffix = StringBuilder()
+            val imgs = mutableListOf<String>()
+            val attDir = File(appContext().filesDir, "attachments").apply { mkdirs() }
+            for (item in items) {
+                val mime = item.mime.lowercase()
+                when {
+                    mime.startsWith("image/") -> {
+                        val jpg = downscaleToJpeg(item.bytes)
+                        if (jpg != null) {
+                            val name = java.util.UUID.randomUUID().toString().take(12) + ".jpg"
+                            runCatching { File(attDir, name).writeBytes(jpg) }
+                                .onSuccess { imgs.add(name) }
+                                .onFailure { suffix.append("\n【附件图片 ${item.name} 保存失败,已忽略】") }
+                        } else suffix.append("\n【附件图片 ${item.name} 解码失败,已忽略】")
+                    }
+                    (mime.startsWith("text/") || textExts.any { item.name.lowercase().endsWith(it) }) &&
+                        item.bytes.size <= 256 * 1024 -> {
+                        val content = runCatching { String(item.bytes, Charsets.UTF_8) }.getOrDefault("")
+                        suffix.append("\n\n【附件:${item.name}】\n").append(content.take(20_000))
+                    }
+                    else -> {
+                        var saved = false
+                        for (tid in targetIds) {
+                            val up = File(sandbox(tid).dir, "uploads").apply { mkdirs() }
+                            runCatching { File(up, item.name).writeBytes(item.bytes) }.onSuccess { saved = true }
+                        }
+                        if (saved) suffix.append("\n【附件 ${item.name} 已存入你的工作区:/workspace/uploads/${item.name}】")
+                        else suffix.append("\n【附件 ${item.name} 保存失败,已忽略】")
+                    }
+                }
+            }
+            suffix.toString() to imgs
+        }
+
+    private fun downscaleToJpeg(bytes: ByteArray): ByteArray? {
+        val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
+        val maxDim = 1568
+        val scale = minOf(1f, maxDim.toFloat() / maxOf(bmp.width, bmp.height))
+        val out = if (scale < 1f) android.graphics.Bitmap.createScaledBitmap(
+            bmp, (bmp.width * scale).toInt().coerceAtLeast(1), (bmp.height * scale).toInt().coerceAtLeast(1), true
+        ) else bmp
+        val baos = java.io.ByteArrayOutputStream()
+        out.compress(android.graphics.Bitmap.CompressFormat.JPEG, 82, baos)
+        return baos.toByteArray()
+    }
+
+    fun send(chatId: String, text: String, items: List<AttachItem> = emptyList()) {
+        val job = scope.launch {
             busy.add(chatId)
             try {
                 val targets = when {
@@ -412,33 +480,43 @@ class Store(private val ctx: Context) {
                             ?.memberIds?.mapNotNull { bot(it) } ?: emptyList()
                     else -> emptyList()
                 }
+                val (suffix, imgs) = processAttachments(targets.map { it.id }, items)
+                val list = chat(chatId)
+                list.add(Msg(role = "user", text = text + suffix, images = imgs))
+                save()
                 for (b in targets) runBotIn(chatId, b)
             } finally {
                 busy.remove(chatId)
+                jobs.remove(chatId)
             }
         }
+        jobs[chatId] = job
     }
 
     /** Sends a user message to the on-device Agent (chat id "agent"). */
-    fun sendAgent(text: String) {
+    fun sendAgent(text: String, items: List<AttachItem> = emptyList()) {
         val a = agent.value ?: return
-        val list = chat(AGENT_ID)
-        list.add(Msg(role = "user", text = text))
-        save()
-        scope.launch {
+        val job = scope.launch {
             busy.add(AGENT_ID)
             try {
+                val (suffix, imgs) = processAttachments(listOf(AGENT_ID), items)
+                val list = chat(AGENT_ID)
+                list.add(Msg(role = "user", text = text + suffix, images = imgs))
+                save()
                 runBotIn(AGENT_ID, a)
             } finally {
                 busy.remove(AGENT_ID)
+                jobs.remove(AGENT_ID)
             }
         }
+        jobs[AGENT_ID] = job
     }
 
     // ---- persistence ----
     private fun msgJson(m: Msg) = JSONObject().apply {
         put("id", m.id); put("role", m.role); put("text", m.text)
         m.from?.let { put("from", it) }
+        if (m.images.isNotEmpty()) put("images", JSONArray(m.images))
         put("tools", JSONArray(m.tools.map {
             JSONObject().put("id", it.id).put("name", it.name).put("args", it.args).put("output", it.output)
         }))
@@ -650,8 +728,10 @@ class Store(private val ctx: Context) {
                             val t = ts.getJSONObject(it)
                             ToolCall(t.getString("id"), t.getString("name"), t.optString("args"), t.optString("output"))
                         }
+                        val imgArr = m.optJSONArray("images")
+                        val imgList = if (imgArr == null) emptyList() else (0 until imgArr.length()).map { imgArr.getString(it) }
                         l.add(Msg(m.getString("id"), m.getString("role"), m.optString("text"), tools,
-                            if (m.has("from")) m.getString("from") else null))
+                            if (m.has("from")) m.getString("from") else null, imgList))
                     }
                 }
             }
