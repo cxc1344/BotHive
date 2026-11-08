@@ -41,13 +41,13 @@ object Secrets {
         return String(c.doFinal(raw, 12, raw.size - 12), Charsets.UTF_8)
     }
 
-    /** Never silently stores API keys in plaintext when Android Keystore is unavailable. */
+    /** Never silently writes an API key in plaintext when Android Keystore is unavailable. */
     fun enc(plain: String): String {
         if (plain.isEmpty()) return ""
         return encStrict(plain)
     }
 
-    /** Legacy plaintext values (no "enc:" prefix) are returned as-is and get encrypted on the next save. */
+    /** Legacy plaintext entries remain readable and are encrypted on the next successful save. */
     fun dec(s: String): String {
         if (!s.startsWith("enc:")) return s
         return try { decStrict(s) } catch (_: Exception) { "" }
