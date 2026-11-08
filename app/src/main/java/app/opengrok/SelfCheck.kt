@@ -11,6 +11,8 @@ object SelfCheck {
     private val http = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(20, TimeUnit.SECONDS)
+        .followRedirects(false)
+        .followSslRedirects(false)
         .build()
 
     /** Each result: (passed, message). */
@@ -19,7 +21,7 @@ object SelfCheck {
         if (bot.apiKey.isBlank()) out.add(false to "未填写 API Key")
 
         try {
-            val req = Request.Builder().url(bot.baseUrl.trimEnd('/') + "/models")
+            val req = Request.Builder().url(ApiEndpoint.validate(bot) + "/models")
                 .header("Authorization", "Bearer ${bot.apiKey}").build()
             val t0 = System.currentTimeMillis()
             http.newCall(req).execute().use { r ->
@@ -51,10 +53,10 @@ object SelfCheck {
             out.add(false to "对话接口失败:${e.message?.take(160)}")
         }
 
-        val r = store.sandbox(bot.id).exec("echo ok && pwd")
-        out.add(r.contains("ok") to "沙盒:${if (r.contains("ok")) "可执行" else "异常"} — ${r.replace("\n", " ").take(80)}")
+        val r = store.sandbox(bot.id).exec("echo ok && pwd && uname -m && cat /etc/alpine-release")
+        out.add((r.contains("ok") && r.contains("[exit 0]")) to "PRoot/Alpine:${if (r.contains("[exit 0]")) "可执行" else "异常"} — ${r.replace("\n", " ").take(100)}")
 
-        out.add(Secrets.isKeystoreWorking() to if (Secrets.isKeystoreWorking()) "Key 存储:Keystore 加密正常" else "Key 存储:Keystore 不可用,已回退明文")
+        out.add(Secrets.isKeystoreWorking() to if (Secrets.isKeystoreWorking()) "Key 存储:Keystore 加密正常" else "Key 存储:Keystore 不可用,不会明文保存 API Key")
         out
     }
 }
