@@ -29,14 +29,37 @@ command -v curl >/dev/null || { echo "curl is required" >&2; exit 1; }
 command -v unzip >/dev/null || { echo "unzip is required" >&2; exit 1; }
 command -v sha256sum >/dev/null || { echo "sha256sum is required" >&2; exit 1; }
 
+# Download one archive, trying the canonical GitHub URL first and then public
+# mirrors. Every candidate is verified against the pinned SHA-256 above, so a
+# mirror can never substitute different bytes — it can only fail.
+fetch_one() {
+  local arch="$1" zip="$2"
+  local path="proot-${arch}.zip"
+  local urls=(
+    "${BASE}/${path}"
+    "https://gh-proxy.com/${BASE}/${path}"
+    "https://ghfast.top/${BASE}/${path}"
+    "https://ghproxy.net/${BASE}/${path}"
+  )
+  local url
+  for url in "${urls[@]}"; do
+    if curl --fail --location --retry 2 --retry-all-errors --silent --show-error "${url}" -o "${zip}"; then
+      if echo "${SHA256[$arch]}  ${zip}" | sha256sum --check --status; then
+        echo "Fetched ${path} from ${url}"
+        return 0
+      fi
+      echo "SHA-256 mismatch from ${url}; trying next source" >&2
+    else
+      echo "Download failed from ${url}; trying next source" >&2
+    fi
+  done
+  echo "All download sources failed for ${path}" >&2
+  return 1
+}
+
 for arch in aarch64 arm x86 x86_64; do
   zip="${TMP}/proot-${arch}.zip"
-  curl --fail --location --retry 3 --retry-all-errors --silent --show-error \
-    "${BASE}/proot-${arch}.zip" -o "${zip}"
-  echo "${SHA256[$arch]}  ${zip}" | sha256sum --check --status || {
-    echo "SHA-256 mismatch for proot-${arch}.zip" >&2
-    exit 1
-  }
+  fetch_one "${arch}" "${zip}"
 
   unpack="${TMP}/${arch}"
   mkdir -p "${unpack}"
