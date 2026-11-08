@@ -1,6 +1,7 @@
 package app.opengrok
 
 import android.content.Context
+import android.util.Log
 import java.io.File
 
 /**
@@ -31,20 +32,26 @@ class Sandbox(context: Context, botId: String) {
                 timeoutSec = timeoutSec
             )
         } catch (e: Exception) {
-            "[Linux 环境错误] ${e.message ?: e.javaClass.simpleName}"
+            Log.e("OpenGrokLinux", "exec failed", e)
+            runCatching { File(app.cacheDir, "linux-last-error.log").writeText(Log.getStackTraceString(e)) }
+            "[Linux 环境错误] " + LinuxRuntime.describe(e).let { d ->
+                // LinuxSetupException already carries "[步骤 n/8 …] detail" + diagnostics in its message.
+                if (e is LinuxSetupException) e.message ?: d else d
+            }
         }
     }
 
     /** Reset both the Bot's workspace and its Linux installation. */
     fun reset() {
-        dir.deleteRecursively()
-        rootfs.deleteRecursively()
+        // Never follow symlinks while deleting: guest-created links must not redirect host deletions.
+        TarExtract.deleteTree(dir)
+        TarExtract.deleteTree(rootfs)
         dir.mkdirs()
     }
 
     fun deleteAll() {
         reset()
-        dir.deleteRecursively()
+        TarExtract.deleteTree(dir)
         rootfs.parentFile?.let { if (it.exists() && it.list()?.isEmpty() == true) it.delete() }
     }
 }
