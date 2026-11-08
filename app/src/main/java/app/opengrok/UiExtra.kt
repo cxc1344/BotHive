@@ -90,6 +90,12 @@ fun SettingsScreen(store: Store, go: (Screen) -> Unit) {
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            store.persistenceError.value?.let {
+                Text(it, color = Color(0xFFFF8A80), fontSize = 12.sp)
+            }
+            Text("Linux 环境", color = Fg, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+            Text("每个 Bot 拥有独立的 Alpine 3.24.4 文件系统和工作目录。首次自检或首次 shell 执行会下载约 4 MB 的基础系统。PRoot 是用户态 Linux 环境，不是完整虚拟机或强安全边界。", color = Sub, fontSize = 12.sp)
+            HorizontalDivider(color = Line)
             Text("连接自检", color = Fg, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
             Text("检查接口连通性、/models 拉取、对话接口、沙盒状态与 Key 加密存储", color = Sub, fontSize = 12.sp)
             if (store.bots.isEmpty()) Text("还没有 Bot", color = Sub)
