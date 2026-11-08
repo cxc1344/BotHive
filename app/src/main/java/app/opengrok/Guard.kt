@@ -1,8 +1,11 @@
 package app.opengrok
 
+import java.io.File
+
 /**
  * Heuristic blacklist applied to every shell tool call BEFORE execution.
- * It is a speed bump against accidents, not a security boundary — the real boundary is the sandbox.
+ * It is a speed bump against accidents, NOT a security boundary. Sandbox currently provides a
+ * working directory only; shell processes still run with the app UID. Do not describe this as OS isolation.
  * Mirrored in tools/guard_selfcheck.py (keep both in sync).
  */
 object Guard {
@@ -23,11 +26,13 @@ object Guard {
     private val REDIR_BLK = Regex(""">\s*/dev/(sd|mmcblk|nvme|block|vd|hd)""")
     private val SPLIT = Regex("""[;&|\n]+""")
     private val WS = Regex("""\s+""")
+    private val NESTED_SHELL = Regex("""\b(sh|bash|ash|dash)\s+-c\b""")
     private val WRAPPERS = setOf("sudo", "env", "command", "nohup", "exec", "time", "busybox", "toybox")
 
     /** Returns a human-readable reason if the command must be blocked, else null. */
     fun check(cmd: String, allowDir: String? = null): String? {
         val whole = cmd.trim()
+        if (NESTED_SHELL.containsMatchIn(whole)) return "不允许通过嵌套 shell -c 绕过命令检查"
         if (whole.replace(WS, "").contains(":(){:|:&};:") || FORK.containsMatchIn(whole)) return "疑似 fork 炸弹"
         if (PIPE_SH.containsMatchIn(whole)) return "下载后直接管道执行脚本 (curl|sh)"
         if (B64_SH.containsMatchIn(whole)) return "解码后直接执行脚本"
@@ -42,6 +47,7 @@ object Guard {
             while (toks.isNotEmpty() && toks[0] in WRAPPERS) toks.removeAt(0)
             if (toks.isEmpty()) continue
             val c = toks[0].substringAfterLast('/')
+            if (c in setOf("cd", "pushd", "popd")) return "不允许切换工作目录"
             if (c in setOf("reboot", "shutdown", "poweroff", "halt")) return "关机/重启命令"
             val args = toks.drop(1)
             val flags = args.filter { it.startsWith("-") }
@@ -65,16 +71,29 @@ object Guard {
     }
 
     private fun badPath(raw: String, allowDir: String?): Boolean {
-        if (!raw.startsWith("/")) return false          // relative paths and ~ stay inside the Bot's own workspace
-        if (allowDir != null && (raw == allowDir || raw.startsWith("$allowDir/"))) return false
-        var p = raw
-        if (p.endsWith("/*")) p = p.dropLast(2)
-        p = p.trimEnd('/')
-        if (p.isEmpty()) return true                    // "/", "/*", "//"
-        if (p in CRITICAL || p in EXACT_ONLY) return true
-        for (root in CRITICAL) {
-            if (p.startsWith("$root/") && !p.removePrefix("$root/").contains('/')) return true  // immediate child, e.g. /usr/bin
+        if (allowDir == null && !File(raw).isAbsolute) return false
+        return try {
+            val candidate = if (allowDir == null || File(raw).isAbsolute) {
+                File(raw)
+            } else {
+                File(File(allowDir).canonicalFile, raw)
+            }
+            val target = candidate.canonicalFile.toPath()
+
+            if (allowDir != null) {
+                // Path.startsWith compares path components and canonicalFile resolves existing symlinks.
+                // This blocks ../ traversal, absolute paths outside the workspace, and symlink escapes.
+                val root = File(allowDir).canonicalFile.toPath()
+                !target.startsWith(root)
+            } else {
+                val p = target.toString().trimEnd('/')
+                p.isEmpty() || p == "/" ||
+                    CRITICAL.any { p == it || p.startsWith("$it/") } ||
+                    EXACT_ONLY.any { p == it || p.startsWith("$it/") }
+            }
+        } catch (_: Exception) {
+            // An unresolvable path is not safe to approve.
+            true
         }
-        return false
     }
 }
