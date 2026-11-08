@@ -39,7 +39,7 @@ class Store(private val ctx: Context) {
 
     fun chat(id: String): SnapshotStateList<Msg> = lists.getOrPut(id) { mutableStateListOf() }
     fun sandbox(botId: String): Sandbox = sandboxes.computeIfAbsent(botId) {
-        Sandbox(ctx, $it)
+        Sandbox(ctx, it)
     }
 
     suspend fun <T> withSandboxLock(botId: String, block: suspend () -> T): T =
