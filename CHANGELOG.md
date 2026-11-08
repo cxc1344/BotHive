@@ -1,5 +1,20 @@
 # 更新日志
 
+## v0.3.1 — 2026-11-08
+
+修复 v0.3.0 真机上所有 shell 执行都返回「下载的 Alpine rootfs 不完整」的问题：
+
+- 根因：Alpine 的 `bin/sh` 是指向 `/bin/busybox` 的**绝对符号链接**，`File.exists()` 会在宿主机路径上解析它，而安卓上没有 `/bin/busybox`，于是解压成功后仍被判为不完整。完整性检查与「已安装」判断改为在 rootfs 内部解析符号链接
+- 解压不再依赖系统 `/system/bin/tar`（toybox 在各厂商 ROM 上行为不一）：改用内置的 tar.gz 解压器，支持 ustar / GNU 长文件名 / pax，跳过设备节点与 FIFO，拒绝绝对路径与 `..`，不跟随符号链接越界写入
+- 下载链路：手动处理重定向（仅 HTTPS，拒绝降级到 HTTP）、显式 `Accept-Encoding: identity`（避免代理把 .tar.gz 解压）、Content-Length 与实际字节数核对、整体 5 分钟期限；官方 CDN 失败时依次尝试 mirrors.aliyun.com、mirrors.tuna.tsinghua.edu.cn；校验过的压缩包缓存在本地，之后新建 Bot 无需联网取校验文件
+- 报错分级透出：错误文本包含「步骤 n/8 + 阶段名 + 底层异常类型/消息 + 诊断信息（ABI、下载源、压缩包大小、SHA256 前缀、解压统计）」；完整堆栈写入应用缓存目录 `linux-last-error.log`；连接自检失败时显示更长的输出
+- PRoot 自身启动失败（输出以 `proot error` 开头且退出码非 0）时自动改用 `PROOT_NO_SECCOMP=1` 重试一次（**未验证**：是否在目标机型上需要，取决于内核）
+- 重置/删除 Bot 的目录删除改为不跟随符号链接，防止 Bot 在沙盒里建立指向宿主目录的链接后，重置时误删宿主文件
+- 新增 `TarExtractTest`（7 项）与 `tools/tar_mirror_selfcheck.py`
+
+未验证：本版本未在真机上运行；PRoot 在 vivo 上的实际可用性以真机复测为准。
+
+
 ## v0.3.0 — 2026-11-08
 
 Linux 环境（PRoot + Alpine）：
