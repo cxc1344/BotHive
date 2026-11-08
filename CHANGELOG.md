@@ -1,5 +1,13 @@
 # 更新日志
 
+## v0.3.2 — 2026-11-08
+
+- 修复 PRoot 启动参数：移除命令前的 `--` 分隔符，打包的 Termux PRoot 会把它当作未知选项并报 `unknown option '--'`（v0.3.1 真机截图确认 rootfs 已正确安装，失败发生在 PRoot 启动这一步；此前的 `--kill-on-exit --link2symlink -0 -r -b -w` 均被接受）
+- 命令行构造抽成 `ProotArgs`，新增 `ProotArgsTest` 防止回归
+- 仅在报错含 seccomp/ptrace/权限类关键字时才用 `PROOT_NO_SECCOMP=1` 重试，参数错误不再无谓重试
+- 未验证：PRoot 在 vivo 上能否真正进入 Alpine（`-0`、`/proc` 绑定、loader 路径等仍需真机确认）
+
+
 ## v0.3.1 — 2026-11-08
 
 修复 v0.3.0 真机上所有 shell 执行都返回「下载的 Alpine rootfs 不完整」的问题：
