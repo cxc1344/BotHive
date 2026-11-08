@@ -19,7 +19,8 @@ data class Bot(
     val baseUrl: String,
     val apiKey: String,
     val model: String,
-    val isManager: Boolean = false
+    val isManager: Boolean = false,
+    val allowInsecureHttp: Boolean = false
 )
 
 data class Group(val id: String, val name: String, val memberIds: List<String>)
