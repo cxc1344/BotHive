@@ -8,9 +8,9 @@
 
 ## 下载
 
-到 [Releases](https://github.com/cxc1344/OpenGrokBot-Android/releases) 下载最新版 APK（当前 **v0.3.1**）。
+到 [Releases](https://github.com/cxc1344/OpenGrokBot-Android/releases) 下载最新版 APK（当前 **v0.3.2**）。
 
-直达当前版 APK：[OpenGrokBot-v0.3.1-debug.apk](https://github.com/cxc1344/OpenGrokBot-Android/releases/download/v0.3.1/OpenGrokBot-v0.3.1-debug.apk)
+直达当前版 APK：[OpenGrokBot-v0.3.2-debug.apk](https://github.com/cxc1344/OpenGrokBot-Android/releases/download/v0.3.2/OpenGrokBot-v0.3.2-debug.apk)
 
 > 注意：发布包为调试签名（debug），尚未真机完整验收；后续版本可能无法覆盖安装，需先卸载旧版。包名 `app.opengrok`，可与同类应用并存。
 
