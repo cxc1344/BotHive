@@ -81,7 +81,7 @@ fun ConnSection(
             Switch(checked = allowHttp, onCheckedChange = onHttp)
         }
         Field(
-            "API Key", apiKey, onKey, keyboard = KeyboardType.Uri,
+            "API Key(多个 Key 可每行一个,遇 429 自动轮换)", apiKey, onKey, keyboard = KeyboardType.Uri,
             visual = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
             trailing = {
                 TextButton(onClick = { showKey = !showKey }) { Text(if (showKey) "隐藏" else "显示", color = Sub) }
@@ -142,7 +142,7 @@ fun AgentPanel(store: Store, go: (Screen) -> Unit) {
             Spacer(Modifier.height(30.dp))
             Text("设备 Agent", color = Fg, fontSize = 22.sp, fontWeight = FontWeight.Bold)
             Text(
-                "住在手机本地的一位 Agent:能读写你授权的手机文件夹、查看设备状态与应用使用时长、打开应用," +
+                "住在手机本地的一位 Agent:能管理手机文件(普通 / Shizuku / Root 分档通道)、查看设备状态与应用使用时长、打开应用," +
                     "还有自己的 Ubuntu 环境。它能和 Bot 模式里的云端 Bot 互相派活:在对话里用 ask_bot 找对方即可,私聊全程可见。",
                 color = Sub, fontSize = 14.sp, lineHeight = 21.sp
             )
@@ -172,13 +172,29 @@ fun AgentPanel(store: Store, go: (Screen) -> Unit) {
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Card).padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text("手机文件夹", color = Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text("全部文件访问(普通通道)", color = Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 Text(
-                    "当前授权:" + (DeviceFiles.grantLabel(store)?.let { "…/$it" } ?: "未授权(Agent 读不到任何手机文件)"),
+                    if (FsTools.allFilesGranted()) "状态:已授权。Agent 的 fs_* 工具可用普通通道管理整个共享存储(绝对路径,如 /sdcard/Download)。"
+                    else "状态:未授权。开启后 Agent 能用普通通道读写整个共享存储;其他应用的 /data 私有目录仍需 Shizuku / Root 通道。",
                     color = Sub, fontSize = 12.sp
                 )
-                PillButton(if (store.agentTreeUri.value == null) "授权文件夹" else "更换授权文件夹", filled = false,
-                    modifier = Modifier.fillMaxWidth()) { picker.launch(null) }
+                if (!FsTools.allFilesGranted()) {
+                    PillButton("开启全部文件访问", filled = false, modifier = Modifier.fillMaxWidth()) {
+                        try {
+                            context.startActivity(
+                                Intent(
+                                    Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                                    android.net.Uri.parse("package:" + context.packageName)
+                                )
+                            )
+                        } catch (_: Exception) {
+                            try {
+                                context.startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
+                            } catch (_: Exception) {
+                            }
+                        }
+                    }
+                }
             }
             Column(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Card).padding(14.dp),

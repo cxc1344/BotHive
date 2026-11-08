@@ -1,5 +1,12 @@
 # 更新日志
 
+## v0.4.1 — 2026-11-08
+
+- **文件管理改分档通道（替代授权文件夹）**：Agent 的文件工具换成 fs_list / fs_read / fs_write / fs_delete，全部使用绝对路径，按通道分档——普通（用户开启「所有文件访问」后管理整个共享存储）/ Shizuku（shell 身份，可达 /data/local/tmp 等应用到不了的地方）/ Root（Shizuku 以 root 运行或有 su 时可用，能进其他应用的 /data 私有目录）；默认 auto 自动选通道。原 SAF 单文件夹授权方式移除。Shizuku / Root 通道的命令仍过安全策略校验
+- **Shell 工作目录保持**：Bot 的 shell 不再每次回到起点——上一条命令 cd 到哪，下一条就从哪继续（状态存在各自工作区里，重置沙盒即清零）
+- **Key 池轮换**：Bot 与 Provider 的 API Key 可填多个（每行一个）；请求遇 HTTP 429 时自动换下一个 Key 重试，并记住当前可用的 Key
+- **沙盒预装加 ffmpeg**：首次预装工具链新增 ffmpeg，Bot 可直接处理音视频（转码、抽帧、剪辑）
+
 ## v0.4.0 — 2026-11-08
 
 双模式与 Ubuntu 环境升级：

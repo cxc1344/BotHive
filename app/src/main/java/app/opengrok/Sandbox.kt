@@ -22,13 +22,24 @@ class Sandbox(context: Context, botId: String) {
 
     fun exec(cmd: String, timeoutSec: Long = 30): String {
         if (cmd.isBlank()) return "(空命令)"
+        // Working-directory persistence across one-shot executions: resume where the
+        // previous command ended and record where this one ends (guest /workspace is the
+        // host workspace dir, so the state file is shared both ways).
+        val cwdFile = File(dir, ".og-cwd")
+        val saved = runCatching { cwdFile.readText().trim() }.getOrNull()
+            ?.takeIf { it.startsWith("/") && !it.contains('\n') && !it.contains('"') && !it.contains('$') && !it.contains('`') }
+        val wrapped = buildString {
+            if (saved != null) append("cd \"").append(saved).append("\" 2>/dev/null || cd /workspace\n")
+            append(cmd)
+            append("\n__og_rc=\$?; pwd > /workspace/.og-cwd 2>/dev/null; exit \$__og_rc")
+        }
         return try {
             LinuxRuntime.exec(
                 context = app,
                 botId = safeId,
                 rootfs = rootfs,
                 workspace = dir,
-                command = cmd,
+                command = wrapped,
                 timeoutSec = timeoutSec
             )
         } catch (e: Exception) {

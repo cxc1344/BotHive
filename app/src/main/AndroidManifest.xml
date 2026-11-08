@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Whole-device file management (standard channel) once the user grants 所有文件访问 in system settings. -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage" />
     <!-- Declared so the user can grant "usage access" in system settings; the app only reads stats after that grant. -->
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" />
     <!-- Background keep-alive ("后台保活"): foreground service, boot restart, battery-exemption prompts. -->

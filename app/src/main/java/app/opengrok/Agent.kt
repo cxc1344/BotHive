@@ -47,6 +47,13 @@ object Agent {
         .build()
     private val JSON_MT = "application/json".toMediaType()
 
+    /** Key-pool cursors: a Bot/Provider key field may hold several keys, one per line;
+     *  on HTTP 429 the next key is tried and the cursor stays on the working key. */
+    private val keyCursors = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger>()
+
+    private fun keyPool(bot: Bot): List<String> =
+        bot.apiKey.lines().map { it.trim() }.filter { it.isNotEmpty() }.ifEmpty { listOf("") }
+
     private fun fn(name: String, desc: String, props: JSONObject, vararg req: String) =
         JSONObject().put("type", "function").put(
             "function", JSONObject().put("name", name).put("description", desc).put(
@@ -75,12 +82,14 @@ object Agent {
         put(fn("run_workflow", "按名称启动一个用户建好的工作流(步骤链),它会自己运行,你不用等结果。",
             JSONObject().put("name", str("工作流名称")), "name"))
         if (isAgent) {
-            put(fn("list_dir", "列出用户授权文件夹内的目录内容。path 相对授权根目录,如 . 或 子目录名。",
-                JSONObject().put("path", str("相对路径")), "path"))
-            put(fn("read_file", "读取用户授权文件夹内的文本文件内容。path 相对授权根目录。",
-                JSONObject().put("path", str("相对路径")), "path"))
-            put(fn("write_file", "在用户授权文件夹内写入文本文件(不存在则创建,含必要的子目录)。path 相对授权根目录。",
-                JSONObject().put("path", str("相对路径")).put("content", str("文件内容")), "path", "content"))
+            put(fn("fs_list", "列出任意目录的内容(绝对路径,如 /sdcard/Download)。channel 通道:auto(默认,普通优先、自动回退 Shizuku)/ standard(普通文件权限,需用户给了所有文件访问)/ shizuku(shell 身份,能到 /data/local/tmp 等)/ root(root 身份,能进其他应用的 /data 私有目录,需 Shizuku 以 root 运行或有 su)。",
+                JSONObject().put("path", str("绝对路径")).put("channel", str("通道,可选,默认 auto")), "path"))
+            put(fn("fs_read", "读取任意文本文件(绝对路径)。channel 含义同 fs_list。",
+                JSONObject().put("path", str("绝对路径")).put("channel", str("通道,可选,默认 auto")), "path"))
+            put(fn("fs_write", "写入任意文本文件(绝对路径,自动创建父目录)。channel 含义同 fs_list。",
+                JSONObject().put("path", str("绝对路径")).put("content", str("文件内容")).put("channel", str("通道,可选,默认 auto")), "path", "content"))
+            put(fn("fs_delete", "删除任意文件或目录(绝对路径,递归删除,务必谨慎)。channel 含义同 fs_list。",
+                JSONObject().put("path", str("绝对路径")).put("channel", str("通道,可选,默认 auto")), "path"))
             put(fn("device_status", "查看手机状态:电量、充电、存储空间、内存、系统版本、已开机时长。", JSONObject()))
             put(fn("app_usage", "查看今天各应用的前台使用时长排行(需要用户已开启「使用情况访问」)。", JSONObject()))
             put(fn("list_apps", "列出手机上可启动的应用(名称与包名)。", JSONObject()))
@@ -124,7 +133,7 @@ object Agent {
         val sys = if (isAgent) {
             bot.prompt + "\n\n你叫「${bot.name}」,是运行在用户安卓手机上的设备 Agent,有自己独立的工作目录(Ubuntu 环境),可用 shell 工具执行命令。" +
                 (if (others.isNotEmpty()) "云端 Bot 同伴:$others,可用 ask_bot 私信求助或给他们派活。" else "") +
-                "手机文件工具只能访问用户授权的文件夹。请使用用户的语言回复。" + skillSuffix
+                "你能管理手机文件:fs_* 工具用绝对路径,分普通(需所有文件访问授权,管共享存储)/ Shizuku(shell 身份)/ Root(能进其他应用 /data)三档通道,默认 auto 自动选。无障碍通道负责看屏与操作,不增加文件权限。请使用用户的语言回复。" + skillSuffix
         } else {
             bot.prompt + "\n\n你叫「${bot.name}」,运行在一部安卓手机上,有自己独立的工作目录(Ubuntu 环境),可用 shell 工具执行命令。" +
                 "工作目录不是操作系统级安全隔离,只允许读写自己的工作目录,不得尝试访问应用数据或其他 Bot 的文件。" +
@@ -226,12 +235,15 @@ object Agent {
                 }
                 reply
             }
-            "list_dir", "read_file", "write_file" -> {
+            "fs_list", "fs_read", "fs_write", "fs_delete" -> {
                 if (bot.id != AGENT_ID) return "该工具只有设备 Agent 可用。"
+                val ch = a.optString("channel", "auto").ifBlank { "auto" }
+                val p = a.optString("path")
                 when (name) {
-                    "list_dir" -> DeviceFiles.listDir(store, a.optString("path"))
-                    "read_file" -> DeviceFiles.readFile(store, a.optString("path"))
-                    else -> DeviceFiles.writeFile(store, a.optString("path"), a.optString("content"))
+                    "fs_list" -> FsTools.list(store.appContext(), p, ch)
+                    "fs_read" -> FsTools.read(store.appContext(), p, ch)
+                    "fs_write" -> FsTools.write(store.appContext(), p, a.optString("content"), ch)
+                    else -> FsTools.delete(store.appContext(), p, ch)
                 }
             }
             "device_status", "app_usage", "list_apps", "launch_app" -> {
@@ -330,12 +342,32 @@ object Agent {
     }
 
     private suspend fun call(bot: Bot, msgs: JSONArray, tools: JSONArray?): JSONObject {
+        val keys = keyPool(bot)
+        if (keys.size <= 1) return callOnce(bot, msgs, tools, keys.first())
+        val cursorKey = bot.id + "|" + bot.baseUrl
+        val cursor = keyCursors.getOrPut(cursorKey) { java.util.concurrent.atomic.AtomicInteger(0) }
+        var lastError: Exception? = null
+        for (attempt in keys.indices) {
+            val idx = Math.floorMod(cursor.get() + attempt, keys.size)
+            try {
+                val out = callOnce(bot, msgs, tools, keys[idx])
+                cursor.set(idx)
+                return out
+            } catch (e: Exception) {
+                lastError = e
+                if (e.message?.startsWith("HTTP 429") != true) throw e
+            }
+        }
+        throw lastError ?: IllegalStateException("key pool exhausted")
+    }
+
+    private suspend fun callOnce(bot: Bot, msgs: JSONArray, tools: JSONArray?, apiKey: String): JSONObject {
         val baseUrl = ApiEndpoint.validate(bot)
         val body = JSONObject().put("model", bot.model).put("messages", msgs)
         if (tools != null) body.put("tools", tools)
         val req = Request.Builder()
             .url("$baseUrl/chat/completions")
-            .header("Authorization", "Bearer ${bot.apiKey}")
+            .header("Authorization", "Bearer $apiKey")
             .post(body.toString().toRequestBody(JSON_MT))
             .build()
 

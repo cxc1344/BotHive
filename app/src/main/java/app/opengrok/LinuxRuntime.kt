@@ -37,7 +37,7 @@ internal object LinuxRuntime {
     /** First-run provisioning inside the fresh rootfs; failure is soft (install still succeeds). */
     private const val PROVISION_CMD =
         "export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && " +
-        "apt-get install -y -qq --no-install-recommends python3 nodejs git curl jq zip unzip ca-certificates && " +
+        "apt-get install -y -qq --no-install-recommends python3 nodejs git curl jq zip unzip ca-certificates ffmpeg && " +
         "echo PROVISION_OK && python3 --version && node --version"
 
     /** Ubuntu cdimage first; a public mirror of cdimage as fallback. Checksums come from the same directory's SHA256SUMS. */
@@ -205,7 +205,7 @@ internal object LinuxRuntime {
                 if (!ok) {
                     note("provision", "failed exit=${r.exit}")
                     File(rootfs, ".opengrok-provision-note").writeText(
-                        "预装未完成(exit ${r.exit}${if (r.timedOut) ",超时" else ""}),可让 Bot 手动执行 apt-get update && apt-get install -y python3 nodejs git curl jq zip unzip。输出摘要:${r.text.take(500)}"
+                        "预装未完成(exit ${r.exit}${if (r.timedOut) ",超时" else ""}),可让 Bot 手动执行 apt-get update && apt-get install -y python3 nodejs git curl jq zip unzip ffmpeg。输出摘要:${r.text.take(500)}"
                     )
                 } else {
                     note("provision", "ok")
