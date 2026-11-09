@@ -14,8 +14,28 @@ android {
         versionCode = 15
         versionName = "0.4.8"
     }
+    // Fixed signing for CI builds: when KEYSTORE_FILE is present in the environment,
+    // builds are signed with the project keystore (provided through CI secrets) so a
+    // new build installs over the previous one. Without it the default debug key is used.
+    val ciKeystore = System.getenv("KEYSTORE_FILE")
+    if (ciKeystore != null) {
+        signingConfigs {
+            create("ci") {
+                storeFile = file(ciKeystore)
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+            }
+        }
+    }
     buildTypes {
-        release { isMinifyEnabled = false }
+        debug {
+            if (ciKeystore != null) signingConfig = signingConfigs.getByName("ci")
+        }
+        release {
+            isMinifyEnabled = false
+            if (ciKeystore != null) signingConfig = signingConfigs.getByName("ci")
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
