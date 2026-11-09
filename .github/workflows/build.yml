@@ -22,8 +22,22 @@ jobs:
           gradle-version: "8.9"
       - name: Fetch and verify Android PRoot binaries
         run: bash tools/fetch_proot_android.sh
-      - run: gradle testDebugUnitTest assembleDebug --no-daemon
+      - name: Restore signing keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/opengrok.keystore"
+          keytool -list -keystore "$RUNNER_TEMP/opengrok.keystore" -storepass "$KEYSTORE_PASSWORD" > /dev/null
+          keytool -list -v -keystore "$RUNNER_TEMP/opengrok.keystore" -storepass "$KEYSTORE_PASSWORD" | grep -m1 "SHA256:"
+      - name: Build release APK
+        env:
+          KEYSTORE_FILE: ${{ runner.temp }}/opengrok.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: gradle testDebugUnitTest assembleRelease --no-daemon
       - uses: actions/upload-artifact@v4
         with:
-          name: OpenGrokBot-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          name: OpenGrokBot-release-apk
+          path: app/build/outputs/apk/release/*.apk
