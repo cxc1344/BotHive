@@ -27,9 +27,10 @@ jobs:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
         run: |
-          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/opengrok.keystore"
-          keytool -list -keystore "$RUNNER_TEMP/opengrok.keystore" -storepass "$KEYSTORE_PASSWORD" > /dev/null
-          keytool -list -v -keystore "$RUNNER_TEMP/opengrok.keystore" -storepass "$KEYSTORE_PASSWORD" | grep -m1 "SHA256:"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/opengrok.keystore"
+          ls -l "$RUNNER_TEMP/opengrok.keystore"
+          sha256sum "$RUNNER_TEMP/opengrok.keystore"
+          keytool -list -v -keystore "$RUNNER_TEMP/opengrok.keystore" -storepass "$KEYSTORE_PASSWORD"
       - name: Build release APK
         env:
           KEYSTORE_FILE: ${{ runner.temp }}/opengrok.keystore
