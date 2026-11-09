@@ -70,6 +70,7 @@ sealed interface Screen {
     data class EditSkill(val id: String?) : Screen
     data object NewGroup : Screen
     data object Settings : Screen
+    data object Search : Screen
 }
 
 @Composable
@@ -116,6 +117,7 @@ fun App(store: Store) {
                         is Screen.EditSkill -> EditSkillScreen(store, s.id, nav)
                         Screen.NewGroup -> NewGroupScreen(store, nav)
                         Screen.Settings -> SettingsScreen(store, nav)
+                        Screen.Search -> SearchScreen(store, nav)
                     }
                 }
                 AppDrawer(store, drawer, screen, { drawer = false }, nav)
@@ -168,6 +170,7 @@ fun ChatScreen(store: Store, id: String, go: (Screen) -> Unit) {
     Column(Modifier.fillMaxSize()) {
         AppTopBar(store, "bot", go)
         ChatSubHeader(id, !isBot, store.title(id), store.subtitle(id)) {
+            ExportButton(store, id)
             if (isBot) {
                 IconButton(onClick = { confirm = true }) { Icon(Ic.Refresh, null, tint = Fg) }
                 IconButton(onClick = { go(Screen.EditBot(id.removePrefix("bot:"))) }) { Icon(Ic.Edit, null, tint = Fg) }
@@ -181,7 +184,7 @@ fun ChatScreen(store: Store, id: String, go: (Screen) -> Unit) {
                 contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 items(msgs, key = { it.id }) { m ->
-                    MsgView(store, m, showName = !isBot, thinking = busy && m.id == msgs.last().id, go = go)
+                    MsgView(store, m, showName = !isBot, thinking = busy && m.id == msgs.last().id, go = go, chatId = id)
                 }
             }
             if (msgs.isEmpty()) EmptyChatHint("开始对话", "在下方输入消息，Bot 会在自己的沙盒里干活；点工具调用可查看每一步。")
@@ -239,7 +242,7 @@ fun ChatScreen(store: Store, id: String, go: (Screen) -> Unit) {
 }
 
 @Composable
-fun MsgView(store: Store, m: Msg, showName: Boolean, thinking: Boolean, go: (Screen) -> Unit) {
+fun MsgView(store: Store, m: Msg, showName: Boolean, thinking: Boolean, go: (Screen) -> Unit, chatId: String = "") {
     when {
         m.role == "project" -> ProjectCard(store, m.text, go)
         m.role == "system" -> Text(m.text, color = Sub, fontSize = 12.sp,
@@ -272,7 +275,7 @@ fun MsgView(store: Store, m: Msg, showName: Boolean, thinking: Boolean, go: (Scr
         }
         else -> Column(Modifier.fillMaxWidth()) {
             if (showName) Text(store.botName(m.from), color = Sub, fontSize = 12.sp, modifier = Modifier.padding(bottom = 4.dp))
-            if (m.tools.isNotEmpty()) ToolsPanel(m.tools, m.id, thinking)
+            if (m.tools.isNotEmpty()) ToolsPanel(m.tools, m.id, thinking, store, chatId, m.from)
             if (m.text.isNotBlank()) SelectionContainer {
                 Text(m.text, color = Fg, fontSize = 16.sp, lineHeight = 24.sp)
             } else if (thinking) ThinkingDots()
@@ -331,17 +334,30 @@ private fun toolBadge(t: ToolCall): String? {
 
 /** Every tool call is its own collapsible row: one-line summary, tap to expand full args and output. */
 @Composable
-fun ToolsPanel(tools: List<ToolCall>, scopeKey: String, live: Boolean) {
+fun ToolsPanel(
+    tools: List<ToolCall>, scopeKey: String, live: Boolean,
+    store: Store? = null, chatId: String = "", botId: String? = null
+) {
     Column(Modifier.fillMaxWidth().padding(bottom = 10.dp).clip(RoundedCornerShape(14.dp)).background(Card)) {
         tools.forEachIndexed { i, t ->
             if (i > 0) HorizontalDivider(color = Line)
-            ToolRow(t, "$scopeKey#$i:${t.id}", live && i == tools.lastIndex && t.output.isBlank())
+            val running = live && i == tools.lastIndex && t.output.isBlank()
+            ToolRow(t, "$scopeKey#$i:${t.id}", running, if (store != null && !running) ToolActions(store, chatId, botId) else null)
         }
     }
 }
 
+/** What the expanded tool row can do: copy always; re-run only for shell calls in a writable chat. */
+class ToolActions(val store: Store, val chatId: String, val botId: String?)
+
+/** Text placed on the clipboard by "复制": the bare command for shell, otherwise the raw JSON arguments. */
+private fun copyText(t: ToolCall): String {
+    val o = parseArgs(t.args)
+    return if (t.name == "shell" && o != null && o.has("command")) o.optString("command") else t.args
+}
+
 @Composable
-private fun ToolRow(t: ToolCall, key: String, running: Boolean) {
+private fun ToolRow(t: ToolCall, key: String, running: Boolean, actions: ToolActions? = null) {
     val open = toolOpen[key] ?: running
     val rot by animateFloatAsState(if (open) 180f else 0f, label = "rot")
     val badge = toolBadge(t)
@@ -383,10 +399,50 @@ private fun ToolRow(t: ToolCall, key: String, running: Boolean) {
                             modifier = Modifier.verticalScroll(rememberScrollState())
                         )
                     }
+                    if (actions != null) ToolActionRow(t, actions)
                 }
             }
         }
     }
+}
+
+@Composable
+private fun ToolActionRow(t: ToolCall, a: ToolActions) {
+    val ctx = LocalContext.current
+    val canRerun = t.name == "shell" && a.botId != null &&
+        (a.chatId.startsWith("bot:") || a.chatId.startsWith("group:") || a.chatId == AGENT_ID)
+    var ask by remember { mutableStateOf(false) }
+    Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        SmallChip("复制" + if (t.name == "shell") "命令" else "参数") {
+            val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            cm.setPrimaryClip(android.content.ClipData.newPlainText("tool", copyText(t)))
+            android.widget.Toast.makeText(ctx, "已复制", android.widget.Toast.LENGTH_SHORT).show()
+        }
+        if (canRerun) SmallChip("重跑") { ask = true }
+    }
+    if (ask) {
+        AlertDialog(
+            onDismissRequest = { ask = false },
+            title = { Text("重跑这条命令?") },
+            text = { Text(copyText(t), fontFamily = FontFamily.Monospace, fontSize = 13.sp) },
+            confirmButton = {
+                TextButton(onClick = {
+                    ask = false
+                    val msg = a.store.rerunTool(a.chatId, a.botId ?: "", t)
+                    if (msg != null) android.widget.Toast.makeText(ctx, msg, android.widget.Toast.LENGTH_SHORT).show()
+                }) { Text("重跑") }
+            },
+            dismissButton = { TextButton(onClick = { ask = false }) { Text("取消") } }
+        )
+    }
+}
+
+@Composable
+fun SmallChip(text: String, onClick: () -> Unit) {
+    Box(
+        Modifier.clip(RoundedCornerShape(14.dp)).background(Line).clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+    ) { Text(text, color = Fg, fontSize = 12.sp) }
 }
 
 /** Three-dot loading indicator shown while a Bot is preparing its reply. */

@@ -440,6 +440,7 @@ private fun DrawerPanel(store: Store, current: Screen, onClose: () -> Unit, go: 
             DrawerChip("新建 Bot", Ic.Add, false) { go(Screen.EditBot(null)) }
             DrawerChip("新建群聊", Ic.Group, false) { go(Screen.NewGroup) }
             DrawerChip("工作流", Ic.Tree, false) { go(Screen.Workflows) }
+            DrawerChip("搜索消息", Ic.Search, false) { go(Screen.Search) }
         }
         LazyColumn(Modifier.weight(1f)) {
             item { SectionLabel("工作情况") }

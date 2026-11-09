@@ -12,6 +12,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -93,6 +94,84 @@ class Store(private val ctx: Context) {
         save()
         nudgeBot(ap.chatId, ap.botId)
     }
+
+    /**
+     * Re-runs one recorded shell tool call in [chatId] and appends the result as a new message.
+     * Goes through the same Guard check and (if the Bot requires it) the same approval card as the agent loop.
+     * Returns a short status for the UI, or null when started.
+     */
+    fun rerunTool(chatId: String, botId: String, t: ToolCall): String? {
+        if (t.name != "shell") return "只有 shell 命令支持重跑"
+        if (chatId in busy) return "对话正在运行,稍后再试"
+        val b = (if (botId == AGENT_ID) agent.value else bot(botId)) ?: return "找不到这个 Bot"
+        val cmd = try { JSONObject(t.args).optString("command") } catch (_: Exception) { "" }
+        if (cmd.isBlank()) return "命令为空"
+        val sb = sandbox(botId)
+        val why = Guard.check(cmd, sb.dir.absolutePath)
+        if (why != null) {
+            logGuard(botId, cmd, why)
+            appendRerun(chatId, botId, t, "【安全策略已拦截】$why。该命令没有执行。")
+            return null
+        }
+        if (b.shellApproval) {
+            requestApproval(chatId, botId, cmd)
+            return "已提交批准,在对话顶部点「执行」后运行"
+        }
+        val job = scope.launch {
+            busy.add(chatId)
+            try {
+                val out = try {
+                    withSandboxLock(botId) { runInterruptible(Dispatchers.IO) { sb.exec(cmd) } }
+                } catch (e: CancellationException) { throw e } catch (e: Exception) { "执行出错:${e.message}" }
+                appendRerun(chatId, botId, t, out)
+            } finally {
+                busy.remove(chatId); jobs.remove(chatId)
+            }
+        }
+        jobs[chatId] = job
+        return null
+    }
+
+    private fun appendRerun(chatId: String, botId: String, t: ToolCall, out: String) {
+        val tc = ToolCall("rerun-" + java.util.UUID.randomUUID().toString().take(8), t.name, t.args, out)
+        chat(chatId).add(Msg(role = "assistant", from = botId, text = "【重跑工具调用】", tools = listOf(tc)))
+        save()
+    }
+
+    /** Renders a conversation as Markdown: role, time, body; tool calls become collapsed <details> summaries. */
+    fun exportMarkdown(chatId: String, title: String = title(chatId)): String {
+        val fmt = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault())
+        val sb = StringBuilder("# ").append(title).append("\n\n")
+        sb.append("> 导出于 ").append(fmt.format(java.util.Date())).append("\n\n")
+        for (m in chat(chatId)) {
+            if (m.role == "project") continue
+            val who = when {
+                m.role == "system" -> "系统"
+                m.from == null -> "用户"
+                else -> botName(m.from)
+            }
+            sb.append("## ").append(who)
+            if (m.time > 0) sb.append(" · ").append(fmt.format(java.util.Date(m.time)))
+            sb.append("\n\n")
+            for (t in m.tools) {
+                val one = t.args.replace(Regex("\\s+"), " ").take(80)
+                sb.append("<details><summary>工具 ").append(t.name).append(": ").append(mdEsc(one)).append("</summary>\n\n")
+                sb.append("```\n").append(t.args).append("\n```\n\n")
+                sb.append("```\n").append(t.output.take(4000).replace("```", "ˋˋˋ")).append("\n```\n\n</details>\n\n")
+            }
+            if (m.images.isNotEmpty()) sb.append("_[附图 ${m.images.size} 张]_\n\n")
+            if (m.text.isNotBlank()) sb.append(m.text).append("\n\n")
+        }
+        return sb.toString()
+    }
+
+    private fun mdEsc(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    /** All searchable conversations: (chat key, title, archived Agent session id or null). */
+    fun searchableChats(): List<Triple<String, String, String?>> =
+        chatList().map { Triple(it, title(it), null) } +
+            (if (agent.value != null) listOf(Triple(AGENT_ID, title(AGENT_ID), null)) else emptyList()) +
+            agentSessions.map { Triple("agentarc:${it.id}", it.title, it.id) }
 
     fun mcpServer(id: String?) = mcpServers.firstOrNull { it.id == id }
 
@@ -559,6 +638,7 @@ class Store(private val ctx: Context) {
         put("id", m.id); put("role", m.role); put("text", m.text)
         m.from?.let { put("from", it) }
         if (m.images.isNotEmpty()) put("images", JSONArray(m.images))
+        if (m.time > 0) put("t", m.time)
         put("tools", JSONArray(m.tools.map {
             JSONObject().put("id", it.id).put("name", it.name).put("args", it.args).put("output", it.output)
         }))
@@ -779,7 +859,7 @@ class Store(private val ctx: Context) {
                         val imgArr = m.optJSONArray("images")
                         val imgList = if (imgArr == null) emptyList() else (0 until imgArr.length()).map { imgArr.getString(it) }
                         l.add(Msg(m.getString("id"), m.getString("role"), m.optString("text"), tools,
-                            if (m.has("from")) m.getString("from") else null, imgList))
+                            if (m.has("from")) m.getString("from") else null, imgList, m.optLong("t", 0L)))
                     }
                 }
             }

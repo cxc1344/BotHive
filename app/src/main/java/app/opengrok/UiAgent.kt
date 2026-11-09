@@ -154,6 +154,7 @@ fun AgentChatScreen(store: Store, go: (Screen) -> Unit) {
     Column(Modifier.fillMaxSize()) {
         AppTopBar(store, "agent", go)
         ChatSubHeader(AGENT_ID, false, store.title(AGENT_ID), store.subtitle(AGENT_ID)) {
+            ExportButton(store, AGENT_ID)
             HeaderPill("新对话", Ic.Add, enabled = !busy && msgs.isNotEmpty()) { store.newAgentSession() }
             IconButton(onClick = { go(Screen.AgentSettings) }) { Icon(Ic.Tune, null, tint = Fg) }
         }
@@ -165,7 +166,7 @@ fun AgentChatScreen(store: Store, go: (Screen) -> Unit) {
                 contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 items(msgs, key = { it.id }) { m ->
-                    MsgView(store, m, showName = false, thinking = busy && m.id == msgs.last().id, go = go)
+                    MsgView(store, m, showName = false, thinking = busy && m.id == msgs.last().id, go = go, chatId = AGENT_ID)
                 }
             }
             if (msgs.isEmpty()) EmptyChatHint("新对话已就绪", "让 Agent 帮你整理手机文件、查看状态与通知、操作屏幕，或把活派给云端 Bot。")

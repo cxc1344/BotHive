@@ -10,7 +10,8 @@ data class Msg(
     val text: String,
     val tools: List<ToolCall> = emptyList(),
     val from: String? = null,    // bot id of the author; null = the human user
-    val images: List<String> = emptyList()  // attached image file names under files/attachments/
+    val images: List<String> = emptyList(), // attached image file names under files/attachments/
+    val time: Long = System.currentTimeMillis()  // 0 = unknown (messages saved before v0.4.8)
 )
 
 /** A file/photo the user picked to attach to a chat message (bytes already read from the Uri). */
