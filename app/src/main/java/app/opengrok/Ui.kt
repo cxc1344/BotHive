@@ -44,6 +44,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -55,6 +56,8 @@ val Sub = Color(0xFF8E9096)
 
 sealed interface Screen {
     data object Home : Screen
+    /** Resolved by App to the most recently opened Bot/group chat. */
+    data object BotMode : Screen
     data class Chat(val id: String) : Screen
     data class EditBot(val id: String?) : Screen
     data class EditProvider(val id: String?) : Screen
@@ -71,8 +74,23 @@ sealed interface Screen {
 
 @Composable
 fun App(store: Store) {
+    val ctx = LocalContext.current
+    remember { UiState.init(ctx) }
     var screen by remember { mutableStateOf<Screen>(Screen.Home) }
-    BackHandler(screen != Screen.Home) { screen = Screen.Home }
+    var drawer by remember { mutableStateOf(false) }
+    val nav: (Screen) -> Unit = { s ->
+        drawer = false
+        screen = if (s == Screen.BotMode) resolveBotTarget(store) else s
+    }
+    BackHandler(drawer) { drawer = false }
+    BackHandler(!drawer && screen != Screen.Home) { screen = Screen.Home }
+    LaunchedEffect(screen) {
+        when (val s = screen) {
+            is Screen.Chat -> UiState.touch(s.id)
+            Screen.AgentChat -> UiState.touch(AGENT_ID)
+            else -> {}
+        }
+    }
     MaterialTheme(
         colorScheme = darkColorScheme(
             primary = Color.White, onPrimary = Color.Black,
@@ -80,21 +98,27 @@ fun App(store: Store) {
             surfaceVariant = Card, onSurfaceVariant = Sub, outline = Line
         )
     ) {
-        Box(Modifier.fillMaxSize().background(Bg).systemBarsPadding().imePadding()) {
-            when (val s = screen) {
-                Screen.Home -> Home(store) { screen = it }
-                is Screen.Chat -> ChatScreen(store, s.id) { screen = it }
-                is Screen.EditBot -> EditBotScreen(store, s.id) { screen = it }
-                is Screen.EditProvider -> EditProviderScreen(store, s.id) { screen = it }
-                Screen.AgentChat -> AgentChatScreen(store) { screen = it }
-                Screen.EditAgent -> EditAgentScreen(store) { screen = it }
-                Screen.AgentSettings -> AgentSettingsScreen(store) { screen = it }
-                Screen.Workflows -> WorkflowsScreen(store) { screen = it }
-                is Screen.EditWorkflow -> EditWorkflowScreen(store, s.id) { screen = it }
-                is Screen.EditMcp -> EditMcpScreen(store, s.id) { screen = it }
-                is Screen.EditSkill -> EditSkillScreen(store, s.id) { screen = it }
-                Screen.NewGroup -> NewGroupScreen(store) { screen = it }
-                Screen.Settings -> SettingsScreen(store) { screen = it }
+        CompositionLocalProvider(LocalOpenDrawer provides { drawer = true }) {
+            Box(Modifier.fillMaxSize().background(Bg)) {
+                Box(Modifier.fillMaxSize().systemBarsPadding().imePadding()) {
+                    when (val s = screen) {
+                        Screen.Home -> HomeScreen(store, nav)
+                        Screen.BotMode -> {}
+                        is Screen.Chat -> ChatScreen(store, s.id, nav)
+                        is Screen.EditBot -> EditBotScreen(store, s.id, nav)
+                        is Screen.EditProvider -> EditProviderScreen(store, s.id, nav)
+                        Screen.AgentChat -> AgentChatScreen(store, nav)
+                        Screen.EditAgent -> EditAgentScreen(store, nav)
+                        Screen.AgentSettings -> AgentSettingsScreen(store, nav)
+                        Screen.Workflows -> WorkflowsScreen(store, nav)
+                        is Screen.EditWorkflow -> EditWorkflowScreen(store, s.id, nav)
+                        is Screen.EditMcp -> EditMcpScreen(store, s.id, nav)
+                        is Screen.EditSkill -> EditSkillScreen(store, s.id, nav)
+                        Screen.NewGroup -> NewGroupScreen(store, nav)
+                        Screen.Settings -> SettingsScreen(store, nav)
+                    }
+                }
+                AppDrawer(store, drawer, screen, { drawer = false }, nav)
             }
         }
     }
@@ -125,65 +149,6 @@ fun Avatar(seed: String, size: Dp, group: Boolean = false) {
 }
 
 @Composable
-fun Home(store: Store, go: (Screen) -> Unit) {
-    var menu by remember { mutableStateOf(false) }
-    Column(Modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Spacer(Modifier.weight(1f))
-            ModeCapsule("bot", go)
-            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { go(Screen.Settings) }) { Icon(Ic.Tune, null, tint = Fg) }
-                Box {
-                    IconButton(onClick = { menu = true }) { Icon(Ic.Add, null, tint = Fg) }
-                    DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                        DropdownMenuItem(text = { Text("新建 Bot") }, onClick = { menu = false; go(Screen.EditBot(null)) })
-                        DropdownMenuItem(text = { Text("新建群聊") }, onClick = { menu = false; go(Screen.NewGroup) })
-                        DropdownMenuItem(text = { Text("工作流") }, onClick = { menu = false; go(Screen.Workflows) })
-                    }
-                }
-            }
-        }
-        val rows = store.chatList()
-        if (rows.isEmpty()) {
-            Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                Box(
-                    Modifier.size(104.dp).clip(CircleShape).background(Color.White).clickable { go(Screen.EditBot(null)) },
-                    contentAlignment = Alignment.Center
-                ) { Icon(Ic.Add, null, tint = Color.Black, modifier = Modifier.size(52.dp)) }
-                Spacer(Modifier.height(20.dp))
-                Text("新建你的第一个 Bot", color = Fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(6.dp))
-                Text("建议先建几位员工,再建一位总经理来统筹", color = Sub, fontSize = 14.sp, textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(horizontal = 40.dp))
-            }
-        } else {
-            LazyColumn(Modifier.fillMaxSize()) {
-                items(rows, key = { it }) { id ->
-                    val last = store.chat(id).lastOrNull { it.text.isNotBlank() }?.text ?: store.subtitle(id)
-                    Row(
-                        Modifier.fillMaxWidth().clickable { go(Screen.Chat(id)) }
-                            .padding(horizontal = 20.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Avatar(id, 48.dp, group = !id.startsWith("bot:"))
-                        Spacer(Modifier.width(14.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(store.title(id), color = Fg, fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(last, color = Sub, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                        if (id in store.busy) Text("工作中", color = Sub, fontSize = 12.sp)
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
 fun ChatScreen(store: Store, id: String, go: (Screen) -> Unit) {
     val msgs = store.chat(id)
     val busy = id in store.busy
@@ -201,15 +166,8 @@ fun ChatScreen(store: Store, id: String, go: (Screen) -> Unit) {
         if (msgs.isNotEmpty()) listState.animateScrollToItem(msgs.lastIndex)
     }
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { go(Screen.Home) }) { Icon(Ic.Back, null, tint = Fg) }
-            Avatar(id, 36.dp, group = !isBot)
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                Text(store.title(id), color = Fg, fontSize = 17.sp, fontWeight = FontWeight.SemiBold,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(store.subtitle(id), color = Sub, fontSize = 12.sp, maxLines = 1)
-            }
+        AppTopBar(store, "bot", go)
+        ChatSubHeader(id, !isBot, store.title(id), store.subtitle(id)) {
             if (isBot) {
                 IconButton(onClick = { confirm = true }) { Icon(Ic.Refresh, null, tint = Fg) }
                 IconButton(onClick = { go(Screen.EditBot(id.removePrefix("bot:"))) }) { Icon(Ic.Edit, null, tint = Fg) }
@@ -217,13 +175,16 @@ fun ChatScreen(store: Store, id: String, go: (Screen) -> Unit) {
         }
         HorizontalDivider(color = Line)
         ApprovalCards(store, id)
-        LazyColumn(
-            state = listState, modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            items(msgs, key = { it.id }) { m ->
-                MsgView(store, m, showName = !isBot, thinking = busy && m.id == msgs.last().id, go = go)
+        Box(Modifier.weight(1f)) {
+            LazyColumn(
+                state = listState, modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                items(msgs, key = { it.id }) { m ->
+                    MsgView(store, m, showName = !isBot, thinking = busy && m.id == msgs.last().id, go = go)
+                }
             }
+            if (msgs.isEmpty()) EmptyChatHint("开始对话", "在下方输入消息，Bot 会在自己的沙盒里干活；点工具调用可查看每一步。")
         }
         if (!readOnly && isManager) {
             Row(Modifier.fillMaxWidth().padding(start = 16.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {

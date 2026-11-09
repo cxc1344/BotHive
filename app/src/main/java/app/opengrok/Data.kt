@@ -163,3 +163,6 @@ val PRESETS = listOf(
     Preset("运维管家", "你负责整理文件、写脚本和检查系统状态。执行任何有破坏性的命令前先说明将要做什么。"),
     Preset("自定义", "")
 )
+
+/** An archived Agent conversation (the live one always uses AGENT_ID); its messages live under "agentarc:<id>". */
+data class AgentSession(val id: String, val title: String, val time: Long)

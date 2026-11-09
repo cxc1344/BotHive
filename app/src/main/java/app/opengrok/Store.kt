@@ -31,6 +31,8 @@ class Store(private val ctx: Context) {
     val workflows = mutableStateListOf<Workflow>()
     val skills = mutableStateListOf<Skill>()
     val pendingApprovals = mutableStateListOf<Approval>()
+    /** Archived Agent conversations, newest first. */
+    val agentSessions = mutableStateListOf<AgentSession>()
     private var skillsSeeded = false
 
     fun saveSkill(s: Skill) {
@@ -409,6 +411,46 @@ class Store(private val ctx: Context) {
     private val jobs = mutableMapOf<String, Job>()
 
     /** User pressed stop: cancel whatever this chat is currently running. */
+    // ---- Agent conversations: the live chat is always AGENT_ID; older ones are archived and can be swapped back in ----
+    private fun archiveLiveAgentChat(): Boolean {
+        val live = chat(AGENT_ID)
+        if (live.none { it.role == "user" && it.text.isNotBlank() }) {
+            live.clear()
+            return false
+        }
+        val sid = java.util.UUID.randomUUID().toString().take(8)
+        val title = live.firstOrNull { it.role == "user" && it.text.isNotBlank() }
+            ?.text?.replace(Regex("\\s+"), " ")?.trim()?.take(28) ?: "Agent 对话"
+        chat("agentarc:$sid").addAll(live.toList())
+        live.clear()
+        agentSessions.add(0, AgentSession(sid, title, System.currentTimeMillis()))
+        return true
+    }
+
+    /** Starts a fresh Agent conversation; the previous one is archived (no-op while the Agent is working). */
+    fun newAgentSession() {
+        if (AGENT_ID in busy) return
+        if (archiveLiveAgentChat()) save()
+    }
+
+    /** Swaps an archived Agent conversation in as the live one (the current live chat is archived first). */
+    fun openAgentSession(sid: String) {
+        if (AGENT_ID in busy) return
+        val s = agentSessions.firstOrNull { it.id == sid } ?: return
+        val saved = chat("agentarc:$sid").toList()
+        agentSessions.remove(s)
+        lists.remove("agentarc:$sid")
+        archiveLiveAgentChat()
+        chat(AGENT_ID).addAll(saved)
+        save()
+    }
+
+    fun deleteAgentSession(sid: String) {
+        agentSessions.removeAll { it.id == sid }
+        lists.remove("agentarc:$sid")
+        save()
+    }
+
     fun stopChat(chatId: String) {
         jobs[chatId]?.cancel()
     }
@@ -584,6 +626,7 @@ class Store(private val ctx: Context) {
             JSONObject().put("id", it.id).put("name", it.name).put("members", JSONArray(it.memberIds))
         }))
         o.put("dms", JSONArray(dmIds.toList()))
+        o.put("agentSessions", JSONArray(agentSessions.map { JSONObject().put("id", it.id).put("title", it.title).put("t", it.time) }))
         o.put("projects", JSONArray(projects.map { p ->
             JSONObject().put("id", p.id).put("manager", p.managerId).put("title", p.title)
                 .put("request", p.request).put("stage", p.stage.name).put("report", p.report).put("note", p.note)
@@ -694,6 +737,11 @@ class Store(private val ctx: Context) {
                 }
             }
             o.optJSONArray("dms")?.let { a -> for (i in 0 until a.length()) dmIds.add(a.getString(i)) }
+            o.optJSONArray("agentSessions")?.let { a ->
+                for (i in 0 until a.length()) a.getJSONObject(i).let {
+                    agentSessions.add(AgentSession(it.getString("id"), it.optString("title", "Agent 对话"), it.optLong("t")))
+                }
+            }
             o.optJSONArray("projects")?.let { a ->
                 for (i in 0 until a.length()) a.getJSONObject(i).let { p ->
                     val asg = p.optJSONArray("assignments")

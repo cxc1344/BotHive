@@ -45,7 +45,7 @@ fun ModeCapsule(current: String, go: (Screen) -> Unit) {
                 Modifier.clip(RoundedCornerShape(999.dp))
                     .background(if (sel) Color.White else Color.Transparent)
                     .clickable {
-                        if (!sel) go(if (m == "agent") Screen.AgentChat else Screen.Home)
+                        if (!sel) go(if (m == "agent") Screen.AgentChat else Screen.BotMode)
                     }
                     .padding(horizontal = 24.dp, vertical = 8.dp)
             ) {

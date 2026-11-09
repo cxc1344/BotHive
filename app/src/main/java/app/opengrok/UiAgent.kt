@@ -132,14 +132,7 @@ fun AgentChatScreen(store: Store, go: (Screen) -> Unit) {
     }
     if (agent == null) {
         Column(Modifier.fillMaxSize()) {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Spacer(Modifier.weight(1f))
-                ModeCapsule("agent", go)
-                Spacer(Modifier.weight(1f))
-            }
+            AppTopBar(store, "agent", go)
             Column(
                 Modifier.fillMaxSize().padding(horizontal = 32.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -159,25 +152,23 @@ fun AgentChatScreen(store: Store, go: (Screen) -> Unit) {
         return
     }
     Column(Modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = { go(Screen.Home) }) { Icon(Ic.Back, null, tint = Fg) }
-            Spacer(Modifier.weight(1f))
-            ModeCapsule("agent", go)
-            Spacer(Modifier.weight(1f))
+        AppTopBar(store, "agent", go)
+        ChatSubHeader(AGENT_ID, false, store.title(AGENT_ID), store.subtitle(AGENT_ID)) {
+            HeaderPill("新对话", Ic.Add, enabled = !busy && msgs.isNotEmpty()) { store.newAgentSession() }
             IconButton(onClick = { go(Screen.AgentSettings) }) { Icon(Ic.Tune, null, tint = Fg) }
         }
         HorizontalDivider(color = Line)
         ApprovalCards(store, AGENT_ID)
-        LazyColumn(
-            state = listState, modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            items(msgs, key = { it.id }) { m ->
-                MsgView(store, m, showName = false, thinking = busy && m.id == msgs.last().id, go = go)
+        Box(Modifier.weight(1f)) {
+            LazyColumn(
+                state = listState, modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                items(msgs, key = { it.id }) { m ->
+                    MsgView(store, m, showName = false, thinking = busy && m.id == msgs.last().id, go = go)
+                }
             }
+            if (msgs.isEmpty()) EmptyChatHint("新对话已就绪", "让 Agent 帮你整理手机文件、查看状态与通知、操作屏幕，或把活派给云端 Bot。")
         }
         AttachChips(staged) { staged.remove(it) }
         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.Bottom) {
