@@ -1,6 +1,6 @@
-# OpenGrokBot（Android）
+# BotHive（Android，原名 OpenGrokBot）
 
-[![Build APK](https://github.com/cxc1344/OpenGrokBot-Android/actions/workflows/build.yml/badge.svg)](https://github.com/cxc1344/OpenGrokBot-Android/actions) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Build APK](https://github.com/cxc1344/BotHive/actions/workflows/build.yml/badge.svg)](https://github.com/cxc1344/BotHive/actions) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 安卓版多 Bot 协作应用：用你自己的 API Key 自建 AI「员工」，给每个 Bot 写人设、派模型、建群协作；还能立项让**总经理 Bot** 自己拆任务、派活、审查、打回返工，最后向你汇报。v0.4 起新增 **Agent 模式**：一位住在手机本地的设备 Agent，能读写你授权的手机文件夹、查看设备状态与应用使用时长、打开应用，并与云端 Bot 互相派活。
 
@@ -8,9 +8,9 @@
 
 ## 下载
 
-到 [Releases](https://github.com/cxc1344/OpenGrokBot-Android/releases) 下载最新版 APK（当前 **v0.4.8**）。
+到 [Releases](https://github.com/cxc1344/BotHive/releases) 下载最新版 APK（当前 **v0.4.8**）。
 
-直达当前版 APK：[OpenGrokBot-v0.4.8.apk](https://github.com/cxc1344/OpenGrokBot-Android/releases/download/v0.4.8/OpenGrokBot-v0.4.8.apk)
+直达当前版 APK：[OpenGrokBot-v0.4.8.apk](https://github.com/cxc1344/BotHive/releases/download/v0.4.8/OpenGrokBot-v0.4.8.apk)
 
 > 注意：自 v0.4.8 起正式版使用固定项目签名，后续版本可直接覆盖安装。之前装的是调试版的话，换到正式版仍需先卸载一次（建议先用对话页的导出功能把重要对话存为 Markdown）。包名 `app.opengrok`，可与同类应用并存。
 
