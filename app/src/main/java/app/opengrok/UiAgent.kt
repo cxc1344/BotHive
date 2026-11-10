@@ -55,16 +55,16 @@ fun ConnSection(
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         val selCustom = providerId.isEmpty()
         Box(
-            Modifier.clip(RoundedCornerShape(20.dp)).background(if (selCustom) Color.White else Card)
+            Modifier.clip(RoundedCornerShape(20.dp)).background(if (selCustom) Honey else Card)
                 .clickable { onProvider("") }.padding(horizontal = 16.dp, vertical = 8.dp)
-        ) { Text("自定义", color = if (selCustom) Color.Black else Fg, fontSize = 14.sp) }
+        ) { Text("自定义", color = if (selCustom) Ink else Fg, fontSize = 14.sp) }
         store.providers.forEach { p ->
             val sel = providerId == p.id
             Box(
-                Modifier.clip(RoundedCornerShape(20.dp)).background(if (sel) Color.White else Card)
+                Modifier.clip(RoundedCornerShape(20.dp)).background(if (sel) Honey else Card)
                     .clickable { onProvider(p.id); models = emptyList(); modelMsg = "" }
                     .padding(horizontal = 16.dp, vertical = 8.dp)
-            ) { Text(p.name, color = if (sel) Color.Black else Fg, fontSize = 14.sp) }
+            ) { Text(p.name, color = if (sel) Ink else Fg, fontSize = 14.sp) }
         }
     }
     val prov = store.provider(providerId)
@@ -109,9 +109,9 @@ fun ConnSection(
             models.forEach { mid ->
                 val sel = model == mid
                 Box(
-                    Modifier.clip(RoundedCornerShape(16.dp)).background(if (sel) Color.White else Card)
+                    Modifier.clip(RoundedCornerShape(16.dp)).background(if (sel) Honey else Card)
                         .clickable { onModel(mid) }.padding(horizontal = 12.dp, vertical = 6.dp)
-                ) { Text(mid, color = if (sel) Color.Black else Fg, fontSize = 12.sp) }
+                ) { Text(mid, color = if (sel) Ink else Fg, fontSize = 12.sp) }
             }
         }
     }
@@ -243,7 +243,7 @@ fun EditAgentScreen(store: Store, go: (Screen) -> Unit) {
             Text("技能包", color = Fg, fontSize = 14.sp)
             SkillsPicker(store, skillSel)
             store.persistenceError.value?.let {
-                Text(it, color = Color(0xFFFF8A80), fontSize = 12.sp)
+                Text(it, color = BeeDanger, fontSize = 12.sp)
             }
             Spacer(Modifier.height(4.dp))
         }
@@ -314,7 +314,7 @@ fun EditProviderScreen(store: Store, providerId: String?, go: (Screen) -> Unit) 
             }
             Text("保存后,新建/编辑 Bot 与 Agent 时可直接选这个预设,再从它的模型列表里点选模型,不必重复粘贴 Key。", color = Sub, fontSize = 12.sp)
             store.persistenceError.value?.let {
-                Text(it, color = Color(0xFFFF8A80), fontSize = 12.sp)
+                Text(it, color = BeeDanger, fontSize = 12.sp)
             }
             Spacer(Modifier.height(4.dp))
         }
@@ -372,7 +372,7 @@ fun AgentForm(store: Store, onSaved: () -> Unit) {
     SkillsPicker(store, skillSel)
     store.persistenceError.value?.let {
         Spacer(Modifier.height(10.dp))
-        Text(it, color = Color(0xFFFF8A80), fontSize = 12.sp)
+        Text(it, color = BeeDanger, fontSize = 12.sp)
     }
     Spacer(Modifier.height(16.dp))
     PillButton("保存", modifier = Modifier.fillMaxWidth()) {
@@ -461,8 +461,8 @@ fun AgentPermissions(store: Store) {
     ) {
         Text("无障碍(屏幕操作)", color = Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
         Text(
-            if (A11y.enabled.value) "状态:已开启。Agent 可用 screen_dump 看屏、tap_text/tap_xy 点击、swipe 滑动、input_text 输入、press_key 按系统键。"
-            else "状态:未开启。开启后 Agent 能看屏并操作其他应用(点按、滑动、输入)。开关必须由你在系统无障碍设置里亲手打开,任何应用都无法代开。",
+            if (A11y.enabled.value) "状态:已开启。Agent 会先 screen_shot 截屏看图,再按画面上的相对位置用 0-1000 坐标点击(tap_at)、长按(long_press)、拖动(drag_at),并能输入文字与按系统键;文字模式 screen_dump / tap_text 作为备用。"
+            else "状态:未开启。开启后 Agent 能截屏看图并操作其他应用(点按、长按、拖动、输入)。开关必须由你在系统无障碍设置里亲手打开,任何应用都无法代开。",
             color = Sub, fontSize = 12.sp
         )
         if (!A11y.enabled.value) {

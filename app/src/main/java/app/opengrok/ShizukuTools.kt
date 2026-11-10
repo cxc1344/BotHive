@@ -60,7 +60,7 @@ return@withContext "请让用户先安装 Shizuku 应用,并通过无线调试�
 }
 if (!granted.value) {
 requestPermission()
-return@withContext "已弹出授权请求,请让用户在 Shizuku 的弹窗里允许 OpenGrokBot 后再试。"
+return@withContext "已弹出授权请求,请让用户在 Shizuku 的弹窗里允许 BotHive 后再试。"
 }
 try {
 val process = newProcessReflect(arrayOf("sh", "-c", command))

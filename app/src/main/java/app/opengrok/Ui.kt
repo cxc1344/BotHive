@@ -8,7 +8,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -29,11 +28,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -48,11 +44,20 @@ import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.launch
 import java.util.UUID
 
-val Bg = Color(0xFF0B0B0C)
-val Card = Color(0xFF1A1B1E)
-val Line = Color(0xFF2A2B2F)
-val Fg = Color(0xFFECECEC)
-val Sub = Color(0xFF8E9096)
+// BotHive 0.5 · Pixel Bee visual system
+val Bg = Color(0xFF171207)
+val Card = Color(0xFF28200E)
+val Line = Color(0xFF4A3C1C)
+val Fg = Color(0xFFFFF4D2)
+val Sub = Color(0xFFD5BE83)
+val Honey = Color(0xFFFFC53D)
+val HoneyDeep = Color(0xFFFFA62B)
+val HoneyPale = Color(0xFFFFE6A1)
+val Ink = Color(0xFF211806)
+val BeeGreen = Color(0xFF9DDC77)
+val BeeDanger = Color(0xFFFF8376)
+val BeePanel = Color(0xFF211A0B)
+val BeePanelRaised = Color(0xFF322711)
 
 sealed interface Screen {
     data object Home : Screen
@@ -94,9 +99,12 @@ fun App(store: Store) {
     }
     MaterialTheme(
         colorScheme = darkColorScheme(
-            primary = Color.White, onPrimary = Color.Black,
+            primary = Honey, onPrimary = Ink,
+            primaryContainer = HoneyDeep, onPrimaryContainer = Ink,
+            secondary = BeeGreen, onSecondary = Ink,
             background = Bg, surface = Bg, onSurface = Fg,
-            surfaceVariant = Card, onSurfaceVariant = Sub, outline = Line
+            surfaceVariant = Card, onSurfaceVariant = Sub, outline = Line,
+            error = BeeDanger
         )
     ) {
         CompositionLocalProvider(LocalOpenDrawer provides { drawer = true }) {
@@ -128,26 +136,8 @@ fun App(store: Store) {
 
 @Composable
 fun Avatar(seed: String, size: Dp, group: Boolean = false) {
-    val h = Math.floorMod(seed.hashCode(), 360).toFloat()
-    Canvas(Modifier.size(size)) {
-        val r = this.size.minDimension / 2
-        drawCircle(
-            Brush.linearGradient(listOf(Color.hsv(h, .55f, .95f), Color.hsv((h + 50f) % 360f, .7f, .55f))),
-            radius = r
-        )
-        val w = Color.White.copy(alpha = .92f)
-        val c = center
-        if (!group) {
-            drawCircle(w, r * .11f, Offset(c.x - r * .3f, c.y - r * .1f))
-            drawCircle(w, r * .11f, Offset(c.x + r * .3f, c.y - r * .1f))
-            drawLine(w, Offset(c.x - r * .24f, c.y + r * .32f), Offset(c.x + r * .24f, c.y + r * .32f),
-                strokeWidth = r * .1f, cap = StrokeCap.Round)
-        } else {
-            drawCircle(w, r * .16f, Offset(c.x - r * .36f, c.y + r * .12f))
-            drawCircle(w, r * .16f, Offset(c.x + r * .36f, c.y + r * .12f))
-            drawCircle(w, r * .2f, Offset(c.x, c.y - r * .14f))
-        }
-    }
+    // v0.5 replaces the generic face with a distinct hive companion for every Bot.
+    PixelBeeAvatar(seed = seed, size = size, group = group)
 }
 
 @Composable
@@ -192,9 +182,9 @@ fun ChatScreen(store: Store, id: String, go: (Screen) -> Unit) {
         if (!readOnly && isManager) {
             Row(Modifier.fillMaxWidth().padding(start = 16.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(
-                    Modifier.clip(RoundedCornerShape(16.dp)).background(if (projectMode) Color.White else Card)
+                    Modifier.clip(RoundedCornerShape(16.dp)).background(if (projectMode) Honey else Card)
                         .clickable { projectMode = !projectMode }.padding(horizontal = 14.dp, vertical = 6.dp)
-                ) { Text(if (projectMode) "立项模式:开" else "立项模式:关(普通对话)", color = if (projectMode) Color.Black else Sub, fontSize = 13.sp) }
+                ) { Text(if (projectMode) "立项模式:开" else "立项模式:关(普通对话)", color = if (projectMode) Ink else Sub, fontSize = 13.sp) }
             }
         }
         if (!readOnly) {
@@ -247,30 +237,58 @@ fun MsgView(store: Store, m: Msg, showName: Boolean, thinking: Boolean, go: (Scr
         m.role == "project" -> ProjectCard(store, m.text, go)
         m.role == "system" -> Text(m.text, color = Sub, fontSize = 12.sp,
             modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
-        m.from == null -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            Surface(color = Color(0xFF2B2D31), shape = RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp), modifier = Modifier.widthIn(max = 300.dp)) {
-                Column(Modifier.padding(14.dp, 10.dp)) {
-                    if (m.images.isNotEmpty()) {
-                        val ctx = androidx.compose.ui.platform.LocalContext.current
-                        m.images.forEachIndexed { i, name ->
-                            val bmp = remember(name) {
-                                runCatching {
-                                    android.graphics.BitmapFactory.decodeFile(
-                                        java.io.File(ctx.filesDir, "attachments/$name").absolutePath
+        m.from == null -> Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
+            var askResend by remember { mutableStateOf(false) }
+            Row(horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                if (!thinking) {
+                    Text(
+                        "重发", color = Sub, fontSize = 11.sp,
+                        modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable { askResend = true }
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                }
+                Surface(
+                    color = HoneyDeep, shape = RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp),
+                    modifier = Modifier.widthIn(max = 300.dp)
+                ) {
+                    Column(Modifier.padding(14.dp, 10.dp)) {
+                        if (m.images.isNotEmpty()) {
+                            val ctx = androidx.compose.ui.platform.LocalContext.current
+                            m.images.forEachIndexed { i, name ->
+                                val bmp = remember(name) {
+                                    runCatching {
+                                        android.graphics.BitmapFactory.decodeFile(
+                                            java.io.File(ctx.filesDir, "attachments/$name").absolutePath
+                                        )
+                                    }.getOrNull()
+                                }
+                                if (bmp != null) {
+                                    Image(
+                                        bmp.asImageBitmap(), null,
+                                        Modifier.fillMaxWidth().heightIn(max = 220.dp).clip(RoundedCornerShape(12.dp))
                                     )
-                                }.getOrNull()
-                            }
-                            if (bmp != null) {
-                                Image(
-                                    bmp.asImageBitmap(), null,
-                                    Modifier.fillMaxWidth().heightIn(max = 220.dp).clip(RoundedCornerShape(12.dp))
-                                )
-                                if (i < m.images.lastIndex || m.text.isNotBlank()) Spacer(Modifier.height(8.dp))
+                                    if (i < m.images.lastIndex || m.text.isNotBlank()) Spacer(Modifier.height(8.dp))
+                                }
                             }
                         }
+                        if (m.text.isNotBlank()) SelectionContainer { Text(m.text, color = Fg, fontSize = 16.sp) }
                     }
-                    if (m.text.isNotBlank()) SelectionContainer { Text(m.text, color = Fg, fontSize = 16.sp) }
                 }
+            }
+            if (askResend) {
+                AlertDialog(
+                    onDismissRequest = { askResend = false },
+                    title = { Text("重发这条消息?") },
+                    text = { Text("这条消息之后的内容会被清除,然后重新发送。") },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            askResend = false
+                            store.resendFrom(chatId, m.id)
+                        }) { Text("重发") }
+                    },
+                    dismissButton = { TextButton(onClick = { askResend = false }) { Text("取消") } }
+                )
             }
         }
         else -> Column(Modifier.fillMaxWidth()) {
@@ -377,7 +395,7 @@ private fun ToolRow(t: ToolCall, key: String, running: Boolean, actions: ToolAct
             )
             if (badge != null) {
                 Spacer(Modifier.width(6.dp))
-                Text(badge, color = Color(0xFFFF8A80), fontSize = 11.sp)
+                Text(badge, color = BeeDanger, fontSize = 11.sp)
             }
             Spacer(Modifier.width(4.dp))
             Icon(Ic.Down, null, tint = Sub, modifier = Modifier.size(18.dp).rotate(rot))
@@ -385,6 +403,21 @@ private fun ToolRow(t: ToolCall, key: String, running: Boolean, actions: ToolAct
         AnimatedVisibility(open) {
             SelectionContainer {
                 Column(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 12.dp)) {
+                    if (t.image.isNotBlank()) {
+                        val ctx = androidx.compose.ui.platform.LocalContext.current
+                        val bmp = remember(t.image) {
+                            runCatching { android.graphics.BitmapFactory.decodeFile(t.image) }.getOrNull()
+                        }
+                        if (bmp != null) {
+                            Text("截图", color = Sub, fontSize = 11.sp)
+                            Image(
+                                bmp.asImageBitmap(), "屏幕截图",
+                                Modifier.fillMaxWidth().heightIn(max = 320.dp).clip(RoundedCornerShape(10.dp))
+                                    .padding(top = 4.dp, bottom = 10.dp),
+                                contentScale = androidx.compose.ui.layout.ContentScale.FillWidth
+                            )
+                        }
+                    }
                     Text("参数", color = Sub, fontSize = 11.sp)
                     Text(
                         prettyArgs(t.args), color = Fg, fontSize = 12.sp, fontFamily = FontFamily.Monospace,
@@ -480,8 +513,8 @@ fun Field(
         modifier = Modifier.fillMaxWidth(),
         colors = OutlinedTextFieldDefaults.colors(
             focusedTextColor = Fg, unfocusedTextColor = Fg,
-            focusedBorderColor = Color.White, unfocusedBorderColor = Line,
-            focusedLabelColor = Color.White, unfocusedLabelColor = Sub, cursorColor = Color.White
+            focusedBorderColor = Honey, unfocusedBorderColor = Line,
+            focusedLabelColor = Honey, unfocusedLabelColor = Sub, cursorColor = Honey
         )
     )
 }
@@ -490,10 +523,10 @@ fun Field(
 fun PillButton(text: String, filled: Boolean = true, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Box(
         modifier.clip(RoundedCornerShape(26.dp))
-            .background(if (filled) Color.White else Card)
+            .background(if (filled) Honey else Card)
             .clickable(onClick = onClick).padding(vertical = 14.dp),
         contentAlignment = Alignment.Center
-    ) { Text(text, color = if (filled) Color.Black else Fg, fontWeight = FontWeight.SemiBold) }
+    ) { Text(text, color = if (filled) Ink else Fg, fontWeight = FontWeight.SemiBold) }
 }
 
 @Composable
@@ -531,13 +564,13 @@ fun EditBotScreen(store: Store, botId: String?, go: (Screen) -> Unit) {
                 PRESETS.forEach { p ->
                     val sel = preset == p.name
                     Box(
-                        Modifier.clip(RoundedCornerShape(20.dp)).background(if (sel) Color.White else Card)
+                        Modifier.clip(RoundedCornerShape(20.dp)).background(if (sel) Honey else Card)
                             .clickable {
                                 preset = p.name; prompt = p.prompt; isManager = p.manager
                                 if (name.isBlank() && p.prompt.isNotEmpty()) name = p.name
                             }
                             .padding(horizontal = 16.dp, vertical = 8.dp)
-                    ) { Text(p.name, color = if (sel) Color.Black else Fg, fontSize = 14.sp) }
+                    ) { Text(p.name, color = if (sel) Ink else Fg, fontSize = 14.sp) }
                 }
             }
             Field("System Prompt", prompt, { prompt = it; preset = "自定义" }, singleLine = false, minLines = 5)
@@ -553,16 +586,16 @@ fun EditBotScreen(store: Store, botId: String?, go: (Screen) -> Unit) {
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 val selCustom = providerId.isEmpty()
                 Box(
-                    Modifier.clip(RoundedCornerShape(20.dp)).background(if (selCustom) Color.White else Card)
+                    Modifier.clip(RoundedCornerShape(20.dp)).background(if (selCustom) Honey else Card)
                         .clickable { providerId = "" }.padding(horizontal = 16.dp, vertical = 8.dp)
-                ) { Text("自定义", color = if (selCustom) Color.Black else Fg, fontSize = 14.sp) }
+                ) { Text("自定义", color = if (selCustom) Ink else Fg, fontSize = 14.sp) }
                 store.providers.forEach { p ->
                     val sel = providerId == p.id
                     Box(
-                        Modifier.clip(RoundedCornerShape(20.dp)).background(if (sel) Color.White else Card)
+                        Modifier.clip(RoundedCornerShape(20.dp)).background(if (sel) Honey else Card)
                             .clickable { providerId = p.id; models = emptyList(); modelMsg = "" }
                             .padding(horizontal = 16.dp, vertical = 8.dp)
-                    ) { Text(p.name, color = if (sel) Color.Black else Fg, fontSize = 14.sp) }
+                    ) { Text(p.name, color = if (sel) Ink else Fg, fontSize = 14.sp) }
                 }
             }
             val prov = store.provider(providerId)
@@ -609,9 +642,9 @@ fun EditBotScreen(store: Store, botId: String?, go: (Screen) -> Unit) {
                     models.forEach { mid ->
                         val sel = model == mid
                         Box(
-                            Modifier.clip(RoundedCornerShape(16.dp)).background(if (sel) Color.White else Card)
+                            Modifier.clip(RoundedCornerShape(16.dp)).background(if (sel) Honey else Card)
                                 .clickable { model = mid }.padding(horizontal = 12.dp, vertical = 6.dp)
-                        ) { Text(mid, color = if (sel) Color.Black else Fg, fontSize = 12.sp) }
+                        ) { Text(mid, color = if (sel) Ink else Fg, fontSize = 12.sp) }
                     }
                 }
             }
@@ -625,7 +658,7 @@ fun EditBotScreen(store: Store, botId: String?, go: (Screen) -> Unit) {
             Text("技能包", color = Fg, fontSize = 14.sp)
             SkillsPicker(store, skillSel)
             store.persistenceError.value?.let {
-                Text(it, color = Color(0xFFFF8A80), fontSize = 12.sp)
+                Text(it, color = BeeDanger, fontSize = 12.sp)
             }
             Spacer(Modifier.height(4.dp))
         }
@@ -641,6 +674,10 @@ fun EditBotScreen(store: Store, botId: String?, go: (Screen) -> Unit) {
                     }
                     if (saved) go(Screen.Chat("bot:$id"))
                 }
+            }
+            if (old != null) PillButton("复制这个 Bot(不含对话)", filled = false, modifier = Modifier.fillMaxWidth()) {
+                val copy = store.duplicateBot(old.id)
+                if (copy != null) go(Screen.EditBot(copy.id))
             }
             if (old != null) PillButton("删除这个 Bot", filled = false, modifier = Modifier.fillMaxWidth()) {
                 store.deleteBot(old.id); go(Screen.Home)

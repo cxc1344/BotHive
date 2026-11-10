@@ -97,7 +97,7 @@ fun SettingsScreen(store: Store, go: (Screen) -> Unit) {
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             store.persistenceError.value?.let {
-                Text(it, color = Color(0xFFFF8A80), fontSize = 12.sp)
+                Text(it, color = BeeDanger, fontSize = 12.sp)
             }
             Text("Provider 预设", color = Fg, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
             Text("把常用服务商的 Base URL 与 Key 存成预设,建 Bot / Agent 时直接选用并从其模型列表点选,免去反复粘贴。Key 用设备 Keystore 加密保存。", color = Sub, fontSize = 12.sp)
@@ -224,7 +224,7 @@ fun SettingsScreen(store: Store, go: (Screen) -> Unit) {
                             Text(b.model, color = Sub, fontSize = 12.sp)
                         }
                         Box(
-                            Modifier.clip(RoundedCornerShape(16.dp)).background(Color.White)
+                            Modifier.clip(RoundedCornerShape(16.dp)).background(Honey)
                                 .clickable(enabled = b.id !in running) {
                                     running.add(b.id)
                                     scope.launch {
@@ -232,11 +232,11 @@ fun SettingsScreen(store: Store, go: (Screen) -> Unit) {
                                         running.remove(b.id)
                                     }
                                 }.padding(horizontal = 16.dp, vertical = 8.dp)
-                        ) { Text(if (b.id in running) "检测中…" else "自检", color = Color.Black, fontSize = 13.sp) }
+                        ) { Text(if (b.id in running) "检测中…" else "自检", color = Ink, fontSize = 13.sp) }
                     }
                     results[b.id]?.forEach { (ok, msg) ->
                         Text((if (ok) "通过  " else "失败  ") + msg,
-                            color = if (ok) Fg else Color(0xFFFF8A80), fontSize = 12.sp)
+                            color = if (ok) Fg else BeeDanger, fontSize = 12.sp)
                     }
                 }
             }
@@ -255,7 +255,7 @@ fun SettingsScreen(store: Store, go: (Screen) -> Unit) {
                 }
             }
             Spacer(Modifier.height(8.dp))
-            Text("OpenGrokBot 0.4.0", color = Sub, fontSize = 12.sp)
+            Text("BotHive 0.5.0", color = Sub, fontSize = 12.sp)
             Spacer(Modifier.height(16.dp))
         }
     }

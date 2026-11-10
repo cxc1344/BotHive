@@ -92,7 +92,7 @@ class KeepAliveService : Service() {
         )
         val notif = NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.stat_notify_sync)
-            .setContentTitle("OpenGrokBot 正在后台待命")
+            .setContentTitle("BotHive 正在后台待命")
             .setContentText("例行任务与主动消息通道保持运行")
             .setContentIntent(open)
             .setOngoing(true)

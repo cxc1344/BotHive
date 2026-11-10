@@ -16,5 +16,5 @@ dependencyResolutionManagement {
         google(); mavenCentral()
     }
 }
-rootProject.name = "OpenGrokBot"
+rootProject.name = "BotHive"
 include(":app")

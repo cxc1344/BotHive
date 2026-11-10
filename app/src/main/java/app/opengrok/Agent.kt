@@ -38,6 +38,9 @@ object ApiEndpoint {
 
 /** OpenAI-compatible chat/completions agent loop with two tools: shell, ask_bot. */
 object Agent {
+    /** Screenshot captured by the latest screen_shot call, keyed by bot id so concurrent chats never mix up shots. */
+    private val pendingShots = java.util.concurrent.ConcurrentHashMap<String, File>()
+
     private val http = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(180, TimeUnit.SECONDS)
@@ -106,14 +109,19 @@ object Agent {
             put(fn("recent_notifications", "查看手机最近的通知(应用、标题、内容、时间)。需要用户已开启「通知使用权」。", JSONObject()))
             put(fn("shizuku_shell", "通过 Shizuku 以 shell 身份执行命令(需要 Shizuku 已激活并授权)。可做 input tap/swipe/keyevent(点击滑动按键)、screencap 截屏到文件、dumpsys 查看系统状态、pm/am 管理应用等系统级操作。",
                 JSONObject().put("command", str("要执行的 shell 命令")), "command"))
-            put(fn("screen_dump", "读取当前屏幕的界面结构(文字、位置、是否可点击/可输入),相当于看一眼屏幕。操作其他应用前先用它确认界面。", JSONObject()))
-            put(fn("tap_text", "点击屏幕上包含指定文字的元素。",
-                JSONObject().put("text", str("要点击的文字")), "text"))
-            put(fn("tap_xy", "按坐标点击屏幕。坐标来自 screen_dump 中元素的位置。",
-                JSONObject().put("x", JSONObject().put("type", "integer")).put("y", JSONObject().put("type", "integer")), "x", "y"))
-            put(fn("swipe", "在屏幕上滑动(滚动页面、翻页等)。",
+            put(fn("screen_shot", "截取当前屏幕截图并直接看到画面(视觉看屏,推荐首选)。之后用 tap_at / long_press / drag_at 按画面上的相对位置操作:坐标是 0-1000 的归一化网格,左上角是 (0,0),右下角是 (1000,1000)。", JSONObject()))
+            put(fn("screen_dump", "以文字形式读取当前屏幕的界面结构(备用手段;优先用 screen_shot 看图)。", JSONObject()))
+            put(fn("tap_at", "点击画面上的一点。x、y 为 0-1000 归一化坐标:先看 screen_shot 的截图,判断目标在画面中的相对位置,再给出坐标,例如画面正中是 (500,500)。",
+                JSONObject().put("x", JSONObject().put("type", "integer").put("description", "0-1000,横向相对位置")).put("y", JSONObject().put("type", "integer").put("description", "0-1000,纵向相对位置")), "x", "y"))
+            put(fn("long_press", "长按画面上的一点(弹出菜单、选中、进入编辑模式等)。坐标同 tap_at,duration_ms 为按压毫秒数(默认 600)。",
+                JSONObject().put("x", JSONObject().put("type", "integer")).put("y", JSONObject().put("type", "integer"))
+                    .put("duration_ms", JSONObject().put("type", "integer").put("description", "按压毫秒数,默认 600")), "x", "y"))
+            put(fn("drag_at", "从画面上一点拖动到另一点(滑动翻页、滚动列表、拖放)。坐标同 tap_at,为 0-1000 归一化坐标;duration_ms 为拖动毫秒数(默认 300,滚动用 300-600,精细拖放用 800-1500)。",
                 JSONObject().put("x1", JSONObject().put("type", "integer")).put("y1", JSONObject().put("type", "integer"))
-                    .put("x2", JSONObject().put("type", "integer")).put("y2", JSONObject().put("type", "integer")), "x1", "y1", "x2", "y2"))
+                    .put("x2", JSONObject().put("type", "integer")).put("y2", JSONObject().put("type", "integer"))
+                    .put("duration_ms", JSONObject().put("type", "integer").put("description", "拖动毫秒数,默认 300")), "x1", "y1", "x2", "y2"))
+            put(fn("tap_text", "点击屏幕上包含指定文字的元素(文字模式备用;视觉模式下优先 tap_at)。",
+                JSONObject().put("text", str("要点击的文字")), "text"))
             put(fn("input_text", "向当前聚焦(或界面中第一个)输入框写入文字。写之前通常要先点开输入框。",
                 JSONObject().put("text", str("要输入的文字")), "text"))
             put(fn("press_key", "按系统键:back(返回)/ home(桌面)/ recents(最近任务)/ notifications(通知栏)。",
@@ -139,7 +147,8 @@ object Agent {
         val sys = if (isAgent) {
             bot.prompt + "\n\n你叫「${bot.name}」,是运行在用户安卓手机上的设备 Agent,有一台自己的 Ubuntu 沙盒可用 shell 干活。" +
                 (if (others.isNotEmpty()) "云端 Bot 同伴:$others,可用 ask_bot 私信求助或给他们派活。" else "") +
-                "你能管理手机文件:fs_* 工具用绝对路径,分普通(需所有文件访问授权,管共享存储)/ Shizuku(shell 身份)/ Root(能进其他应用 /data)三档通道,默认 auto 自动选。无障碍通道负责看屏与操作,不增加文件权限。请使用用户的语言回复。" + skillSuffix
+                "你能管理手机文件:fs_* 工具用绝对路径,分普通(需所有文件访问授权,管共享存储)/ Shizuku(shell 身份)/ Root(能进其他应用 /data)三档通道,默认 auto 自动选。" +
+                "屏幕操作走视觉模式:先 screen_shot 截屏(截图会随结果附给你看),判断目标在画面中的相对位置,再用 0-1000 归一化坐标调用 tap_at 点击 / long_press 长按 / drag_at 拖动;左上角是 (0,0),右下角是 (1000,1000),例如正中央是 (500,500)。每操作几步重新截屏核对,别凭记忆连点。无障碍通道不增加文件权限。请使用用户的语言回复。" + skillSuffix
         } else {
             bot.prompt + "\n\n你叫「${bot.name}」,运行在一部安卓手机上,有自己独立的工作目录(Ubuntu 环境),可用 shell 工具执行命令。" +
                 "工作目录不是操作系统级安全隔离,只允许读写自己的工作目录,不得尝试访问应用数据或其他 Bot 的文件。" +
@@ -206,9 +215,25 @@ object Agent {
                     tools.add(ToolCall(c.getString("id"), name, argStr, ""))
                     onTools(tools.toList())
                     val out = runTool(store, bot, name, argStr, depth, chatId)
-                    tools[idx] = tools[idx].copy(output = out)
+                    // A screen_shot call carries an image for the model AND a thumbnail for the UI.
+                    val shot = pendingShots.remove(bot.id)
+                    tools[idx] = tools[idx].copy(output = out, image = shot?.takeIf { name == "screen_shot" }?.absolutePath.orEmpty())
                     onTools(tools.toList())
                     msgs.put(JSONObject().put("role", "tool").put("tool_call_id", c.getString("id")).put("content", out))
+                    if (shot != null && name == "screen_shot") {
+                        // Attach the screenshot as a plain user vision message: tool messages with
+                        // array content are rejected by several OpenAI-compatible providers.
+                        val b64 = runCatching {
+                            java.util.Base64.getEncoder().encodeToString(shot.readBytes())
+                        }.getOrNull()
+                        if (b64 != null) {
+                            val parts = JSONArray()
+                            parts.put(JSONObject().put("type", "text").put("text", "这是刚刚 screen_shot 截到的屏幕(操作后请重新截屏核对)。"))
+                            parts.put(JSONObject().put("type", "image_url")
+                                .put("image_url", JSONObject().put("url", "data:image/png;base64,$b64")))
+                            msgs.put(JSONObject().put("role", "user").put("content", parts))
+                        }
+                    }
                 }
             }
         } catch (e: CancellationException) {
@@ -379,13 +404,25 @@ object Agent {
                 if (bot.id != AGENT_ID) return "该工具只有设备 Agent 可用。"
                 ShizukuTools.shell(a.optString("command"))
             }
-            "screen_dump", "tap_text", "tap_xy", "swipe", "input_text", "press_key" -> {
+            "screen_shot", "screen_dump", "tap_at", "long_press", "drag_at", "tap_text", "input_text", "press_key" -> {
                 if (bot.id != AGENT_ID) return "该工具只有设备 Agent 可用。"
                 when (name) {
+                    "screen_shot" -> {
+                        val r = A11y.screenshot(store.appContext().cacheDir)
+                        if (r.has("error")) r.getString("error")
+                        else {
+                            // Mark this tool call as carrying an image; run() will attach the
+                            // screenshot as a vision part on the tool-result message.
+                            pendingShots[bot.id] = File(r.getString("path"))
+                            "截屏完成(${r.getInt("width")}x${r.getInt("height")})。请直接查看随本条结果附带的截图;" +
+                                "操作时把目标在画面中的相对位置换算成 0-1000 坐标(左上 0,0;右下 1000,1000),再调用 tap_at / long_press / drag_at。"
+                        }
+                    }
                     "screen_dump" -> A11y.dumpScreen()
+                    "tap_at" -> A11y.tapNorm(a.optInt("x"), a.optInt("y"))
+                    "long_press" -> A11y.longPressNorm(a.optInt("x"), a.optInt("y"), a.optLong("duration_ms", 600))
+                    "drag_at" -> A11y.dragNorm(a.optInt("x1"), a.optInt("y1"), a.optInt("x2"), a.optInt("y2"), a.optLong("duration_ms", 300))
                     "tap_text" -> A11y.tapText(a.optString("text"))
-                    "tap_xy" -> A11y.tap(a.optInt("x"), a.optInt("y"))
-                    "swipe" -> A11y.swipe(a.optInt("x1"), a.optInt("y1"), a.optInt("x2"), a.optInt("y2"))
                     "input_text" -> A11y.inputText(a.optString("text"))
                     else -> A11y.pressKey(a.optString("key"))
                 }

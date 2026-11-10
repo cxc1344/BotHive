@@ -115,7 +115,7 @@ fun SearchScreen(store: Store, go: (Screen) -> Unit) {
                             val i = rest.indexOf(k, ignoreCase = true)
                             if (i < 0 || k.isEmpty()) { append(rest); break }
                             append(rest.substring(0, i))
-                            withStyle(SpanStyle(color = Color.White, fontWeight = FontWeight.Bold)) { append(rest.substring(i, i + k.length)) }
+                            withStyle(SpanStyle(color = Honey, fontWeight = FontWeight.Bold)) { append(rest.substring(i, i + k.length)) }
                             rest = rest.substring(i + k.length)
                         }
                     }, color = Sub, fontSize = 13.sp, maxLines = 3)

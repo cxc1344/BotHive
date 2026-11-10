@@ -439,6 +439,28 @@ class Store(private val ctx: Context) {
 
     fun addGroup(g: Group) { groups.add(g); save() }
 
+    // ---- pinned chats (v0.5) ----
+
+    /** Chat ids the user pinned; sorted first in the drawer regardless of recency. */
+    val pinned = mutableStateListOf<String>()
+
+    fun togglePin(id: String) {
+        if (id in pinned) pinned.remove(id) else {
+            pinned.add(id)
+            while (pinned.size > 20) pinned.removeAt(0)
+        }
+        save()
+    }
+
+    /** Copy a Bot (prompt/model/provider/skills) under a new id and name suffix; no chat history copied. */
+    fun duplicateBot(id: String): Bot? {
+        val src = bot(id) ?: return null
+        var name = src.name
+        while (bots.any { it.name == name }) name = name.removeSuffix(" 副本") + " 副本"
+        val copy = src.copy(id = java.util.UUID.randomUUID().toString().take(8), name = name, isManager = false)
+        return if (saveBot(copy)) copy else null
+    }
+
     fun resetSandbox(botId: String) {
         scope.launch {
             withSandboxLock(botId) {
@@ -633,6 +655,20 @@ class Store(private val ctx: Context) {
         jobs[AGENT_ID] = job
     }
 
+    /** Re-send an earlier user message: drops it and everything after it, then sends it again. */
+    fun resendFrom(chatId: String, msgId: String): Boolean {
+        if (chatId in busy) return false
+        val list = chat(chatId)
+        val idx = list.indexOfFirst { it.id == msgId }
+        if (idx < 0) return false
+        val m = list[idx]
+        if (m.from != null) return false
+        while (list.size > idx) list.removeAt(list.lastIndex)
+        save()
+        if (chatId == AGENT_ID) sendAgent(m.text) else send(chatId, m.text)
+        return true
+    }
+
     // ---- persistence ----
     private fun msgJson(m: Msg) = JSONObject().apply {
         put("id", m.id); put("role", m.role); put("text", m.text)
@@ -641,6 +677,7 @@ class Store(private val ctx: Context) {
         if (m.time > 0) put("t", m.time)
         put("tools", JSONArray(m.tools.map {
             JSONObject().put("id", it.id).put("name", it.name).put("args", it.args).put("output", it.output)
+                .put("image", it.image)
         }))
     }
 
@@ -706,6 +743,7 @@ class Store(private val ctx: Context) {
             JSONObject().put("id", it.id).put("name", it.name).put("members", JSONArray(it.memberIds))
         }))
         o.put("dms", JSONArray(dmIds.toList()))
+        o.put("pinned", JSONArray(pinned.toList()))
         o.put("agentSessions", JSONArray(agentSessions.map { JSONObject().put("id", it.id).put("title", it.title).put("t", it.time) }))
         o.put("projects", JSONArray(projects.map { p ->
             JSONObject().put("id", p.id).put("manager", p.managerId).put("title", p.title)
@@ -817,6 +855,7 @@ class Store(private val ctx: Context) {
                 }
             }
             o.optJSONArray("dms")?.let { a -> for (i in 0 until a.length()) dmIds.add(a.getString(i)) }
+            o.optJSONArray("pinned")?.let { a -> for (i in 0 until a.length()) pinned.add(a.getString(i)) }
             o.optJSONArray("agentSessions")?.let { a ->
                 for (i in 0 until a.length()) a.getJSONObject(i).let {
                     agentSessions.add(AgentSession(it.getString("id"), it.optString("title", "Agent 对话"), it.optLong("t")))
@@ -854,7 +893,7 @@ class Store(private val ctx: Context) {
                         val ts = m.optJSONArray("tools")
                         val tools = if (ts == null) emptyList() else (0 until ts.length()).map {
                             val t = ts.getJSONObject(it)
-                            ToolCall(t.getString("id"), t.getString("name"), t.optString("args"), t.optString("output"))
+                            ToolCall(t.getString("id"), t.getString("name"), t.optString("args"), t.optString("output"), t.optString("image"))
                         }
                         val imgArr = m.optJSONArray("images")
                         val imgList = if (imgArr == null) emptyList() else (0 until imgArr.length()).map { imgArr.getString(it) }

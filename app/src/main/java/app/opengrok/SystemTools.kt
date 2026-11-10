@@ -52,7 +52,7 @@ return mode == AppOpsManager.MODE_ALLOWED
 
 fun appUsage(ctx: Context): String {
 if (!hasUsageAccess(ctx)) {
-return "读取应用使用时长需要「使用情况访问」权限。请让用户在 Agent 模式页面点「开启使用情况访问」,在系统列表里允许 OpenGrokBot 后再试。"
+return "读取应用使用时长需要「使用情况访问」权限。请让用户在 Agent 模式页面点「开启使用情况访问」,在系统列表里允许 BotHive 后再试。"
 }
 val usm = ctx.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
 val cal = Calendar.getInstance().apply {

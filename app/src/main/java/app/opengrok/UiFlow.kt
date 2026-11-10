@@ -43,13 +43,13 @@ fun ModeCapsule(current: String, go: (Screen) -> Unit) {
             val sel = current == m
             Box(
                 Modifier.clip(RoundedCornerShape(999.dp))
-                    .background(if (sel) Color.White else Color.Transparent)
+                    .background(if (sel) Honey else Color.Transparent)
                     .clickable {
                         if (!sel) go(if (m == "agent") Screen.AgentChat else Screen.BotMode)
                     }
                     .padding(horizontal = 24.dp, vertical = 8.dp)
             ) {
-                Text(label, color = if (sel) Color.Black else Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text(label, color = if (sel) Ink else Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             }
         }
     }
@@ -61,10 +61,10 @@ fun ApprovalCards(store: Store, chatId: String) {
     store.pendingApprovals.filter { it.chatId == chatId }.forEach { ap ->
         Column(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
-                .clip(RoundedCornerShape(14.dp)).background(Color(0xFF3A2E12)).padding(12.dp),
+                .clip(RoundedCornerShape(14.dp)).background(BeePanelRaised).padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text("待批准命令 · ${store.botName(ap.botId)}", color = Color(0xFFFFD54F), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text("待批准命令 · ${store.botName(ap.botId)}", color = HoneyPale, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             Text(ap.command, color = Fg, fontSize = 13.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, maxLines = 5, overflow = TextOverflow.Ellipsis)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 PillButton("执行", modifier = Modifier.weight(1f)) { store.executeApproval(ap) }
@@ -85,10 +85,10 @@ fun SkillsPicker(store: Store, selected: androidx.compose.runtime.snapshots.Snap
         store.skills.forEach { sk ->
             val sel = sk.id in selected
             Box(
-                Modifier.clip(RoundedCornerShape(16.dp)).background(if (sel) Color.White else Card)
+                Modifier.clip(RoundedCornerShape(16.dp)).background(if (sel) Honey else Card)
                     .clickable { if (sel) selected.remove(sk.id) else selected.add(sk.id) }
                     .padding(horizontal = 12.dp, vertical = 6.dp)
-            ) { Text(sk.name, color = if (sel) Color.Black else Fg, fontSize = 12.sp) }
+            ) { Text(sk.name, color = if (sel) Ink else Fg, fontSize = 12.sp) }
         }
     }
 }
@@ -200,10 +200,10 @@ fun EditWorkflowScreen(store: Store, wfId: String?, go: (Screen) -> Unit) {
                         candidates.forEach { (cid, cname) ->
                             val sel = step.botId == cid
                             Box(
-                                Modifier.clip(RoundedCornerShape(16.dp)).background(if (sel) Color.White else Bg)
+                                Modifier.clip(RoundedCornerShape(16.dp)).background(if (sel) Honey else Bg)
                                     .clickable { steps[idx] = step.copy(botId = cid) }
                                     .padding(horizontal = 12.dp, vertical = 6.dp)
-                            ) { Text(cname, color = if (sel) Color.Black else Fg, fontSize = 12.sp) }
+                            ) { Text(cname, color = if (sel) Ink else Fg, fontSize = 12.sp) }
                         }
                     }
                     Field("指令(可用 {prev} 引用上一步输出)", step.instruction, { steps[idx] = step.copy(instruction = it) },
@@ -347,10 +347,10 @@ fun AttachChips(items: List<AttachItem>, onRemove: (AttachItem) -> Unit) {
 @Composable
 fun StopButton(onStop: () -> Unit) {
     Box(
-        Modifier.size(48.dp).clip(androidx.compose.foundation.shape.CircleShape).background(Color(0xFFE5484D))
+        Modifier.size(48.dp).clip(androidx.compose.foundation.shape.CircleShape).background(BeeDanger)
             .clickable { onStop() },
         contentAlignment = Alignment.Center
-    ) { Icon(Ic.Stop, null, tint = Color.White) }
+    ) { Icon(Ic.Stop, null, tint = Ink) }
 }
 
 /** Round send button shared by every composer (white when there is something to send, muted otherwise). */
@@ -358,8 +358,8 @@ fun StopButton(onStop: () -> Unit) {
 fun SendButton(enabled: Boolean, onClick: () -> Unit) {
     Box(
         Modifier.size(48.dp).clip(androidx.compose.foundation.shape.CircleShape)
-            .background(if (enabled) Color.White else Line)
+            .background(if (enabled) Honey else Line)
             .clickable(enabled = enabled) { onClick() },
         contentAlignment = Alignment.Center
-    ) { Icon(Ic.Send, null, tint = if (enabled) Color.Black else Sub) }
+    ) { Icon(Ic.Send, null, tint = if (enabled) Ink else Sub) }
 }

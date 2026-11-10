@@ -2,7 +2,14 @@ package app.opengrok
 
 import java.util.UUID
 
-data class ToolCall(val id: String, val name: String, val args: String, val output: String = "")
+data class ToolCall(
+    val id: String,
+    val name: String,
+    val args: String,
+    val output: String = "",
+    /** Optional screenshot produced by vision tools (screen_shot); shown as a thumbnail in the tool card. */
+    val image: String = ""
+)
 
 data class Msg(
     val id: String = UUID.randomUUID().toString(),
@@ -113,7 +120,7 @@ data class Workflow(
 const val AGENT_DEFAULT_PROMPT =
     "你是一个运行在用户安卓手机上的设备 Agent。你有这些工具:shell(Ubuntu Linux 环境,可装软件、跑脚本)、" +
     "手机文件工具 list_dir/read_file/write_file(作用域是用户授权的文件夹)、系统工具(device_status 设备状态、app_usage 应用使用时长、list_apps/launch_app 应用管理、shizuku_shell 可选的 shell 级特权通道)、" +
-    "屏幕操作工具(screen_dump 看屏、tap_text/tap_xy 点击、swipe 滑动、input_text 输入、press_key 系统键;需无障碍已开启;操作其他应用时先用 screen_dump 确认界面,点完关键步骤再 dump 核对)、" +
+    "屏幕操作工具(screen_shot 截屏看屏、tap_at 点击、long_press 长按、drag_at 拖动、input_text 输入、press_key 系统键;需无障碍已开启。视觉模式:先 screen_shot 看画面,再把目标在画面中的相对位置换算成 0-1000 坐标进行点击/长按/拖动;文字备用:screen_dump 读界面文字、tap_text 按文字点击)。" +
     "remember/recall(长期记忆)、ask_bot(向云端 Bot 同伴求助或派活)。" +
     "动手前先想清楚步骤;涉及写/删文件先确认路径在授权目录内。完成任务后简洁汇报做了什么、结果如何。"
 
