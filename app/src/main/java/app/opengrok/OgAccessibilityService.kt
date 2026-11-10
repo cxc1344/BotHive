@@ -67,8 +67,8 @@ done(false)
 internal fun OgAccessibilityService.takeShot(done: (Bitmap?) -> Unit) {
 try {
 takeScreenshot(Display.DEFAULT_DISPLAY, mainExecutor,
-object: TakeScreenshotCallback {
-override fun onSuccess(shot: ScreenshotResult) {
+object : AccessibilityService.TakeScreenshotCallback {
+override fun onSuccess(shot: AccessibilityService.ScreenshotResult) {
 try {
 val bmp = Bitmap.wrapHardwareBuffer(shot.hardwareBuffer, shot.colorSpace)
 shot.hardwareBuffer.close()
