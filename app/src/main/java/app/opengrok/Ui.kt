@@ -213,6 +213,20 @@ fun Avatar(seed: String, size: Dp, group: Boolean = false) {
     PixelBeeAvatar(seed = seed, size = size, group = group)
 }
 
+/**
+ * One-shot entrance wrapper for chat rows. This indirection matters: called directly inside a
+ * LazyColumn item (itself nested in a Column), AnimatedVisibility resolves to the ColumnScope
+ * member extension, which cannot be called there. In this scope-free helper only the top-level
+ * AnimatedVisibility applies.
+ */
+@Composable
+private fun AnimatedMsgRow(visible: Boolean, content: @Composable () -> Unit) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(220)) + slideInVertically(tween(260)) { it / 6 }
+    ) { content() }
+}
+
 @Composable
 fun ChatScreen(store: Store, id: String, go: (Screen) -> Unit) {
     val msgs = store.chat(id)
@@ -250,10 +264,7 @@ fun ChatScreen(store: Store, id: String, go: (Screen) -> Unit) {
                     // Each message eases in once; existing rows are untouched when new ones arrive.
                     var appeared by remember(m.id) { mutableStateOf(false) }
                     LaunchedEffect(m.id) { appeared = true }
-                    AnimatedVisibility(
-                        visible = appeared,
-                        enter = fadeIn(tween(220)) + slideInVertically(tween(260)) { it / 6 }
-                    ) {
+                    AnimatedMsgRow(appeared) {
                         MsgView(store, m, showName = !isBot, thinking = busy && m.id == msgs.last().id, go = go, chatId = id)
                     }
                 }
