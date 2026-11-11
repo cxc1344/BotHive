@@ -1,5 +1,50 @@
 # 更新日志
 
+## v0.5.4 — 2026-11-11
+
+**字体方案重做：中文也进衬线**
+
+v0.5.3 只打包了 Latin Modern，它一个汉字都没有，中文只能落回系统无衬线体，结果界面半衬线半无衬线。现在换成能同时覆盖中文与拉丁的方案：
+
+- **Noto Serif SC（子集化）** 作为正文与界面字体：保留 GB2312 全部 6763 个汉字 + ASCII + 希腊字母 + 通用标点 + 箭头 + 数学运算符 + 制表符 + 常用符号（✓ ⚠ ★ 等），共 7640 字形。每字重从 11 MB 压到 **2.3 MB**
+- 中英数符号**同一字族**，字重与节奏一致，不再有中英混排的割裂感——这是和 v0.5.3 最本质的区别
+- **Latin Modern Mono** 保留作代码/工具输出/表格的等宽字体（130 KB × 2）。等宽对列对齐是刚需，衬线体会让 shell 输出读不下去；中文出现在代码块里时落回系统字体，可以接受
+- 移除 Latin Modern Roman / Math（已被 Noto Serif SC 覆盖，省 950 KB）
+- `Mono` 与 `Roman` 现在是两个真实字族，`Math` 是 `Roman` 的别名（同一字族已含数学符号，分家只会造成字重跳变）
+- 许可：Noto Serif SC 为 SIL OFL 1.1（子集化未改字形轮廓与度量，仅删除未用字形，保留原字体名）；Latin Modern Mono 为 GUST Font License。两者均已在 `THIRD_PARTY_NOTICES.md` 声明
+
+字体资源总计 **4.7 MB**（原 Noto 完整版为 23 MB）。
+
+## v0.5.3 — 2026-11-11
+
+**LaTeX 字体（补上之前一直没落地的部分）**
+
+- 之前整个 App 用的是系统默认字体家族，所以系统换字体就整体被覆盖——也确实从来没有内置过字体文件。现在随包内置 **Latin Modern**（LaTeX 的默认字体家族，Computer Modern 的现代版）：
+  - `lm_roman_regular/bold/italic` — 正文与界面文字
+  - `lm_mono_regular/bold` — 代码、工具输出、表格
+  - `lm_math` — Latin Modern Math，2045 个字形，覆盖 `∑ ∫ α π ≠ ≤ ∈ ∀ ∂ ∞ √ →` 等数学符号（正文字体里没有这些）
+- 通过 `MaterialTheme(typography = hiveTypography())` + `LocalTextStyle` 统一注入，230 多处 `Text` 调用无需逐个改，也不会以后各自漂移
+- 数学符号按字符区间识别（希腊字母 / 箭头 / 数学运算符 / 数学字母数字符号 / `± × ÷ ² ³ °`），自动切到数学字体，ASCII 不受影响
+- 原先散落的 `FontFamily.Monospace` 全部换成 `HiveFonts.Mono`（LaTeX 等宽），工具卡、命令输出、代码块、表格统一
+
+**关于中文**：Latin Modern 不含任何 CJK 字形，而本 App 界面以中文为主。缺字时由系统 fallback 字体渲染——这是 Android/Skia 对任何 Typeface 的既有行为，所以中文正常显示（用系统字体），拉丁字母、数字、标点、数学符号用 Latin Modern。不做字体子集化合并，因为那会把中文字体的授权一起卷进来。
+
+字体以 GUST Font License 分发，已在 `THIRD_PARTY_NOTICES.md` 补充声明。
+
+## v0.5.2 — 2026-11-11
+
+修三个真机反馈的硬伤：
+
+- **Markdown 渲染**：Agent 回复原本是纯文本直出，`**粗体**`、`| 表格 |`、代码块、列表全部原样显示。新增自研轻量渲染器 `Markdown.kt`（不引第三方库），支持标题、粗体/斜体/删除线/行内代码、链接、有序与无序列表、引用块、围栏代码块（横向滚动）、GFM 管道表格（表头高亮 + 分隔线 + 横向滚动）与分隔线。用户自己发的消息仍按纯文本显示，避免 `**` 被误当格式。附 `MarkdownTest` 8 项回归测试
+- **虚拟屏创建失败（Android 14+）**：`VIRTUAL_DISPLAY_FLAG_PUBLIC|PRESENTATION` 会被判定为「镜像共享」，系统要求 `ADD_MIRROR_DISPLAY` 签名权限或 MediaProjection token，直接抛错。改为以 `VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY` 为主（声明该屏承载自己的内容而非镜像主屏），并保留三级 flag 降级链（`OWN|PUBLIC|PRESENTATION` → `OWN|PUBLIC` → `OWN`），失败时把每一次尝试的具体原因一并返回，不再只说"创建失败"
+- **Shizuku 授权后仍不生效**：
+  - 不再依赖 `Process.waitFor()/exitValue()`——Shizuku 的 Process 是远程桩，命令跑完后仍可能报 "process hasn't exited"。改为把退出码写进输出流（`; echo __BOTHIVE_EXIT__$?`），以流关闭作为完成信号
+  - `refresh()` 全程 try/catch，`pingBinder` 异常不再被吞成"未运行"，而是记录具体原因；新增 `problem` 状态与 `reason()`，把"服务没起 / 没授权 / 权限被拒 / 连不上 binder"分开报告
+  - 授权结果监听器只注册一次（原来每次请求都 add，会累积）
+  - `newProcess` 反射兼容 2 参数与 3 参数两种签名
+  - 设置页的 Shizuku 卡片改为每 3 秒轮询真实状态，显示具体问题原因，并新增「打开 Shizuku」直达按钮
+- **无障碍"系统里开着但 Agent 说没开"**：`A11y.enabled` 只是内存标志，App 进程被系统回收后 service 为 null，界面就误报"未开启"。新增 `A11y.enabledInSystem()`（查 `AccessibilityManager` 的已启用服务列表）与 `statusLine()`，区分「已连接 / 系统已开启但未连上本进程 / 真的没开」三种状态；新增「重新连接无障碍」按钮（应用无法自行重新绑定无障碍服务，按钮确认系统侧状态并给出准确恢复路径：进程被回收时在系统列表里关开一次即可触发重新绑定）；设置页每 2 秒轮询刷新
+
 ## v0.5.1 — 2026-11-11
 
 **Agent 虚拟屏悬浮窗**（核心新功能）：Agent 干活时不再霸占你的主屏。

@@ -85,19 +85,46 @@ object VirtualScreen {
             if (width <= 0 || height <= 0) return "读不到主屏尺寸,无法创建虚拟屏。"
 
             val ir = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2)
-            val flags = DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC or
-                DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION
-            val vd = dm.createVirtualDisplay(
-                "BotHive-Agent",
-                width, height, density,
-                ir.surface,
-                flags
-            ) ?: return "系统拒绝创建虚拟屏(createVirtualDisplay 返回 null)。"
+
+            // Android 14+ treats PUBLIC/PRESENTATION as "screen sharing" (mirroring) and then demands
+            // ADD_MIRROR_DISPLAY (a signature permission) or a MediaProjection token. OWN_CONTENT_ONLY
+            // declares that this display hosts its own content instead of mirroring the main screen,
+            // which is exactly what we do: apps launched onto it render there directly.
+            //
+            // We try progressively simpler flag sets because OEM ROMs differ in what they accept; the
+            // first one that succeeds wins, and the failure text from the last attempt is reported.
+            val attempts = listOf(
+                "OWN_CONTENT_ONLY|PUBLIC|PRESENTATION" to (
+                    DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY or
+                        DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC or
+                        DisplayManager.VIRTUAL_DISPLAY_FLAG_PRESENTATION),
+                "OWN_CONTENT_ONLY|PUBLIC" to (
+                    DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY or
+                        DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC),
+                "OWN_CONTENT_ONLY" to DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY
+            )
+            var vd: VirtualDisplay? = null
+            var lastError = ""
+            for ((label, flags) in attempts) {
+                vd = try {
+                    dm.createVirtualDisplay("BotHive-Agent", width, height, density, ir.surface, flags)
+                } catch (e: Exception) {
+                    lastError = "$label → ${e.message ?: e.javaClass.simpleName}"
+                    null
+                }
+                if (vd != null) break
+                if (lastError.isEmpty()) lastError = "$label → 返回 null"
+            }
+            val created = vd
+            if (created == null) {
+                runCatching { ir.close() }
+                return "系统拒绝创建虚拟屏(已尝试 3 种 flag 组合)。最后一次:$lastError"
+            }
 
             displayManager = dm
             reader = ir
-            virtualDisplay = vd
-            displayId.value = vd.display.displayId
+            virtualDisplay = created
+            displayId.value = created.display.displayId
             active.value = true
             paused.value = false
             null

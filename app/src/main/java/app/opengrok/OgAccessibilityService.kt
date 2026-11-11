@@ -95,6 +95,53 @@ val enabled = mutableStateOf(false)
 @Volatile
 private var service: OgAccessibilityService? = null
 
+/**
+ * True when the user has switched this service on in system settings, checked through the
+ * AccessibilityManager instead of our in-memory flag. The in-memory flag is lost whenever the
+ * app process restarts while the service stays enabled system-wide, which used to make the Agent
+ * report "无障碍未开启" even though it was on.
+ */
+fun enabledInSystem(context: android.content.Context): Boolean {
+    val am = context.getSystemService(android.content.Context.ACCESSIBILITY_SERVICE)
+        as? android.view.accessibility.AccessibilityManager ?: return false
+    return try {
+        am.getEnabledAccessibilityServiceList(android.accessibilityservice.AccessibilityServiceInfo.FEEDBACK_ALL_MASK)
+            .any { it.resolveInfo.serviceInfo.packageName == context.packageName }
+    } catch (_: Exception) {
+        false
+    }
+}
+
+/**
+ * Reconnects the service when the OS still has it enabled but our process lost the instance
+ * (e.g. the app was killed and restarted while the service stayed on system-wide).
+ *
+ * An app cannot bind its own accessibility service — only the framework can, when the user
+ * toggles it in system settings. So this reports the exact state and the shortest reliable
+ * recovery instead of pretending to rebind programmatically.
+ */
+fun reconnect(context: android.content.Context): String {
+    if (service != null) return "无障碍服务已连接,无需重连。"
+    if (!enabledInSystem(context)) {
+        return "系统里没有开启 BotHive 的无障碍服务,请先去系统设置打开它。"
+    }
+    // System-side it is enabled, but this process holds no service instance (the process was
+    // recycled while the service stayed on). Only the framework can rebind it, and the reliable
+    // trigger is the user toggling the service off and on in the system list.
+    return "系统无障碍列表里 BotHive 是开启状态,但本进程还没拿到服务连接(通常是 App 被系统回收过)。" +
+        "应用无法自行重新绑定无障碍服务,请在系统无障碍列表里把 BotHive 关掉再打开一次,系统会重新绑定并连接。"
+}
+
+/** Diagnostic line for the settings screen: which state is actually blocking us. */
+fun statusLine(context: android.content.Context): String {
+    val inSystem = enabledInSystem(context)
+    return when {
+        service != null -> "状态:已连接,可截屏并操作屏幕。"
+        inSystem -> "状态:系统里已开启,但服务还没连上本进程。点下面的「重新连接无障碍」即可恢复(通常是因为 App 被系统回收过)。"
+        else -> "状态:未开启。请在系统无障碍设置里打开 BotHive。"
+    }
+}
+
 internal fun attach(s: OgAccessibilityService) {
 service = s
 enabled.value = true
@@ -108,7 +155,7 @@ enabled.value = false
 }
 
 private const val OFF_MSG =
-"屏幕操作需要用户亲手开启无障碍服务。请让用户在 Agent 模式页面点「开启无障碍」,在系统无障碍列表里打开 BotHive 后再试。"
+"无障碍服务未连接。如果系统无障碍列表里 BotHive 已经是开启状态,请在 Agent 设置里点「重新连接无障碍」;否则先让用户在系统无障碍设置里打开 BotHive。"
 
 private fun svc(): OgAccessibilityService? = service
 

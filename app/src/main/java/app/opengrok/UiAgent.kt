@@ -468,12 +468,34 @@ fun AgentPermissions(store: Store) {
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text("无障碍(屏幕操作)", color = Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        // Poll the real system state: the in-memory flag alone made this card claim "未开启"
+        // whenever the app process had been restarted while the service stayed enabled.
+        var a11yTick by remember { mutableStateOf(0) }
+        LaunchedEffect(Unit) {
+            while (true) {
+                kotlinx.coroutines.delay(2_000)
+                a11yTick++
+            }
+        }
+        val connected = remember(a11yTick) { A11y.enabled.value }
+        val inSystem = remember(a11yTick) { A11y.enabledInSystem(context) }
         Text(
-            if (A11y.enabled.value) "状态:已开启。Agent 会先 screen_shot 截屏看图,再按画面上的相对位置用 0-1000 坐标点击(tap_at)、长按(long_press)、拖动(drag_at),并能输入文字与按系统键;文字模式 screen_dump / tap_text 作为备用。"
-            else "状态:未开启。开启后 Agent 能截屏看图并操作其他应用(点按、长按、拖动、输入)。开关必须由你在系统无障碍设置里亲手打开,任何应用都无法代开。",
-            color = Sub, fontSize = 12.sp
+            when {
+                connected -> "状态:已连接。Agent 会先 screen_shot 截屏看图,再按画面上的相对位置用 0-1000 坐标点击(tap_at)、长按(long_press)、拖动(drag_at),并能输入文字与按系统键;文字模式 screen_dump / tap_text 作为备用。"
+                inSystem -> "状态:系统里已开启,但服务没连上本进程(通常是 App 被系统回收过)。点下面的「重新连接无障碍」即可恢复。"
+                else -> "状态:未开启。开启后 Agent 能截屏看图并操作其他应用(点按、长按、拖动、输入)。开关必须由你在系统无障碍设置里亲手打开,任何应用都无法代开。"
+            },
+            color = if (connected) Sub else BeeDanger, fontSize = 12.sp
         )
-        if (!A11y.enabled.value) {
+        if (!connected) {
+            if (inSystem) {
+                var reconnectMsg by remember { mutableStateOf<String?>(null) }
+                PillButton("重新连接无障碍", filled = false, modifier = Modifier.fillMaxWidth()) {
+                    reconnectMsg = A11y.reconnect(context)
+                    a11yTick++
+                }
+                reconnectMsg?.let { Text(it, color = HoneyPale, fontSize = 12.sp) }
+            }
             PillButton("去开启无障碍", filled = false, modifier = Modifier.fillMaxWidth()) {
                 try {
                     context.startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
@@ -487,24 +509,50 @@ fun AgentPermissions(store: Store) {
         Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Card).padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text("Shizuku 特权通道(可选)", color = Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-        LaunchedEffect(Unit) { ShizukuTools.refresh() }
-        val szRunning = ShizukuTools.running.value
-        val szGranted = ShizukuTools.granted.value
+        Text("Shizuku 特权通道", color = Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        // Poll instead of checking once: the binder can come up (or die) while this page is open,
+        // and a stale snapshot is exactly what made the card disagree with reality.
+        var szTick by remember { mutableStateOf(0) }
+        LaunchedEffect(Unit) {
+            while (true) {
+                ShizukuTools.refresh()
+                szTick++
+                kotlinx.coroutines.delay(3_000)
+            }
+        }
+        val szRunning = remember(szTick) { ShizukuTools.running.value }
+        val szGranted = remember(szTick) { ShizukuTools.granted.value }
+        val szProblem = remember(szTick) { ShizukuTools.problem.value }
         Text(
             when {
-                szGranted -> "状态:已激活并授权。Agent 可用 shizuku_shell 执行 shell 级命令(点击/滑动/截屏/系统状态),fs 工具的 Shizuku / Root 通道也走这里。"
-                szRunning -> "状态:Shizuku 已运行,尚未授权本应用。"
-                else -> "状态:未运行。安装 Shizuku 应用并通过无线调试或电脑 ADB 激活后,Agent 能获得 shell 级能力(模拟点击、截屏、dumpsys 等)。"
+                szGranted -> "状态:已激活并授权。Agent 可用 shizuku_shell 执行 shell 级命令,虚拟屏的启动与点击也走这里。"
+                else -> szProblem ?: "状态未知,点「刷新状态」重试。"
             },
-            color = Sub, fontSize = 12.sp
+            color = if (szGranted) Sub else BeeDanger, fontSize = 12.sp
         )
         if (szRunning && !szGranted) {
             PillButton("请求 Shizuku 授权", filled = false, modifier = Modifier.fillMaxWidth()) {
                 ShizukuTools.requestPermission()
+                szTick++
             }
         }
-        PillButton("刷新状态", filled = false, modifier = Modifier.fillMaxWidth()) { ShizukuTools.refresh() }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            PillButton("刷新状态", filled = false, modifier = Modifier.weight(1f)) {
+                ShizukuTools.refresh()
+                szTick++
+            }
+            PillButton("打开 Shizuku", filled = false, modifier = Modifier.weight(1f)) {
+                val ctx = context
+                val launched = runCatching {
+                    ctx.packageManager.getLaunchIntentForPackage("moe.shizuku.privileged.api")?.let {
+                        it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        ctx.startActivity(it)
+                        true
+                    } ?: false
+                }.getOrDefault(false)
+                if (!launched) android.widget.Toast.makeText(ctx, "没有找到 Shizuku 应用", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 }
 

@@ -111,6 +111,8 @@ fun App(store: Store) {
         }
     }
     MaterialTheme(
+        // LaTeX-family typography (Latin Modern) with the system family as CJK fallback.
+        typography = hiveTypography(),
         colorScheme = darkColorScheme(
             primary = Honey, onPrimary = Ink,
             primaryContainer = HoneyDeep, onPrimaryContainer = Ink,
@@ -120,7 +122,13 @@ fun App(store: Store) {
             error = BeeDanger
         )
     ) {
-        CompositionLocalProvider(LocalOpenDrawer provides { drawer = true }) {
+        CompositionLocalProvider(
+            LocalOpenDrawer provides { drawer = true },
+            // Every Text that does not set its own fontFamily inherits the LaTeX family here, so the
+            // ~230 call sites do not each need editing (and cannot drift apart later).
+            androidx.compose.material3.LocalTextStyle provides
+                androidx.compose.material3.LocalTextStyle.current.copy(fontFamily = HiveFonts.Roman)
+        ) {
             Box(Modifier.fillMaxSize().background(Bg)) {
                 // One shared honeycomb wash behind every screen keeps the theme continuous while
                 // individual screens stay free to use their own surfaces on top of it.
@@ -205,20 +213,6 @@ fun Avatar(seed: String, size: Dp, group: Boolean = false) {
     PixelBeeAvatar(seed = seed, size = size, group = group)
 }
 
-/**
- * One-shot entrance wrapper for chat rows. This indirection matters: called directly inside a
- * LazyColumn item (itself nested in a Column), AnimatedVisibility resolves to the ColumnScope
- * member extension, which cannot be called there. In this scope-free helper only the top-level
- * AnimatedVisibility applies.
- */
-@Composable
-private fun AnimatedMsgRow(visible: Boolean, content: @Composable () -> Unit) {
-    AnimatedVisibility(
-        visible = visible,
-        enter = fadeIn(tween(220)) + slideInVertically(tween(260)) { it / 6 }
-    ) { content() }
-}
-
 @Composable
 fun ChatScreen(store: Store, id: String, go: (Screen) -> Unit) {
     val msgs = store.chat(id)
@@ -256,7 +250,10 @@ fun ChatScreen(store: Store, id: String, go: (Screen) -> Unit) {
                     // Each message eases in once; existing rows are untouched when new ones arrive.
                     var appeared by remember(m.id) { mutableStateOf(false) }
                     LaunchedEffect(m.id) { appeared = true }
-                    AnimatedMsgRow(appeared) {
+                    AnimatedVisibility(
+                        visible = appeared,
+                        enter = fadeIn(tween(220)) + slideInVertically(tween(260)) { it / 6 }
+                    ) {
                         MsgView(store, m, showName = !isBot, thinking = busy && m.id == msgs.last().id, go = go, chatId = id)
                     }
                 }
@@ -356,6 +353,7 @@ fun MsgView(store: Store, m: Msg, showName: Boolean, thinking: Boolean, go: (Scr
                                 }
                             }
                         }
+                        // User input stays literal: typing **text** should not become bold.
                         if (m.text.isNotBlank()) SelectionContainer { Text(m.text, color = Fg, fontSize = 16.sp) }
                     }
                 }
@@ -378,8 +376,9 @@ fun MsgView(store: Store, m: Msg, showName: Boolean, thinking: Boolean, go: (Scr
         else -> Column(Modifier.fillMaxWidth()) {
             if (showName) Text(store.botName(m.from), color = Sub, fontSize = 12.sp, modifier = Modifier.padding(bottom = 4.dp))
             if (m.tools.isNotEmpty()) ToolsPanel(m.tools, m.id, thinking, store, chatId, m.from)
-            if (m.text.isNotBlank()) SelectionContainer {
-                Text(m.text, color = Fg, fontSize = 16.sp, lineHeight = 24.sp)
+            if (m.text.isNotBlank()) {
+                // Assistant replies are Markdown: headings, lists, code, tables all render as such.
+                SelectionContainer { MarkdownText(m.text) }
             } else if (thinking) ThinkingDots()
         }
     }
@@ -474,7 +473,7 @@ private fun ToolRow(t: ToolCall, key: String, running: Boolean, actions: ToolAct
             Text(t.name, color = Fg, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
             Spacer(Modifier.width(8.dp))
             Text(
-                toolSummary(t.args), color = Sub, fontSize = 12.sp, fontFamily = FontFamily.Monospace,
+                toolSummary(t.args), color = Sub, fontSize = 12.sp, fontFamily = HiveFonts.Mono,
                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f)
             )
             if (badge != null) {
@@ -504,7 +503,7 @@ private fun ToolRow(t: ToolCall, key: String, running: Boolean, actions: ToolAct
                     }
                     Text("参数", color = Sub, fontSize = 11.sp)
                     Text(
-                        prettyArgs(t.args), color = Fg, fontSize = 12.sp, fontFamily = FontFamily.Monospace,
+                        prettyArgs(t.args), color = Fg, fontSize = 12.sp, fontFamily = HiveFonts.Mono,
                         modifier = Modifier.padding(top = 2.dp, bottom = 10.dp)
                     )
                     Text("输出", color = Sub, fontSize = 11.sp)
@@ -512,7 +511,7 @@ private fun ToolRow(t: ToolCall, key: String, running: Boolean, actions: ToolAct
                         val empty = t.output.isBlank()
                         Text(
                             if (empty) (if (running) "运行中…" else "(无输出)") else t.output,
-                            color = if (empty) Sub else Fg, fontSize = 12.sp, fontFamily = FontFamily.Monospace,
+                            color = if (empty) Sub else Fg, fontSize = 12.sp, fontFamily = HiveFonts.Mono,
                             modifier = Modifier.verticalScroll(rememberScrollState())
                         )
                     }
@@ -541,7 +540,7 @@ private fun ToolActionRow(t: ToolCall, a: ToolActions) {
         AlertDialog(
             onDismissRequest = { ask = false },
             title = { Text("重跑这条命令?") },
-            text = { Text(copyText(t), fontFamily = FontFamily.Monospace, fontSize = 13.sp) },
+            text = { Text(copyText(t), fontFamily = HiveFonts.Mono, fontSize = 13.sp) },
             confirmButton = {
                 TextButton(onClick = {
                     ask = false

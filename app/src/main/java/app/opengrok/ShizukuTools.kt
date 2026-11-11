@@ -17,40 +17,87 @@ import java.util.concurrent.TimeUnit
 object ShizukuTools {
 val running = mutableStateOf(false)
 val granted = mutableStateOf(false)
+/** Why the channel is unusable, for the settings card; null when healthy. */
+val problem = mutableStateOf<String?>(null)
 
-private val listener = Shizuku.OnRequestPermissionResultListener { _, _ -> refresh()}
-
-fun refresh() {
-running.value = try { Shizuku.pingBinder()} catch (_: Exception) { false}
-granted.value = running.value && try {
-Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
-} catch (_: Exception) {
-false
-}
-}
-
-fun requestPermission() {
-try {
-Shizuku.addRequestPermissionResultListener(listener)
-Shizuku.requestPermission(4242)
-} catch (_: Exception) {
-}
+private var listenerAdded = false
+private val listener = Shizuku.OnRequestPermissionResultListener { _, grantResult ->
+    refresh()
+    if (grantResult != PackageManager.PERMISSION_GRANTED) {
+        problem.value = "Shizuku 权限被拒绝,请在 Shizuku 应用里重新授权 BotHive。"
+    }
 }
 
 /**
- * Shizuku 13.x keeps newProcess private (the UserService route is the blessed one);
- * the method still exists in the shipped library, so call it reflectively. Any failure
- * surfaces as a readable error to the caller.
+ * Reads the live state from Shizuku. Called before every command, so it must stay cheap and must
+ * never throw: a dead binder simply means "not running".
+ */
+fun refresh() {
+    val ping = try {
+        Shizuku.pingBinder()
+    } catch (e: Throwable) {
+        problem.value = "连不上 Shizuku 服务(${e.javaClass.simpleName})。请在 Shizuku 应用里确认服务仍在运行。"
+        running.value = false
+        granted.value = false
+        return
+    }
+    running.value = ping
+    if (!ping) {
+        granted.value = false
+        problem.value = "Shizuku 服务未运行。请打开 Shizuku 应用,用无线调试或电脑 ADB 启动服务后再试。"
+        return
+    }
+    granted.value = try {
+        Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
+    } catch (e: Throwable) {
+        problem.value = "读取 Shizuku 授权状态失败(${e.javaClass.simpleName})。"
+        false
+    }
+    problem.value = if (granted.value) null
+        else "Shizuku 已运行,但 BotHive 还没有被授权。点「请求 Shizuku 授权」并在弹窗里允许。"
+}
+
+fun requestPermission() {
+    try {
+        if (!listenerAdded) {
+            Shizuku.addRequestPermissionResultListener(listener)
+            listenerAdded = true
+        }
+        if (Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED) {
+            refresh()
+            return
+        }
+        Shizuku.requestPermission(4242)
+    } catch (e: Throwable) {
+        problem.value = "请求 Shizuku 授权失败:${e.message ?: e.javaClass.simpleName}。请确认 Shizuku 服务正在运行。"
+    }
+}
+
+/**
+ * Shizuku 13.x keeps newProcess private (the UserService route is the blessed one); the method
+ * still exists in the shipped library, so call it reflectively. The signature is
+ * newProcess(String[] cmd, String[] env, String dir) — we pass null for env/dir, which the
+ * implementation treats as "inherit".
  */
 private fun newProcessReflect(cmd: Array<String>): Process {
-val m = Shizuku::class.java.getDeclaredMethod(
-"newProcess",
-Array<String>::class.java,
-Array<String>::class.java,
-String::class.java
-)
-m.isAccessible = true
-return m.invoke(null, cmd, null, null) as Process
+    val cls = Shizuku::class.java
+    val m = try {
+        cls.getDeclaredMethod(
+            "newProcess",
+            Array<String>::class.java,
+            Array<String>::class.java,
+            String::class.java
+        )
+    } catch (e: NoSuchMethodException) {
+        // Some builds expose the two-argument overload instead.
+        cls.getDeclaredMethod("newProcess", Array<String>::class.java, Array<String>::class.java)
+    }
+    m.isAccessible = true
+    return if (m.parameterTypes.size == 3) {
+        m.invoke(null, cmd, null, null) as Process
+    } else {
+        m.invoke(null, cmd, null) as Process
+    }
 }
 
 suspend fun shell(command: String): String = withContext(Dispatchers.IO) {
@@ -61,15 +108,23 @@ suspend fun shell(command: String): String = withContext(Dispatchers.IO) {
 private suspend fun exec(command: String, timeoutSec: Long, maxChars: Int): String = withContext(Dispatchers.IO) {
 refresh()
 if (!running.value) {
-return@withContext "请让用户先安装 Shizuku 应用,并通过无线调试或电脑 ADB 激活它,然后回到 Agent 模式页面确认状态。"
+return@withContext problem.value
+    ?: "Shizuku 服务未运行。请打开 Shizuku 应用,用无线调试或电脑 ADB 启动服务后再试。"
 }
 if (!granted.value) {
 requestPermission()
-return@withContext "已弹出授权请求,请让用户在 Shizuku 的弹窗里允许 BotHive 后再试。"
+return@withContext "已弹出 Shizuku 授权请求,请让用户在弹窗里允许 BotHive 后重试。" +
+    (problem.value?.let { "\n当前状态:$it" } ?: "")
 }
 try {
-val process = newProcessReflect(arrayOf("sh", "-c", command))
+// Wrap the command so the exit status is captured in the stream itself: Shizuku's Process is a
+// remote stub whose waitFor()/exitValue() can report "process hasn't exited" even after the
+// command finished, so we never rely on them for success/failure.
+val marker = "__BOTHIVE_EXIT__"
+val wrapped = arrayOf("sh", "-c", "( $command ) 2>&1; echo $marker\$?")
+val process = newProcessReflect(wrapped)
 val output = StringBuilder()
+val done = java.util.concurrent.CountDownLatch(1)
 fun drain(stream: java.io.InputStream) {
 try {
 stream.bufferedReader().use { r ->
@@ -83,20 +138,30 @@ if (output.length < maxChars) output.append(buf, 0, n)
 }
 }
 } catch (_: Exception) {
+} finally {
+done.countDown()
 }
 }
-val reader = Thread { drain(process.inputStream) }.apply { isDaemon = true; start() }
+Thread { drain(process.inputStream) }.apply { isDaemon = true; start() }
 Thread { drain(process.errorStream) }.apply { isDaemon = true; start() }
-if (!process.waitFor(timeoutSec, TimeUnit.SECONDS)) {
-process.destroyForcibly()
-return@withContext "命令超时(${timeoutSec} 秒):$command\n已输出:${synchronized(output) { output.toString()}.take(2000)}"
+
+// The stream closes when the shell finishes, which is the real completion signal.
+if (!done.await(timeoutSec, TimeUnit.SECONDS)) {
+runCatching { process.destroy() }
+return@withContext "命令超时(${timeoutSec} 秒):$command\n已输出:${synchronized(output) { output.toString() }.take(2000)}"
 }
-reader.join(1_000)
-val text = synchronized(output) { output.toString()}
+val raw = synchronized(output) { output.toString() }
+val exitIdx = raw.lastIndexOf(marker)
+val exitCode = if (exitIdx >= 0) raw.substring(exitIdx + marker.length).trim().toIntOrNull() else null
+val text = if (exitIdx >= 0) raw.substring(0, exitIdx).trimEnd() else raw.trimEnd()
 val body = if (text.length > 4_000) text.take(4_000) + "\n…(已截断)" else text
-body + "\n[exit ${process.exitValue()}]"
+when {
+    exitCode == null -> body.ifBlank { "(无输出)" } + "\n[exit unknown]"
+    exitCode == 0 -> body.ifBlank { "(无输出)" } + "\n[exit 0]"
+    else -> body.ifBlank { "(无输出)" } + "\n[exit $exitCode]"
+}
 } catch (e: Exception) {
-"Shizuku 执行失败:${e.message}"
+"Shizuku 执行失败:${e.message ?: e.javaClass.simpleName}"
 }
 }
 
@@ -104,6 +169,12 @@ body + "\n[exit ${process.exitValue()}]"
 fun ready(): Boolean {
     refresh()
     return running.value && granted.value
+}
+
+/** Human-readable reason the channel is not usable, or null when it is. */
+fun reason(): String? {
+    refresh()
+    return if (running.value && granted.value) null else problem.value
 }
 
 // ---- display-targeted helpers (virtual screen) ----

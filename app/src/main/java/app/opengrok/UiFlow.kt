@@ -65,7 +65,7 @@ fun ApprovalCards(store: Store, chatId: String) {
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text("待批准命令 · ${store.botName(ap.botId)}", color = HoneyPale, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-            Text(ap.command, color = Fg, fontSize = 13.sp, fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, maxLines = 5, overflow = TextOverflow.Ellipsis)
+            Text(ap.command, color = Fg, fontSize = 13.sp, fontFamily = androidx.compose.ui.text.font.HiveFonts.Mono, maxLines = 5, overflow = TextOverflow.Ellipsis)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 PillButton("执行", modifier = Modifier.weight(1f)) { store.executeApproval(ap) }
                 PillButton("拒绝", filled = false, modifier = Modifier.weight(1f)) { store.rejectApproval(ap) }

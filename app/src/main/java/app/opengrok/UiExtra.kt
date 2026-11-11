@@ -251,11 +251,11 @@ fun SettingsScreen(store: Store, go: (Screen) -> Unit) {
             store.guardLog.reversed().take(50).forEach { e ->
                 Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Card).padding(12.dp)) {
                     Text("${fmt.format(Date(e.time))} · ${store.botName(e.botId)} · ${e.reason}", color = Sub, fontSize = 12.sp)
-                    Text(e.cmd, color = Fg, fontSize = 12.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.padding(top = 4.dp))
+                    Text(e.cmd, color = Fg, fontSize = 12.sp, fontFamily = HiveFonts.Mono, modifier = Modifier.padding(top = 4.dp))
                 }
             }
             Spacer(Modifier.height(8.dp))
-            Text("BotHive 0.5.1", color = Sub, fontSize = 12.sp)
+            Text("BotHive 0.5.4", color = Sub, fontSize = 12.sp)
             Spacer(Modifier.height(16.dp))
         }
     }

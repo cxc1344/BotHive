@@ -43,3 +43,33 @@ The optional Shizuku channel uses the Shizuku API (`dev.rikka.shizuku:api` and `
 ## Important runtime limitation
 
 PRoot is userspace syscall/path emulation on the Android host kernel. It is not a Linux virtual machine, does not create kernel namespaces or cgroups, and must not be treated as a security boundary between mutually hostile code or Bots.
+
+## Bundled fonts
+
+Four font files under `app/src/main/res/font/` provide the interface typography:
+
+| File | Face | License |
+|---|---|---|
+| `serif_regular.otf`, `serif_bold.otf` | Noto Serif SC (subset) | SIL Open Font License 1.1 |
+| `mono_regular.otf`, `mono_bold.otf` | Latin Modern Mono | GUST Font License |
+
+**Noto Serif SC** — Google/Adobe's CJK serif family. The files here are **subsets**, not the
+originals: reduced to GB2312 (6,763 hanzi) plus ASCII, Greek, general punctuation, arrows, math
+operators, box drawing and dingbats, which brings each weight from ~11 MB down to ~2.3 MB. Glyph
+outlines and metrics are unmodified; only unused glyphs were removed, so the reserved font name
+was not changed.
+
+- Upstream: https://github.com/notofonts/noto-cjk
+- License: SIL Open Font License 1.1 — https://scripts.sil.org/OFL
+- Subsetting performed with fontTools.
+
+**Latin Modern Mono** — from the GUST Latin Modern family (a descendant of Knuth's Computer
+Modern), used for code blocks, tool output and tables.
+
+- Upstream: https://www.gust.org.pl/projects/e-foundry/latin-modern
+- License: GUST Font License — https://www.gust.org.pl/projects/e-foundry/licenses/gfl.txt
+- Fetched unmodified from CTAN (`fonts/lm`).
+
+Coverage note: the serif face carries Chinese, Latin and math symbols in one family, so mixed
+copy shares one weight and rhythm. Latin Modern Mono has no CJK glyphs; Chinese inside code
+blocks falls back to the platform font, which is acceptable because code is mostly ASCII.
