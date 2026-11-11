@@ -3,6 +3,7 @@ package app.opengrok
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedVisibility as ComposeAnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -242,7 +243,7 @@ fun ChatScreen(store: Store, id: String, go: (Screen) -> Unit) {
                     // Each message eases in once; existing rows are untouched when new ones arrive.
                     var appeared by remember(m.id) { mutableStateOf(false) }
                     LaunchedEffect(m.id) { appeared = true }
-                    AnimatedVisibility(
+                    ComposeAnimatedVisibility(
                         visible = appeared,
                         enter = fadeIn(tween(220)) + slideInVertically(tween(260)) { it / 6 }
                     ) {
