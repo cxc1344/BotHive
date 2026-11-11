@@ -1,7 +1,15 @@
 package app.opengrok
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
@@ -88,6 +96,11 @@ fun App(store: Store) {
         drawer = false
         screen = if (s == Screen.BotMode) resolveBotTarget(store) else s
     }
+    // The floating window's stop button cancels the live Agent run.
+    remember {
+        AgentMode.stopHook = { store.stopChat(AGENT_ID) }
+        true
+    }
     BackHandler(drawer) { drawer = false }
     BackHandler(!drawer && screen != Screen.Home) { screen = Screen.Home }
     LaunchedEffect(screen) {
@@ -109,29 +122,81 @@ fun App(store: Store) {
     ) {
         CompositionLocalProvider(LocalOpenDrawer provides { drawer = true }) {
             Box(Modifier.fillMaxSize().background(Bg)) {
+                // One shared honeycomb wash behind every screen keeps the theme continuous while
+                // individual screens stay free to use their own surfaces on top of it.
+                HoneycombBackdrop(Modifier.fillMaxSize(), alpha = .35f)
                 Box(Modifier.fillMaxSize().systemBarsPadding().imePadding()) {
-                    when (val s = screen) {
-                        Screen.Home -> HomeScreen(store, nav)
-                        Screen.BotMode -> {}
-                        is Screen.Chat -> ChatScreen(store, s.id, nav)
-                        is Screen.EditBot -> EditBotScreen(store, s.id, nav)
-                        is Screen.EditProvider -> EditProviderScreen(store, s.id, nav)
-                        Screen.AgentChat -> AgentChatScreen(store, nav)
-                        Screen.EditAgent -> EditAgentScreen(store, nav)
-                        Screen.AgentSettings -> AgentSettingsScreen(store, nav)
-                        Screen.Workflows -> WorkflowsScreen(store, nav)
-                        is Screen.EditWorkflow -> EditWorkflowScreen(store, s.id, nav)
-                        is Screen.EditMcp -> EditMcpScreen(store, s.id, nav)
-                        is Screen.EditSkill -> EditSkillScreen(store, s.id, nav)
-                        Screen.NewGroup -> NewGroupScreen(store, nav)
-                        Screen.Settings -> SettingsScreen(store, nav)
-                        Screen.Search -> SearchScreen(store, nav)
-                    }
+                    ScreenHost(screen, store, nav)
                 }
                 AppDrawer(store, drawer, screen, { drawer = false }, nav)
             }
         }
     }
+}
+
+/**
+ * Renders the current screen and animates transitions between screens.
+ *
+ * Two directions are distinguished so navigation feels physical rather than uniform:
+ *  - forward (drilling in: home → chat/editor) slides in from the right, the old screen drifts left
+ *  - back (returning) slides in from the left
+ * Home↔Home-adjacent screens additionally fade, and depth changes are kept subtle (a few percent of
+ * the width) so repeated navigation stays calm instead of feeling bouncy.
+ */
+@Composable
+private fun ScreenHost(screen: Screen, store: Store, nav: (Screen) -> Unit) {
+    // Depth decides direction: 0 = home, 1 = main destinations, 2 = editors/detail.
+    val depth = remember(screen) { screenDepth(screen) }
+    val previousDepth = remember { mutableStateOf(depth) }
+    val forward = depth >= previousDepth.value
+    LaunchedEffect(depth) { previousDepth.value = depth }
+
+    AnimatedContent(
+        targetState = screen,
+        transitionSpec = {
+            val dir = if (forward) 1 else -1
+            val enter = slideInHorizontally(
+                animationSpec = tween(280, easing = FastOutSlowInEasing),
+                initialOffsetX = { full -> dir * (full / 12) }
+            ) + fadeIn(tween(220))
+            val exit = slideOutHorizontally(
+                animationSpec = tween(240, easing = FastOutSlowInEasing),
+                targetOffsetX = { full -> -dir * (full / 16) }
+            ) + fadeOut(tween(180))
+            enter togetherWith exit
+        },
+        label = "screen"
+    ) { s ->
+        when (s) {
+            Screen.Home -> HomeScreen(store, nav)
+            Screen.BotMode -> {}
+            is Screen.Chat -> ChatScreen(store, s.id, nav)
+            is Screen.EditBot -> EditBotScreen(store, s.id, nav)
+            is Screen.EditProvider -> EditProviderScreen(store, s.id, nav)
+            Screen.AgentChat -> AgentChatScreen(store, nav)
+            Screen.EditAgent -> EditAgentScreen(store, nav)
+            Screen.AgentSettings -> AgentSettingsScreen(store, nav)
+            Screen.Workflows -> WorkflowsScreen(store, nav)
+            is Screen.EditWorkflow -> EditWorkflowScreen(store, s.id, nav)
+            is Screen.EditMcp -> EditMcpScreen(store, s.id, nav)
+            is Screen.EditSkill -> EditSkillScreen(store, s.id, nav)
+            Screen.NewGroup -> NewGroupScreen(store, nav)
+            Screen.Settings -> SettingsScreen(store, nav)
+            Screen.Search -> SearchScreen(store, nav)
+        }
+    }
+}
+
+/** Navigation depth used to pick the slide direction. */
+private fun screenDepth(s: Screen): Int = when (s) {
+    Screen.Home -> 0
+    Screen.Settings, Screen.Workflows, Screen.Search, Screen.NewGroup -> 1
+    Screen.AgentChat -> 1
+    Screen.EditAgent, Screen.AgentSettings -> 2
+    is Screen.Chat -> 1
+    is Screen.EditBot, is Screen.EditProvider, is Screen.EditWorkflow,
+    is Screen.EditMcp, is Screen.EditSkill -> 2
+    Screen.BotMode -> 1
 }
 
 @Composable
@@ -174,7 +239,15 @@ fun ChatScreen(store: Store, id: String, go: (Screen) -> Unit) {
                 contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 items(msgs, key = { it.id }) { m ->
-                    MsgView(store, m, showName = !isBot, thinking = busy && m.id == msgs.last().id, go = go, chatId = id)
+                    // Each message eases in once; existing rows are untouched when new ones arrive.
+                    var appeared by remember(m.id) { mutableStateOf(false) }
+                    LaunchedEffect(m.id) { appeared = true }
+                    AnimatedVisibility(
+                        visible = appeared,
+                        enter = fadeIn(tween(220)) + slideInVertically(tween(260)) { it / 6 }
+                    ) {
+                        MsgView(store, m, showName = !isBot, thinking = busy && m.id == msgs.last().id, go = go, chatId = id)
+                    }
                 }
             }
             if (msgs.isEmpty()) EmptyChatHint("开始对话", "在下方输入消息，Bot 会在自己的沙盒里干活；点工具调用可查看每一步。")

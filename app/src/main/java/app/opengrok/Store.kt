@@ -506,6 +506,8 @@ class Store(private val ctx: Context) {
         }
         list[idx] = list[idx].copy(text = reply)
         save()
+        // The floating virtual-screen preview must never outlive the task that opened it.
+        if (chatId == AGENT_ID) withContext(Dispatchers.Main) { AgentMode.onTaskFinished() }
         return reply
     }
 
@@ -554,6 +556,7 @@ class Store(private val ctx: Context) {
 
     fun stopChat(chatId: String) {
         jobs[chatId]?.cancel()
+        if (chatId == AGENT_ID) AgentMode.teardown()
     }
 
     private val textExts = listOf(".txt", ".md", ".json", ".csv", ".log", ".xml", ".html", ".kt", ".py", ".js", ".ts", ".yaml", ".yml", ".ini", ".properties")

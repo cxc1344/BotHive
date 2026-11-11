@@ -15,6 +15,7 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT)
         )
         val store = (application as OgApp).store
+        AgentMode.init(this)
         // Restore the background keep-alive service whenever the app is opened.
         if (KeepAlive.isEnabled(this)) KeepAlive.start(this)
         setContent { App(store) }

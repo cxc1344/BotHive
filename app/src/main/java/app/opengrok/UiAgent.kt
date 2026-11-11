@@ -166,7 +166,15 @@ fun AgentChatScreen(store: Store, go: (Screen) -> Unit) {
                 contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 items(msgs, key = { it.id }) { m ->
-                    MsgView(store, m, showName = false, thinking = busy && m.id == msgs.last().id, go = go, chatId = AGENT_ID)
+                    var appeared by remember(m.id) { mutableStateOf(false) }
+                    LaunchedEffect(m.id) { appeared = true }
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = appeared,
+                        enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220)) +
+                            androidx.compose.animation.slideInVertically(androidx.compose.animation.core.tween(260)) { it / 6 }
+                    ) {
+                        MsgView(store, m, showName = false, thinking = busy && m.id == msgs.last().id, go = go, chatId = AGENT_ID)
+                    }
                 }
             }
             if (msgs.isEmpty()) EmptyChatHint("新对话已就绪", "让 Agent 帮你整理手机文件、查看状态与通知、操作屏幕，或把活派给云端 Bot。")
@@ -517,6 +525,9 @@ fun AgentSettingsScreen(store: Store, go: (Screen) -> Unit) {
             Text("连接与行为", color = Fg, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             AgentForm(store) { go(Screen.AgentChat) }
             HorizontalDivider(color = Line)
+            Text("操控模式", color = Fg, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            ScreenModeCard(store)
+            HorizontalDivider(color = Line)
             Text("权限与通道", color = Fg, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             AgentPermissions(store)
             HorizontalDivider(color = Line)
@@ -544,6 +555,80 @@ fun AgentSettingsScreen(store: Store, go: (Screen) -> Unit) {
                 }) { Text("重置") }
             },
             dismissButton = { TextButton(onClick = { confirmReset = false }) { Text("取消") } }
+        )
+    }
+}
+
+/**
+ * "Agent 操控模式" switch: main screen (default) or the virtual display with a floating preview.
+ * Virtual mode is fail-loud: unmet prerequisites are listed and the mode stays on main screen.
+ */
+@Composable
+fun ScreenModeCard(store: Store) {
+    val context = LocalContext.current
+    var error by remember { mutableStateOf<String?>(null) }
+    val current = AgentMode.mode.value
+    // Recompute on every recomposition so granting the overlay permission is picked up immediately.
+    var refreshTick by remember { mutableStateOf(0) }
+    val blockers = remember(current, refreshTick) { AgentMode.blockers(context) }
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Card).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            if (current == AgentMode.Mode.Main) "主屏模式(当前)"
+            else "虚拟屏悬浮窗(当前)",
+            color = Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold
+        )
+        Text(
+            "主屏模式:Agent 直接操作你正在看的这块屏幕,会打断你。\n" +
+                "虚拟屏模式:Agent 在一块独立的虚拟显示屏里操作 App(同一批应用、同样的登录态),画面显示在一个可拖动的悬浮小窗里,你的主屏照常使用。悬浮窗带暂停/停止。",
+            color = Sub, fontSize = 12.sp, lineHeight = 18.sp
+        )
+        if (current == AgentMode.Mode.Virtual) {
+            Text(VirtualScreen.describe(), color = HoneyPale, fontSize = 12.sp)
+        }
+        if (blockers.isNotEmpty()) {
+            Text("虚拟屏前置条件未满足:", color = HoneyPale, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            blockers.forEach { Text("· $it", color = BeeDanger, fontSize = 12.sp) }
+            if (!VirtualDisplayOverlay.hasPermission(context)) {
+                PillButton("去开启「显示在其他应用上层」", filled = false, modifier = Modifier.fillMaxWidth()) {
+                    runCatching {
+                        context.startActivity(
+                            android.content.Intent(
+                                android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                android.net.Uri.parse("package:" + context.packageName)
+                            )
+                        )
+                    }
+                }
+            }
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (current == AgentMode.Mode.Main) {
+                PillButton("切到虚拟屏模式", modifier = Modifier.weight(1f)) {
+                    val name = store.agent.value?.name ?: "Agent"
+                    val out = AgentMode.switchTo(context, name, virtual = true)
+                    error = if (out.startsWith("已切到")) null else out
+                }
+            } else {
+                PillButton("切回主屏模式", modifier = Modifier.weight(1f)) {
+                    AgentMode.switchTo(context, store.agent.value?.name ?: "Agent", virtual = false)
+                    error = null
+                }
+            }
+            PillButton("刷新状态", filled = false, modifier = Modifier.weight(0.7f)) {
+                ShizukuTools.refresh()
+                refreshTick++
+                error = null
+            }
+        }
+        (error ?: AgentMode.lastError.value)?.let {
+            Text(it, color = BeeDanger, fontSize = 12.sp)
+        }
+        Text(
+            "已知边界:银行/支付等启用 FLAG_SECURE 的页面在虚拟屏里会是黑屏,遇到请切回主屏模式处理;个别应用对副屏兼容性较差(方向或尺寸异常),以微信等主流应用可用为准。",
+            color = Sub, fontSize = 11.sp, lineHeight = 16.sp
         )
     }
 }

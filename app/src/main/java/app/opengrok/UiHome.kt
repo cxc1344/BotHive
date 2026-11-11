@@ -2,13 +2,16 @@ package app.opengrok
 
 import android.content.Context
 import android.content.SharedPreferences
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -270,8 +273,8 @@ fun HomeScreen(store: Store, go: (Screen) -> Unit) {
     val working = store.busy.size + store.projects.count { it.stage in ACTIVE_STAGES }
     val hasBot = store.bots.isNotEmpty()
 
-    Box(Modifier.fillMaxSize().background(Bg)) {
-        HoneycombBackdrop(Modifier.matchParentSize(), alpha = .22f)
+    // The honeycomb wash is painted once by App, so Home stays transparent here.
+    Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             AppTopBar(store, "", go)
             Column(
@@ -283,17 +286,21 @@ fun HomeScreen(store: Store, go: (Screen) -> Unit) {
                     HiveHero(greeting, store, working, openDrawer)
                 }
                 Spacer(Modifier.height(24.dp))
-                AnimatedVisibility(shown, enter = fadeIn(tween(900)) + slideInVertically(tween(900)) { it / 8 }) {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        if (recent != null) ContinueCard(recent) { openEntry(store, recent, go) }
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (recent != null) StaggerIn(shown, 0) { ContinueCard(recent) { openEntry(store, recent, go) } }
+                    StaggerIn(shown, 1) {
                         Text("蜂巢快捷入口", color = HoneyPale, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.padding(start = 4.dp, top = 2.dp))
+                    }
+                    StaggerIn(shown, 2) {
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             HomeTile("新建 Bot", "召唤一只小蜂", Ic.Add, !hasBot, Modifier.weight(1f)) { go(Screen.EditBot(null)) }
                             HomeTile("Agent 新对话", "管文件 · 看屏幕", Ic.Phone, false, Modifier.weight(1f)) {
                                 store.newAgentSession(); go(Screen.AgentChat)
                             }
                         }
+                    }
+                    StaggerIn(shown, 3) {
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             HomeTile("新建群聊", "让小蜂协作", Ic.Group, false, Modifier.weight(1f)) { go(Screen.NewGroup) }
                             HomeTile("工作流", "排好任务队列", Ic.Tree, false, Modifier.weight(1f)) { go(Screen.Workflows) }
@@ -306,6 +313,22 @@ fun HomeScreen(store: Store, go: (Screen) -> Unit) {
             }
         }
     }
+}
+
+/** Fades a block in slightly later than the one above it, so the home page assembles in order. */
+@Composable
+private fun StaggerIn(shown: Boolean, index: Int, content: @Composable () -> Unit) {
+    var visible by remember { mutableStateOf(false) }
+    LaunchedEffect(shown) {
+        if (shown) {
+            kotlinx.coroutines.delay(90L * index)
+            visible = true
+        }
+    }
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(320)) + slideInVertically(tween(360, easing = FastOutSlowInEasing)) { it / 7 }
+    ) { content() }
 }
 
 @Composable
@@ -337,7 +360,27 @@ private fun HiveHero(greeting: Pair<String, String>, store: Store, working: Int,
                 StatusPill(store, working, onStatus)
             }
             Box(Modifier.size(116.dp), contentAlignment = Alignment.Center) {
-                PixelBeePet(size = 96.dp, mood = mood)
+                // Cross-fade between moods so switching from idle to working is a soft change,
+                // not an instant sprite swap.
+                AnimatedContent(
+                    targetState = mood,
+                    transitionSpec = { fadeIn(tween(420)) togetherWith fadeOut(tween(300)) },
+                    label = "bee-mood"
+                ) { m ->
+                    PixelBeePet(size = 96.dp, mood = m)
+                }
+                if (working > 0) {
+                    val pulse = rememberInfiniteTransition(label = "hive-pulse")
+                    val a by pulse.animateFloat(
+                        initialValue = .18f, targetValue = .52f,
+                        animationSpec = infiniteRepeatable(tween(1400, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+                        label = "pulse-alpha"
+                    )
+                    Box(
+                        Modifier.matchParentSize().clip(CircleShape)
+                            .border(2.dp, BeeGreen.copy(alpha = a), CircleShape)
+                    )
+                }
             }
         }
     }
@@ -414,16 +457,18 @@ private class WorkRow(val title: String, val sub: String, val running: Boolean, 
 @Composable
 fun AppDrawer(store: Store, visible: Boolean, current: Screen, onClose: () -> Unit, go: (Screen) -> Unit) {
     Box(Modifier.fillMaxSize()) {
-        AnimatedVisibility(visible, enter = fadeIn(tween(200)), exit = fadeOut(tween(200))) {
+        AnimatedVisibility(visible, enter = fadeIn(tween(220)), exit = fadeOut(tween(180))) {
             Box(
-                Modifier.fillMaxSize().background(Ink.copy(alpha = 0.6f))
+                Modifier.fillMaxSize().background(Ink.copy(alpha = 0.62f))
                     .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onClose() }
             )
         }
         AnimatedVisibility(
             visible,
-            enter = slideInHorizontally(tween(260)) { -it },
-            exit = slideOutHorizontally(tween(220)) { -it }
+            enter = slideInHorizontally(tween(300, easing = FastOutSlowInEasing)) { -it } +
+                fadeIn(tween(200)),
+            exit = slideOutHorizontally(tween(240, easing = FastOutSlowInEasing)) { -it } +
+                fadeOut(tween(160))
         ) {
             DrawerPanel(store, current, onClose, go)
         }

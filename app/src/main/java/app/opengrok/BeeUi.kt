@@ -168,88 +168,272 @@ private fun DrawScope.drawBeePetShadow() {
     )
 }
 
+/** Palette for the sprite-based bee pet (22x22 layers; '.' is transparent). */
+private val BeeSpritePalette: Map<Char, Color> = mapOf(
+    'K' to Color(0xFF2B2118),
+    'Y' to Color(0xFFFFC83D),
+    'L' to Color(0xFFFFE88A),
+    'O' to Color(0xFFE8991C),
+    'B' to Color(0xFF4A3322),
+    'C' to Color(0xFFFF8F5C),
+    'W' to Color(0xFFEAF8FB),
+    'w' to Color(0xFF9AD3E3),
+    'V' to Color(0xFFFFFFFF),
+    'E' to Color(0xFF251810),
+    'H' to Color(0xFFFFFFFF),
+    'h' to Color(0xFF8F7B66),
+    'P' to Color(0xFFFF9AA8),
+    'M' to Color(0xFFB5472F),
+    'T' to Color(0xFFFF8A8A),
+    'Z' to Color(0xFFFFF3CE)
+)
+
+/**
+ * Layered 22x22 pixel-bee sprites for the desk pet: two wing frames behind the body,
+ * a face layer per mood (blink/happy are kept for future moods), and a zzz layer for sleep.
+ */
+private object BeeSprites {
+    val body = arrayOf(
+        "......KK.......KK.....",
+        "......CC.......CC.....",
+        "......CC.......CC.....",
+        ".......K.......K......",
+        ".......K.KKKK..K......",
+        "......KKKLLYYKKK......",
+        ".....KLLLLLLYYYYK.....",
+        "....KLLLLLLLYYYYYK....",
+        "...KYYYYYYYYYYYYYYK...",
+        "...KYYYYYYYYYYYYYYK...",
+        "...KYYYYYYYYYYYYYYK...",
+        "..KYYYYYYYYYYYYYYYYK..",
+        "..KYYYYYYYYYYYYYYYYK..",
+        "...KYYYYYYYYYYYYYOK...",
+        "...KYYYYYYYYYYYYYOK...",
+        "...KYYYYYYYYYYYYYOK...",
+        "....KBBBBBBBBBBBBK....",
+        ".....KBBBBBBBBBBK.....",
+        "......KKOOOOOOKK......",
+        "........KKKKKK........",
+        "........KKKK.KK.......",
+        "..........KK.........."
+    )
+    val wing0 = arrayOf(
+        "......................",
+        "......................",
+        "......................",
+        "...ww............ww...",
+        "..wWVw..........wVVw..",
+        ".wWWVVw........wVVVWw.",
+        ".wWWVVw........wVVVWw.",
+        ".wWWWWw........wWWWWw.",
+        ".wWWWWw........wWWWWw.",
+        ".wWWWw..........wWWWw.",
+        "..www............www..",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................"
+    )
+    val wing1 = arrayOf(
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "...ww............ww...",
+        "..wWVw..........wVVw..",
+        ".wWWVVw........wVVVWw.",
+        ".wWWVVw........wVVVWw.",
+        ".wWWWWw........wWWWWw.",
+        ".wWWWWw........wWWWWw.",
+        ".wWWWw..........wWWWw.",
+        "..www............www..",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................"
+    )
+    val faceCheer = arrayOf(
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "........E.....E.......",
+        ".......HEE...HEE......",
+        ".......EEE...EEE......",
+        "........Eh....Eh......",
+        "....PP...M...M..PP....",
+        "....PP....MMM...PP....",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................"
+    )
+    val faceBlink = arrayOf(
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        ".......EEE...EEE......",
+        "......................",
+        "....PP...M...M..PP....",
+        "....PP....MMM...PP....",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................"
+    )
+    val faceFocus = arrayOf(
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......EE......EE......",
+        "........E....E........",
+        ".......HEE...HEE......",
+        ".......EEE...EEE......",
+        ".......EEE...EEE......",
+        "....PP..........PP....",
+        "....PP....MMM...PP....",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................"
+    )
+    val faceSleep = arrayOf(
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        ".......E.E...E.E......",
+        "........E.....E.......",
+        "....PP....MMM...PP....",
+        "....PP....M.M...PP....",
+        "..........MMM.........",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................"
+    )
+    val faceHappy = arrayOf(
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "........E.....E.......",
+        ".......E.E...E.E......",
+        "......................",
+        "....PP....MMM...PP....",
+        "....PP....MTM...PP....",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................"
+    )
+    val zzz = arrayOf(
+        "......................",
+        "......................",
+        "......................",
+        ".................ZZZ..",
+        "..................Z...",
+        ".................ZZZ..",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................",
+        "......................"
+    )
+}
+
+private fun DrawScope.drawSpriteLayer(rows: Array<String>, left: Float, top: Float, unit: Float) {
+    for (y in rows.indices) {
+        val row = rows[y]
+        for (x in row.indices) {
+            val color = BeeSpritePalette[row[x]] ?: continue
+            drawRect(color, Offset(left + x * unit, top + y * unit), Size(unit, unit))
+        }
+    }
+}
+
 private fun DrawScope.drawPixelBeePet(mood: BeeMood, wingBeat: Float) {
     val unit = min(size.width, size.height) / 22f
     if (unit <= 0f) return
     val left = center.x - unit * 11f
     val top = center.y - unit * 11f
-    fun cell(x: Float, y: Float, width: Float = 1f, height: Float = 1f, color: Color) {
-        drawRect(
-            color = color,
-            topLeft = Offset(left + x * unit, top + y * unit),
-            size = Size(width * unit, height * unit)
-        )
-    }
-
-    val wingLift = (wingBeat - 0.5f) * when (mood) {
-        BeeMood.Cheerful -> 2.2f
-        BeeMood.Focused -> 1.4f
-        BeeMood.Sleepy -> 0.7f
-    }
-    val wingColor = if (mood == BeeMood.Sleepy) BeeCreamMilk.copy(alpha = 0.72f) else BeeWingMist.copy(alpha = 0.82f)
-
-    // Pixel wings behind the body, each stepped instead of rounded to preserve the sprite look.
-    cell(2f, 8f + wingLift, 2f, 4f, BeeCharcoalSoft)
-    cell(3f, 6f + wingLift, 4f, 1f, BeeCharcoalSoft)
-    cell(3f, 7f + wingLift, 5f, 5f, wingColor)
-    cell(2f, 9f + wingLift, 1f, 2f, wingColor)
-    cell(4f, 6.7f + wingLift, 2f, 1f, BeeCreamMilk.copy(alpha = 0.72f))
-    cell(18f, 8f - wingLift, 2f, 4f, BeeCharcoalSoft)
-    cell(15f, 6f - wingLift, 4f, 1f, BeeCharcoalSoft)
-    cell(14f, 7f - wingLift, 5f, 5f, wingColor)
-    cell(19f, 9f - wingLift, 1f, 2f, wingColor)
-    cell(16f, 6.7f - wingLift, 2f, 1f, BeeCreamMilk.copy(alpha = 0.72f))
-
-    // Antennae and legs are intentionally blocky, making this read as a pet instead of a person.
-    cell(8f, 4f, 1f, 2f, BeeCharcoalInk)
-    cell(7f, 3f, 1f, 1f, BeeCharcoalInk)
-    cell(7f, 2f, 1f, 1f, BeeHoneyGlow)
-    cell(13f, 4f, 1f, 2f, BeeCharcoalInk)
-    cell(14f, 3f, 1f, 1f, BeeCharcoalInk)
-    cell(14f, 2f, 1f, 1f, BeeHoneyGlow)
-    cell(8f, 17f, 1f, 3f, BeeCharcoalInk)
-    cell(7f, 19f, 2f, 1f, BeeCharcoalInk)
-    cell(13f, 17f, 1f, 3f, BeeCharcoalInk)
-    cell(13f, 19f, 2f, 1f, BeeCharcoalInk)
-
-    // Dark silhouette, then layered gold stripes.
-    cell(8f, 5f, 6f, 1f, BeeCharcoalInk)
-    cell(7f, 6f, 8f, 2f, BeeCharcoalInk)
-    cell(6f, 8f, 10f, 8f, BeeCharcoalInk)
-    cell(7f, 16f, 8f, 2f, BeeCharcoalInk)
-    cell(8f, 18f, 6f, 1f, BeeCharcoalInk)
-    cell(8f, 6f, 6f, 2f, BeeHoneyGlow)
-    cell(7f, 8f, 8f, 2f, BeeHoneyGold)
-    cell(7f, 10f, 8f, 2f, BeeCharcoalSoft)
-    cell(7f, 12f, 8f, 2f, BeeHoneyGlow)
-    cell(7f, 14f, 8f, 2f, BeeCharcoalSoft)
-    cell(8f, 16f, 6f, 2f, BeeHoneyAmber)
-
-    // Mood lives in tiny insect features, not a human head silhouette.
+    drawSpriteLayer(if (wingBeat < 0.5f) BeeSprites.wing0 else BeeSprites.wing1, left, top, unit)
+    drawSpriteLayer(BeeSprites.body, left, top, unit)
     when (mood) {
-        BeeMood.Cheerful -> {
-            cell(9f, 8.5f, 1f, 1f, BeeCharcoalInk)
-            cell(12f, 8.5f, 1f, 1f, BeeCharcoalInk)
-            cell(10f, 10f, 2f, 0.65f, BeePollenCoral)
-            cell(9f, 11f, 1f, 0.7f, BeeCharcoalInk)
-            cell(12f, 11f, 1f, 0.7f, BeeCharcoalInk)
-        }
-        BeeMood.Focused -> {
-            cell(9f, 8f, 2f, 0.65f, BeeCharcoalInk)
-            cell(12f, 8f, 2f, 0.65f, BeeCharcoalInk)
-            cell(9f, 9.2f, 1f, 1.3f, BeeCharcoalInk)
-            cell(13f, 9.2f, 1f, 1.3f, BeeCharcoalInk)
-            cell(10f, 11.2f, 2f, 0.55f, BeeCreamMilk)
-            cell(16f, 10f, 1f, 1f, BeePollenCoral)
-            cell(17f, 9f, 1f, 3f, BeePollenCoral)
-        }
+        BeeMood.Cheerful -> drawSpriteLayer(BeeSprites.faceCheer, left, top, unit)
+        BeeMood.Focused -> drawSpriteLayer(BeeSprites.faceFocus, left, top, unit)
         BeeMood.Sleepy -> {
-            cell(9f, 9.5f, 2f, 0.6f, BeeCharcoalInk)
-            cell(12f, 9.5f, 2f, 0.6f, BeeCharcoalInk)
-            cell(10f, 11.1f, 2f, 0.45f, BeeCharcoalInk)
-            cell(16f, 6f, 1f, 1f, BeeCreamMilk)
-            cell(17f, 5f, 1f, 1f, BeeCreamMilk)
-            cell(18f, 4f, 1f, 1f, BeeCreamMilk)
+            drawSpriteLayer(BeeSprites.faceSleep, left, top, unit)
+            drawSpriteLayer(BeeSprites.zzz, left, top, unit)
         }
     }
 }

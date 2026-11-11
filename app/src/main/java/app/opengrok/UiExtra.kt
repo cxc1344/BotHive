@@ -255,7 +255,7 @@ fun SettingsScreen(store: Store, go: (Screen) -> Unit) {
                 }
             }
             Spacer(Modifier.height(8.dp))
-            Text("BotHive 0.5.0", color = Sub, fontSize = 12.sp)
+            Text("BotHive 0.5.1", color = Sub, fontSize = 12.sp)
             Spacer(Modifier.height(16.dp))
         }
     }

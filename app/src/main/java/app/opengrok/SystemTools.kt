@@ -95,16 +95,22 @@ if (apps.isEmpty()) return "没有枚举到可启动的应用。"
 return "共 ${apps.size} 个可启动应用:\n" + apps.joinToString("\n") { "${it.first}(${it.second})"}
 }
 
+/** Resolves a user-facing app name or package to a package name; null when nothing matches. */
+fun resolvePackage(ctx: Context, query: String): String? {
+val q = query.trim()
+if (q.isBlank()) return null
+val apps = launchableApps(ctx)
+return when {
+apps.any { it.second == q } -> q
+else -> apps.firstOrNull { it.first.contains(q, ignoreCase = true) || it.second.contains(q, ignoreCase = true) }?.second
+}
+}
+
 fun launchApp(ctx: Context, query: String): String {
 val q = query.trim()
 if (q.isBlank()) return "请给出要打开的应用名或包名。"
 val pm = ctx.packageManager
-val apps = launchableApps(ctx)
-val pkg = when {
-apps.any { it.second == q} -> q
-else -> apps.firstOrNull { it.first.contains(q, ignoreCase = true) || it.second.contains(q, ignoreCase = true)}?.second
-?: return "找不到应用「$q」。可先用 list_apps 查看可启动应用列表。"
-}
+val pkg = resolvePackage(ctx, q) ?: return "找不到应用「$q」。可先用 list_apps 查看可启动应用列表。"
 val intent = pm.getLaunchIntentForPackage(pkg)?: return "应用 $pkg 没有可启动的入口。"
 intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 return try {

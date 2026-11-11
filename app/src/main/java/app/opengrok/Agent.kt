@@ -102,14 +102,15 @@ object Agent {
             put(fn("device_status", "查看手机状态:电量、充电、存储空间、内存、系统版本、已开机时长。", JSONObject()))
             put(fn("app_usage", "查看今天各应用的前台使用时长排行(需要用户已开启「使用情况访问」)。", JSONObject()))
             put(fn("list_apps", "列出手机上可启动的应用(名称与包名)。", JSONObject()))
-            put(fn("launch_app", "打开/切换到某个应用(按应用名或包名)。",
+            put(fn("launch_app", "打开/切换到某个应用(按应用名或包名)。虚拟屏模式下会在虚拟屏上启动该应用。",
                 JSONObject().put("query", str("应用名或包名")), "query"))
             put(fn("open_url", "用浏览器打开一个网址链接。",
                 JSONObject().put("url", str("完整网址,如 https://example.com")), "url"))
             put(fn("recent_notifications", "查看手机最近的通知(应用、标题、内容、时间)。需要用户已开启「通知使用权」。", JSONObject()))
             put(fn("shizuku_shell", "通过 Shizuku 以 shell 身份执行命令(需要 Shizuku 已激活并授权)。可做 input tap/swipe/keyevent(点击滑动按键)、screencap 截屏到文件、dumpsys 查看系统状态、pm/am 管理应用等系统级操作。",
                 JSONObject().put("command", str("要执行的 shell 命令")), "command"))
-            put(fn("screen_shot", "截取当前屏幕截图并直接看到画面(视觉看屏,推荐首选)。之后用 tap_at / long_press / drag_at 按画面上的相对位置操作:坐标是 0-1000 的归一化网格,左上角是 (0,0),右下角是 (1000,1000)。", JSONObject()))
+            put(fn("screen_mode", "查看或切换 Agent 的操控模式。mode=status 查看当前模式;mode=virtual 切到虚拟屏悬浮窗(Agent 在独立虚拟显示屏里操作 App,你的主屏照常使用;需要 Shizuku 已激活并授权、且已授予「显示在其他应用上层」权限);mode=main 切回主屏模式。", JSONObject().put("mode", str("status / virtual / main")), "mode"))
+            put(fn("screen_shot", "截取当前屏幕截图并直接看到画面(视觉看屏,推荐首选)。之后用 tap_at / long_press / drag_at 按画面上的相对位置操作:坐标是 0-1000 的归一化网格,左上角是 (0,0),右下角是 (1000,1000)。虚拟屏模式下返回虚拟屏的画面。", JSONObject()))
             put(fn("screen_dump", "以文字形式读取当前屏幕的界面结构(备用手段;优先用 screen_shot 看图)。", JSONObject()))
             put(fn("tap_at", "点击画面上的一点。x、y 为 0-1000 归一化坐标:先看 screen_shot 的截图,判断目标在画面中的相对位置,再给出坐标,例如画面正中是 (500,500)。",
                 JSONObject().put("x", JSONObject().put("type", "integer").put("description", "0-1000,横向相对位置")).put("y", JSONObject().put("type", "integer").put("description", "0-1000,纵向相对位置")), "x", "y"))
@@ -148,7 +149,8 @@ object Agent {
             bot.prompt + "\n\n你叫「${bot.name}」,是运行在用户安卓手机上的设备 Agent,有一台自己的 Ubuntu 沙盒可用 shell 干活。" +
                 (if (others.isNotEmpty()) "云端 Bot 同伴:$others,可用 ask_bot 私信求助或给他们派活。" else "") +
                 "你能管理手机文件:fs_* 工具用绝对路径,分普通(需所有文件访问授权,管共享存储)/ Shizuku(shell 身份)/ Root(能进其他应用 /data)三档通道,默认 auto 自动选。" +
-                "屏幕操作走视觉模式:先 screen_shot 截屏(截图会随结果附给你看),判断目标在画面中的相对位置,再用 0-1000 归一化坐标调用 tap_at 点击 / long_press 长按 / drag_at 拖动;左上角是 (0,0),右下角是 (1000,1000),例如正中央是 (500,500)。每操作几步重新截屏核对,别凭记忆连点。无障碍通道不增加文件权限。请使用用户的语言回复。" + skillSuffix
+                "屏幕操作走视觉模式:先 screen_shot 截屏(截图会随结果附给你看),判断目标在画面中的相对位置,再用 0-1000 归一化坐标调用 tap_at 点击 / long_press 长按 / drag_at 拖动;左上角是 (0,0),右下角是 (1000,1000),例如正中央是 (500,500)。每操作几步重新截屏核对,别凭记忆连点。无障碍通道不增加文件权限。" +
+                "如果用户希望不被打断,可用 screen_mode 切到虚拟屏模式:Agent 在独立虚拟显示屏里操作 App,画面显示在可拖动的悬浮窗里。虚拟屏模式下 screen_dump / tap_text 不可用(节点树绑主屏),一切以 screen_shot 看图为准;遇到 FLAG_SECURE 页面(银行/支付)会黑屏,应提示用户切回主屏模式。请使用用户的语言回复。" + skillSuffix
         } else {
             bot.prompt + "\n\n你叫「${bot.name}」,运行在一部安卓手机上,有自己独立的工作目录(Ubuntu 环境),可用 shell 工具执行命令。" +
                 "工作目录不是操作系统级安全隔离,只允许读写自己的工作目录,不得尝试访问应用数据或其他 Bot 的文件。" +
@@ -307,7 +309,29 @@ object Agent {
                     "device_status" -> SystemTools.deviceStatus(ctx)
                     "app_usage" -> SystemTools.appUsage(ctx)
                     "list_apps" -> SystemTools.listApps(ctx)
-                    else -> SystemTools.launchApp(ctx, a.optString("query"))
+                    else -> {
+                        val q = a.optString("query")
+                        if (VirtualScreen.active.value) {
+                            val pkg = SystemTools.resolvePackage(ctx, q)
+                            if (pkg == null) "找不到应用「$q」。"
+                            else {
+                                VirtualScreen.ownerName.value = bot.name
+                                val out = ShizukuTools.startAppOnDisplay(VirtualScreen.displayId.value, pkg)
+                                if (out.contains("[exit 0]")) {
+                                    "已在虚拟屏 #${VirtualScreen.displayId.value} 上启动 $pkg。用 screen_shot 看画面。\n$out"
+                                } else {
+                                    // Fall back to the explicit component form before giving up.
+                                    val comp = ShizukuTools.resolveLauncherActivity(pkg)
+                                    if (comp != null) {
+                                        val second = ShizukuTools.startComponentOnDisplay(VirtualScreen.displayId.value, comp)
+                                        if (second.contains("[exit 0]"))
+                                            "已在虚拟屏 #${VirtualScreen.displayId.value} 上启动 $comp。用 screen_shot 看画面。\n$second"
+                                        else "虚拟屏启动失败(两种方式都试过)。\n$out\n$second"
+                                    } else "虚拟屏启动失败:$out"
+                                }
+                            }
+                        } else SystemTools.launchApp(ctx, q)
+                    }
                 }
             }
             "open_url" -> {
@@ -404,8 +428,70 @@ object Agent {
                 if (bot.id != AGENT_ID) return "该工具只有设备 Agent 可用。"
                 ShizukuTools.shell(a.optString("command"))
             }
+            "screen_mode" -> {
+                if (bot.id != AGENT_ID) return "该工具只有设备 Agent 可用。"
+                val mode = a.optString("mode", "status").trim().lowercase()
+                when (mode) {
+                    "status", "" -> AgentMode.describe()
+                    "virtual" -> AgentMode.switchTo(store.appContext(), bot.name, virtual = true)
+                    "main" -> AgentMode.switchTo(store.appContext(), bot.name, virtual = false)
+                    else -> "mode 只能是 status / virtual / main。"
+                }
+            }
             "screen_shot", "screen_dump", "tap_at", "long_press", "drag_at", "tap_text", "input_text", "press_key" -> {
                 if (bot.id != AGENT_ID) return "该工具只有设备 Agent 可用。"
+                val vid = VirtualScreen.displayId.value
+                if (VirtualScreen.active.value) {
+                    // Virtual-display mode: vision from ImageReader frames, injection through Shizuku.
+                    return when (name) {
+                        "screen_shot" -> {
+                            val cap = VirtualScreen.captureToFile(store.appContext().cacheDir)
+                            if (cap == null) "虚拟屏还没有可用画面。可能刚创建、App 未启动,或当前页面是 FLAG_SECURE(银行/支付等会黑屏)。"
+                            else {
+                                val (file, size) = cap
+                                pendingShots[bot.id] = file
+                                val black = runCatching {
+                                    val bmp = android.graphics.BitmapFactory.decodeFile(file.absolutePath)
+                                    if (bmp == null) false else {
+                                        val isBlack = VirtualScreen.looksBlack(bmp)
+                                        bmp.recycle()
+                                        isBlack
+                                    }
+                                }.getOrDefault(false)
+                                val warn = if (black) "\n注意:这一帧几乎全黑,当前页面可能启用了 FLAG_SECURE(银行/支付/部分密码页)。这类页面在虚拟屏里无法看清,请让用户切回主屏模式(screen_mode main)处理。" else ""
+                                "虚拟屏截屏完成(${size.first}x${size.second},虚拟屏 #$vid)。请查看随本条结果附带的截图,把目标在画面中的相对位置换算成 0-1000 坐标再操作。$warn"
+                            }
+                        }
+                        "screen_dump" -> "虚拟屏模式下无障碍节点树不可用(它绑定主屏的活动窗口),请以视觉为准:用 screen_shot 看图 + tap_at / long_press / drag_at 操作。"
+                        "tap_at" -> {
+                            val p = VirtualScreen.toPixels(a.optInt("x"), a.optInt("y"))
+                            if (p == null) "虚拟屏尺寸未知,请先 screen_shot。" else ShizukuTools.tapOnDisplay(vid, p.first, p.second)
+                        }
+                        "long_press" -> {
+                            val p = VirtualScreen.toPixels(a.optInt("x"), a.optInt("y"))
+                            if (p == null) "虚拟屏尺寸未知,请先 screen_shot。" else ShizukuTools.longPressOnDisplay(vid, p.first, p.second, a.optLong("duration_ms", 600))
+                        }
+                        "drag_at" -> {
+                            val p1 = VirtualScreen.toPixels(a.optInt("x1"), a.optInt("y1"))
+                            val p2 = VirtualScreen.toPixels(a.optInt("x2"), a.optInt("y2"))
+                            if (p1 == null || p2 == null) "虚拟屏尺寸未知,请先 screen_shot。"
+                            else ShizukuTools.swipeOnDisplay(vid, p1.first, p1.second, p2.first, p2.second, a.optLong("duration_ms", 300))
+                        }
+                        "tap_text" -> "虚拟屏模式下 tap_text 不可用(节点树绑主屏)。请用 screen_shot 看图后 tap_at。"
+                        "input_text" -> ShizukuTools.textOnDisplay(vid, a.optString("text"))
+                        else -> {
+                            val keyCode = when (a.optString("key").trim().lowercase()) {
+                                "back" -> 4
+                                "home" -> 3
+                                "recents" -> 187
+                                "notifications" -> 83
+                                else -> -1
+                            }
+                            if (keyCode < 0) "不支持的按键:${a.optString("key")}(可用 back / home / recents / notifications)"
+                            else ShizukuTools.keyOnDisplay(vid, keyCode)
+                        }
+                    }
+                }
                 when (name) {
                     "screen_shot" -> {
                         val r = A11y.screenshot(store.appContext().cacheDir)
