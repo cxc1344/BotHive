@@ -116,20 +116,48 @@ fun enabledInSystem(context: android.content.Context): Boolean {
  * Reconnects the service when the OS still has it enabled but our process lost the instance
  * (e.g. the app was killed and restarted while the service stayed on system-wide).
  *
- * An app cannot bind its own accessibility service — only the framework can, when the user
- * toggles it in system settings. So this reports the exact state and the shortest reliable
- * recovery instead of pretending to rebind programmatically.
+ * We cannot bind the service ourselves, so we hand the user the shortest reliable path and
+ * also nudge the framework by re-setting the enabled service list.
  */
 fun reconnect(context: android.content.Context): String {
     if (service != null) return "无障碍服务已连接,无需重连。"
     if (!enabledInSystem(context)) {
         return "系统里没有开启 BotHive 的无障碍服务,请先去系统设置打开它。"
     }
-    // System-side it is enabled, but this process holds no service instance (the process was
-    // recycled while the service stayed on). Only the framework can rebind it, and the reliable
-    // trigger is the user toggling the service off and on in the system list.
-    return "系统无障碍列表里 BotHive 是开启状态,但本进程还没拿到服务连接(通常是 App 被系统回收过)。" +
-        "应用无法自行重新绑定无障碍服务,请在系统无障碍列表里把 BotHive 关掉再打开一次,系统会重新绑定并连接。"
+    return try {
+        val am = context.getSystemService(android.content.Context.ACCESSIBILITY_SERVICE)
+            as android.view.accessibility.AccessibilityManager
+        val enabled = am.getEnabledAccessibilityServiceList(
+            android.accessibilityservice.AccessibilityServiceInfo.FEEDBACK_ALL_MASK
+        )
+        val mine = enabled.firstOrNull { it.resolveInfo.serviceInfo.packageName == context.packageName }
+        if (mine != null) {
+            // Re-applying the service info makes the framework rebind and call onServiceConnected
+            // again. AccessibilityManager#setAccessibilityServiceInfo is a hidden (@hide) method:
+            // it is absent from the public android.jar (compile error) and blocked at runtime
+            // (NoSuchMethodError, which is an Error and would kill this call), so the same effect is
+            // produced through the public secure setting: drop our component from the enabled list,
+            // then put it back — the framework tears the service down and rebinds it.
+            val serviceInfo = mine.resolveInfo.serviceInfo
+            val component = "${serviceInfo.packageName}/${serviceInfo.name}"
+            val resolver = context.contentResolver
+            val key = android.provider.Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+            val current = android.provider.Settings.Secure.getString(resolver, key).orEmpty()
+            val parts = current.split(':').filter { it.isNotEmpty() }
+            val without = parts.filter { it != component }
+            // Writing secure settings needs WRITE_SECURE_SETTINGS (adb / Shizuku granted); when the
+            // user's build does not hold it we still return the manual instruction instead of crashing.
+            android.provider.Settings.Secure.putString(resolver, key, without.joinToString(":"))
+            android.provider.Settings.Secure.putString(resolver, key, (without + component).joinToString(":"))
+            "已请求系统重新绑定无障碍服务。若几秒后仍未生效,请在系统无障碍列表里把 BotHive 关掉再打开一次。"
+        } else {
+            "系统里查不到已启用的 BotHive 无障碍服务,请在系统无障碍列表里重新打开它。"
+        }
+    } catch (e: SecurityException) {
+        "当前没有写入系统设置的权限,请在系统无障碍列表里把 BotHive 关掉再打开一次。"
+    } catch (e: Throwable) {
+        "重连请求失败:${e.message ?: e.javaClass.simpleName}。请在系统无障碍列表里把 BotHive 关掉再打开一次。"
+    }
 }
 
 /** Diagnostic line for the settings screen: which state is actually blocking us. */

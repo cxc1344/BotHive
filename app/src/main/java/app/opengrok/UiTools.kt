@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.sp
 fun ExportButton(store: Store, chatId: String) {
     val ctx = LocalContext.current
     var menu by remember { mutableStateOf(false) }
+    var askClear by remember { mutableStateOf(false) }
     val saver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/markdown")) { uri ->
         if (uri != null) {
             val ok = runCatching {
@@ -52,7 +53,25 @@ fun ExportButton(store: Store, chatId: String) {
                 val safe = store.title(chatId).replace(Regex("[\\\\/:*?\"<>|\\s]+"), "_").take(40)
                 saver.launch("$safe.md")
             })
+            DropdownMenuItem(text = { Text("清空这段对话") }, onClick = {
+                menu = false
+                askClear = true
+            })
         }
+    }
+    if (askClear) {
+        AlertDialog(
+            onDismissRequest = { askClear = false },
+            title = { Text("清空这段对话?") },
+            text = { Text("聊天记录会被清空,Bot/群/Agent 本身与设置不受影响。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    askClear = false
+                    store.clearChat(chatId)
+                }) { Text("清空") }
+            },
+            dismissButton = { TextButton(onClick = { askClear = false }) { Text("取消") } }
+        )
     }
 }
 

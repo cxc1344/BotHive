@@ -610,6 +610,15 @@ private fun WorkStatus(store: Store, go: (Screen) -> Unit) {
                 Text("当前空闲，没有进行中的任务", color = Sub, fontSize = 13.sp)
             }
         }
+        if (store.busy.isNotEmpty()) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                Text(
+                    "全部停止", color = BeeDanger, fontSize = 12.sp,
+                    modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable { store.stopAll() }
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                )
+            }
+        }
         for (r in rows) {
             Row(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(BeePanelRaised).clickable { go(r.screen) }.padding(12.dp),

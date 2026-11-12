@@ -213,20 +213,6 @@ fun Avatar(seed: String, size: Dp, group: Boolean = false) {
     PixelBeeAvatar(seed = seed, size = size, group = group)
 }
 
-/**
- * One-shot entrance wrapper for chat rows. This indirection matters: called directly inside a
- * LazyColumn item (itself nested in a Column), AnimatedVisibility resolves to the ColumnScope
- * member extension, which cannot be called there. In this scope-free helper only the top-level
- * AnimatedVisibility applies.
- */
-@Composable
-private fun AnimatedMsgRow(visible: Boolean, content: @Composable () -> Unit) {
-    AnimatedVisibility(
-        visible = visible,
-        enter = fadeIn(tween(220)) + slideInVertically(tween(260)) { it / 6 }
-    ) { content() }
-}
-
 @Composable
 fun ChatScreen(store: Store, id: String, go: (Screen) -> Unit) {
     val msgs = store.chat(id)
@@ -241,8 +227,16 @@ fun ChatScreen(store: Store, id: String, go: (Screen) -> Unit) {
     val isManager = isBot && store.bot(id.removePrefix("bot:"))?.isManager == true
     val listState = rememberLazyListState()
     val last = msgs.lastOrNull()
+    // Smart auto-scroll (same policy as the Agent chat): only when already near the bottom.
+    var atBottom by remember { mutableStateOf(true) }
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress }
+            .collect { scrolling ->
+                if (scrolling) atBottom = listState.isNearBottom()
+            }
+    }
     LaunchedEffect(msgs.size, last?.tools?.size, last?.text) {
-        if (msgs.isNotEmpty()) listState.animateScrollToItem(msgs.lastIndex)
+        if (msgs.isNotEmpty() && atBottom) listState.animateScrollToItem(msgs.lastIndex)
     }
     Column(Modifier.fillMaxSize()) {
         AppTopBar(store, "bot", go)
@@ -264,7 +258,7 @@ fun ChatScreen(store: Store, id: String, go: (Screen) -> Unit) {
                     // Each message eases in once; existing rows are untouched when new ones arrive.
                     var appeared by remember(m.id) { mutableStateOf(false) }
                     LaunchedEffect(m.id) { appeared = true }
-                    AnimatedMsgRow(appeared) {
+                    RowEnter(appeared) {
                         MsgView(store, m, showName = !isBot, thinking = busy && m.id == msgs.last().id, go = go, chatId = id)
                     }
                 }
@@ -321,6 +315,29 @@ fun ChatScreen(store: Store, id: String, go: (Screen) -> Unit) {
             dismissButton = { TextButton(onClick = { confirm = false }) { Text("取消") } }
         )
     }
+}
+
+/**
+ * Eases one chat row in on first composition.
+ *
+ * The animation lives in its own composable because `ColumnScope.AnimatedVisibility` is a top-level
+ * extension in the same package: inside a LazyColumn item, which sits under the chat's Column, that
+ * overload wins name resolution and fails as "cannot be called with an implicit receiver". Here no
+ * ColumnScope is in scope, so the plain composable is selected.
+ */
+@Composable
+private fun RowEnter(visible: Boolean, content: @Composable () -> Unit) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(220)) + slideInVertically(tween(260)) { it / 6 }
+    ) { content() }
+}
+
+/** True when the list is scrolled to (or very near) its last item — used by the smart auto-scroll. */
+internal fun androidx.compose.foundation.lazy.LazyListState.isNearBottom(): Boolean {
+    val info = layoutInfo
+    val lastVisible = info.visibleItemsInfo.lastOrNull() ?: return true
+    return lastVisible.index >= info.totalItemsCount - 2
 }
 
 @Composable

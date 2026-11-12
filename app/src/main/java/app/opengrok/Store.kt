@@ -60,16 +60,17 @@ class Store(private val ctx: Context) {
     fun nudgeBot(chatId: String, botId: String) {
         val b = (if (botId == AGENT_ID) agent.value else bot(botId)) ?: return
         if (chatId in busy) return
-        scope.launch {
+        val job = scope.launch {
             busy.add(chatId)
-            try { runBotIn(chatId, b) } finally { busy.remove(chatId) }
+            try { runBotIn(chatId, b) } finally { busy.remove(chatId); jobs.remove(chatId) }
         }
+        jobs[chatId] = job
     }
 
     fun executeApproval(ap: Approval) {
         if (!pendingApprovals.removeAll { it.id == ap.id }) return
         save()
-        scope.launch {
+        val job = scope.launch {
             val out = try {
                 val sb = sandbox(ap.botId)
                 val why = Guard.check(ap.command, sb.dir.absolutePath)
@@ -86,6 +87,7 @@ class Store(private val ctx: Context) {
             save()
             nudgeBot(ap.chatId, ap.botId)
         }
+        jobs[ap.chatId] = job
     }
 
     fun rejectApproval(ap: Approval) {
@@ -245,7 +247,8 @@ class Store(private val ctx: Context) {
             val owner = ownerBot(r.ownerId) ?: continue
             val chatId = ownerChatId(r.ownerId)
             if (chatId in busy) continue
-            scope.launch {
+            val rjob = scope.launch {
+                coroutineContext[Job]?.let { jobs[chatId] = it }
                 busy.add(chatId)
                 var reply = ""
                 try {
@@ -256,6 +259,7 @@ class Store(private val ctx: Context) {
                     reply = "执行出错:${e.message}"
                 } finally {
                     busy.remove(chatId)
+                    jobs.remove(chatId)
                 }
                 val i = routines.indexOfFirst { it.id == r.id }
                 if (i >= 0) {
@@ -434,6 +438,7 @@ class Store(private val ctx: Context) {
         sandboxes.remove(id)
         lists.remove("bot:$id")
         dmIds.removeAll { it.removePrefix("dm:").split(":").contains(id) }
+        pinned.removeAll { it == "bot:$id" || it.removePrefix("dm:").split(":").contains(id) }
         save()
     }
 
@@ -559,6 +564,18 @@ class Store(private val ctx: Context) {
         if (chatId == AGENT_ID) AgentMode.teardown()
     }
 
+    /** Stops every running chat at once (drawer「全部停止」). */
+    fun stopAll() {
+        for (id in busy.toList()) stopChat(id)
+    }
+
+    /** Clears one conversation's messages; the Bot/group/Agent itself is untouched. */
+    fun clearChat(chatId: String) {
+        if (chatId in busy) return
+        chat(chatId).clear()
+        save()
+    }
+
     private val textExts = listOf(".txt", ".md", ".json", ".csv", ".log", ".xml", ".html", ".kt", ".py", ".js", ".ts", ".yaml", ".yml", ".ini", ".properties")
 
     /**
@@ -615,7 +632,10 @@ class Store(private val ctx: Context) {
         return baos.toByteArray()
     }
 
-    fun send(chatId: String, text: String, items: List<AttachItem> = emptyList()) {
+    fun send(
+        chatId: String, text: String, items: List<AttachItem> = emptyList(),
+        imageNames: List<String> = emptyList()
+    ) {
         val job = scope.launch {
             busy.add(chatId)
             try {
@@ -626,7 +646,9 @@ class Store(private val ctx: Context) {
                             ?.memberIds?.mapNotNull { bot(it) } ?: emptyList()
                     else -> emptyList()
                 }
-                val (suffix, imgs) = processAttachments(targets.map { it.id }, items)
+                // imageNames: resend reuses images already on disk, no re-processing needed.
+                val (suffix, processed) = processAttachments(targets.map { it.id }, items)
+                val imgs = if (imageNames.isNotEmpty()) imageNames else processed
                 val list = chat(chatId)
                 list.add(Msg(role = "user", text = text + suffix, images = imgs))
                 save()
@@ -640,12 +662,13 @@ class Store(private val ctx: Context) {
     }
 
     /** Sends a user message to the on-device Agent (chat id "agent"). */
-    fun sendAgent(text: String, items: List<AttachItem> = emptyList()) {
+    fun sendAgent(text: String, items: List<AttachItem> = emptyList(), imageNames: List<String> = emptyList()) {
         val a = agent.value ?: return
         val job = scope.launch {
             busy.add(AGENT_ID)
             try {
-                val (suffix, imgs) = processAttachments(listOf(AGENT_ID), items)
+                val (suffix, processed) = processAttachments(listOf(AGENT_ID), items)
+                val imgs = if (imageNames.isNotEmpty()) imageNames else processed
                 val list = chat(AGENT_ID)
                 list.add(Msg(role = "user", text = text + suffix, images = imgs))
                 save()
@@ -668,7 +691,8 @@ class Store(private val ctx: Context) {
         if (m.from != null) return false
         while (list.size > idx) list.removeAt(list.lastIndex)
         save()
-        if (chatId == AGENT_ID) sendAgent(m.text) else send(chatId, m.text)
+        // The images are already stored under attachments/, so pass their names straight through.
+        if (chatId == AGENT_ID) sendAgent(m.text, imageNames = m.images) else send(chatId, m.text, imageNames = m.images)
         return true
     }
 

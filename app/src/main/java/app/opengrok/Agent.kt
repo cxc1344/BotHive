@@ -109,6 +109,8 @@ object Agent {
             put(fn("recent_notifications", "查看手机最近的通知(应用、标题、内容、时间)。需要用户已开启「通知使用权」。", JSONObject()))
             put(fn("shizuku_shell", "通过 Shizuku 以 shell 身份执行命令(需要 Shizuku 已激活并授权)。可做 input tap/swipe/keyevent(点击滑动按键)、screencap 截屏到文件、dumpsys 查看系统状态、pm/am 管理应用等系统级操作。",
                 JSONObject().put("command", str("要执行的 shell 命令")), "command"))
+            put(fn("phone_task", "把一条手机操作任务交给专用的手机操作模型(AutoGLM 风格)自动执行:它会自己截屏、判断、点击/滑动/输入,直到完成。适合「打开微信给某人发消息」这类需要连续看屏操作的任务。需要先在设置里启用专用手机模型。",
+                JSONObject().put("task", str("要完成的手机操作任务,写清楚目标和判断完成的条件")), "task"))
             put(fn("screen_mode", "查看或切换 Agent 的操控模式。mode=status 查看当前模式;mode=virtual 切到虚拟屏悬浮窗(Agent 在独立虚拟显示屏里操作 App,你的主屏照常使用;需要 Shizuku 已激活并授权、且已授予「显示在其他应用上层」权限);mode=main 切回主屏模式。", JSONObject().put("mode", str("status / virtual / main")), "mode"))
             put(fn("screen_shot", "截取当前屏幕截图并直接看到画面(视觉看屏,推荐首选)。之后用 tap_at / long_press / drag_at 按画面上的相对位置操作:坐标是 0-1000 的归一化网格,左上角是 (0,0),右下角是 (1000,1000)。虚拟屏模式下返回虚拟屏的画面。", JSONObject()))
             put(fn("screen_dump", "以文字形式读取当前屏幕的界面结构(备用手段;优先用 screen_shot 看图)。", JSONObject()))
@@ -145,8 +147,13 @@ object Agent {
         val skillSuffix = if (skillsText.isBlank()) "" else "\n\n你启用了以下技能,请遵循:\n$skillsText"
         val others = (store.bots.filter { it.id != bot.id }.map { it.name } +
             listOfNotNull(store.agent.value?.name).filter { !isAgent }).distinct().joinToString("、")
+        // Current date/time grounding: models have no clock, and "今天/明天" style requests
+        // were silently resolved against stale training-date assumptions.
+        val now = java.text.SimpleDateFormat("yyyy-MM-dd EEEE HH:mm", java.util.Locale.CHINA)
+            .format(java.util.Date())
+        val clockSuffix = "\n\n当前时间:$now(用户时区,24 小时制)。涉及「今天/明天/本周」等相对时间时以此为准。"
         val sys = if (isAgent) {
-            bot.prompt + "\n\n你叫「${bot.name}」,是运行在用户安卓手机上的设备 Agent,有一台自己的 Ubuntu 沙盒可用 shell 干活。" +
+            bot.prompt + clockSuffix + "\n\n你叫「${bot.name}」,是运行在用户安卓手机上的设备 Agent,有一台自己的 Ubuntu 沙盒可用 shell 干活。" +
                 (if (others.isNotEmpty()) "云端 Bot 同伴:$others,可用 ask_bot 私信求助或给他们派活。" else "") +
                 "你能管理手机文件:fs_* 工具用绝对路径,分普通(需所有文件访问授权,管共享存储)/ Shizuku(shell 身份)/ Root(能进其他应用 /data)三档通道,默认 auto 自动选。" +
                 "屏幕操作走视觉模式:先 screen_shot 截屏(截图会随结果附给你看),判断目标在画面中的相对位置,再用 0-1000 归一化坐标调用 tap_at 点击 / long_press 长按 / drag_at 拖动;左上角是 (0,0),右下角是 (1000,1000),例如正中央是 (500,500)。每操作几步重新截屏核对,别凭记忆连点。无障碍通道不增加文件权限。" +
@@ -169,7 +176,10 @@ object Agent {
         }
         val msgs = JSONArray()
         msgs.put(JSONObject().put("role", "system").put("content", sys))
-        for (m in history) {
+        // Context window: very long chats were sent wholesale, burning tokens (and money) on
+        // hundreds of stale messages before the model even saw the new one.
+        val window = history.takeLast(40)
+        for (m in window) {
             if (m.text.isBlank() && m.images.isEmpty() || m.role == "system" || m.role == "project") continue
             when {
                 m.from == bot.id -> msgs.put(JSONObject().put("role", "assistant").put("content", m.text))
@@ -294,12 +304,15 @@ object Agent {
                 if (bot.id != AGENT_ID) return "该工具只有设备 Agent 可用。"
                 val ch = a.optString("channel", "auto").ifBlank { "auto" }
                 val p = a.optString("path")
-                when (name) {
-                    "fs_list" -> FsTools.list(store.appContext(), p, ch)
-                    "fs_read" -> FsTools.read(store.appContext(), p, ch)
-                    "fs_write" -> FsTools.write(store.appContext(), p, a.optString("content"), ch)
-                    "fs_scan" -> FsTools.scan(p, a.optInt("depth", 2))
-                    else -> FsTools.delete(store.appContext(), p, ch)
+                // Disk-heavy tools must never run on the main thread (ANR risk on slow storage).
+                withContext(Dispatchers.IO) {
+                    when (name) {
+                        "fs_list" -> FsTools.list(store.appContext(), p, ch)
+                        "fs_read" -> FsTools.read(store.appContext(), p, ch)
+                        "fs_write" -> FsTools.write(store.appContext(), p, a.optString("content"), ch)
+                        "fs_scan" -> FsTools.scan(p, a.optInt("depth", 2))
+                        else -> FsTools.delete(store.appContext(), p, ch)
+                    }
                 }
             }
             "device_status", "app_usage", "list_apps", "launch_app" -> {
@@ -428,6 +441,18 @@ object Agent {
                 if (bot.id != AGENT_ID) return "该工具只有设备 Agent 可用。"
                 ShizukuTools.shell(a.optString("command"))
             }
+            "phone_task" -> {
+                if (bot.id != AGENT_ID) return "该工具只有设备 Agent 可用。"
+                if (!PhoneModel.ready()) {
+                    return "专用手机模型未启用或配置不完整(${PhoneModel.describe()})。" +
+                        "请让用户在「Agent 设置 → 专用手机模型」里填好 Base URL、API Key 与模型名;" +
+                        "或者直接改用 screen_shot + tap_at 自己操作。"
+                }
+                // Needs a live virtual display to see and drive.
+                val prep = AgentMode.ensureVirtual(store.appContext(), bot.name)
+                if (prep != null) return "虚拟屏未就绪,无法执行手机任务:$prep"
+                runPhoneTask(store, bot, a.optString("task").trim())
+            }
             "screen_mode" -> {
                 if (bot.id != AGENT_ID) return "该工具只有设备 Agent 可用。"
                 val mode = a.optString("mode", "status").trim().lowercase()
@@ -440,12 +465,25 @@ object Agent {
             }
             "screen_shot", "screen_dump", "tap_at", "long_press", "drag_at", "tap_text", "input_text", "press_key" -> {
                 if (bot.id != AGENT_ID) return "该工具只有设备 Agent 可用。"
+                // In virtual mode the display is expected to outlive a single turn. If the OS dropped
+                // it (process reclaim, OEM killing the display), rebuild it here instead of returning
+                // "not running" — that used to send the model into a retry loop that burned tokens.
+                if (AgentMode.mode.value == AgentMode.Mode.Virtual) {
+                    val rebuilt = AgentMode.ensureVirtual(store.appContext(), bot.name)
+                    if (rebuilt != null) {
+                        return "虚拟屏模式需要先恢复虚拟屏,但恢复失败:$rebuilt\n" +
+                            "请让用户检查 Shizuku 与悬浮窗权限,或用 screen_mode main 切回主屏模式。"
+                    }
+                }
                 val vid = VirtualScreen.displayId.value
                 if (VirtualScreen.active.value) {
                     // Virtual-display mode: vision from ImageReader frames, injection through Shizuku.
                     return when (name) {
                         "screen_shot" -> {
-                            val cap = VirtualScreen.captureToFile(store.appContext().cacheDir)
+                            // captureToFile blocks briefly waiting for a frame; keep it off the main thread.
+                            val cap = withContext(Dispatchers.IO) {
+                                VirtualScreen.captureToFile(store.appContext().cacheDir)
+                            }
                             if (cap == null) "虚拟屏还没有可用画面。可能刚创建、App 未启动,或当前页面是 FLAG_SECURE(银行/支付等会黑屏)。"
                             else {
                                 val (file, size) = cap
@@ -515,6 +553,61 @@ object Agent {
             }
             else -> "未知工具:$name"
         }
+    }
+
+    /**
+     * Drives the virtual display with the dedicated phone model: screenshot -> one action -> repeat.
+     *
+     * Bounded on purpose. A phone task that has not finished in [maxSteps] steps is almost always
+     * stuck (wrong app, login wall, unexpected dialog), and continuing just burns the user's quota —
+     * which is exactly what happened when the model was left to retry on its own.
+     */
+    private suspend fun runPhoneTask(store: Store, bot: Bot, task: String): String {
+        if (task.isBlank()) return "任务内容为空。"
+        val ctx = store.appContext()
+        val maxSteps = 15
+        val log = mutableListOf<String>()
+        var lastAction = ""
+        var repeats = 0
+        for (step in 1..maxSteps) {
+            val cap = withContext(Dispatchers.IO) { VirtualScreen.captureToFile(ctx.cacheDir) }
+                ?: return "第 $step 步截不到虚拟屏画面,任务中止。\n已执行:${log.joinToString(";").ifBlank { "无" }}"
+            val b64 = withContext(Dispatchers.IO) {
+                runCatching { java.util.Base64.getEncoder().encodeToString(cap.first.readBytes()) }.getOrNull()
+            } ?: return "截图读取失败,任务中止。"
+            // Black frame = FLAG_SECURE page; the model cannot see anything, so stop early.
+            val black = withContext(Dispatchers.IO) {
+                runCatching {
+                    val bmp = android.graphics.BitmapFactory.decodeFile(cap.first.absolutePath)
+                    if (bmp == null) false else { val v = VirtualScreen.looksBlack(bmp); bmp.recycle(); v }
+                }.getOrDefault(false)
+            }
+            if (black) {
+                return "当前页面在虚拟屏里是黑屏(可能启用了 FLAG_SECURE,如银行/支付/密码页)。" +
+                    "任务中止,请让用户切回主屏模式(screen_mode main)处理。\n已执行:${log.joinToString(";")}"
+            }
+            val action = try {
+                PhoneOperator.nextAction(ctx, b64, task, log)
+            } catch (e: Exception) {
+                return "调用手机模型失败:${e.message ?: e.javaClass.simpleName}\n已执行:${log.joinToString(";")}"
+            } ?: return "手机模型没有返回可识别的动作(回复格式不符)。\n已执行:${log.joinToString(";").ifBlank { "无" }}"
+
+            if (action.kind == "finish") {
+                return "任务完成:${action.message ?: "(无说明)"}\n执行了 ${log.size} 步:\n" +
+                    log.mapIndexed { i, s -> "${i + 1}. $s" }.joinToString("\n")
+            }
+            val signature = "${action.kind}:${action.x},${action.y}:${action.text ?: ""}"
+            repeats = if (signature == lastAction) repeats + 1 else 0
+            lastAction = signature
+            if (repeats >= 2) {
+                return "手机模型连续 3 次给出同一个动作,判定为卡住,任务中止以免继续消耗额度。\n" +
+                    "已执行:\n" + log.mapIndexed { i, s -> "${i + 1}. $s" }.joinToString("\n")
+            }
+            val line = PhoneOperator.execute(ctx, action, task)
+            log.add(line)
+        }
+        return "已执行 $maxSteps 步仍未完成,任务中止(避免继续消耗额度)。\n执行记录:\n" +
+            log.mapIndexed { i, s -> "${i + 1}. $s" }.joinToString("\n")
     }
 
     private suspend fun call(bot: Bot, msgs: JSONArray, tools: JSONArray?): JSONObject {

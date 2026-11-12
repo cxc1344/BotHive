@@ -199,7 +199,17 @@ object VirtualScreen {
      * screenshot conventions (720px wide cap, rolling 20-file history).
      */
     fun captureToFile(cacheDir: File): Pair<File, Pair<Int, Int>>? {
-        val shot = grabFrame() ?: return null
+        // A freshly created display needs a moment before the first frame lands, and an idle app
+        // only produces a frame when something changes. Poll briefly so a just-launched app does
+        // not look like a broken screen.
+        var shot = grabFrame()
+        var waited = 0L
+        while (shot == null && waited < 1_500L) {
+            Thread.sleep(120)
+            waited += 120
+            shot = grabFrame()
+        }
+        if (shot == null) return null
         var scaled: Bitmap? = null
         return try {
             val scale = minOf(1f, 720f / shot.width.toFloat())

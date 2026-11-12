@@ -16,6 +16,7 @@ class MainActivity : ComponentActivity() {
         )
         val store = (application as OgApp).store
         AgentMode.init(this)
+        PhoneModel.init(this)
         // Restore the background keep-alive service whenever the app is opened.
         if (KeepAlive.isEnabled(this)) KeepAlive.start(this)
         setContent { App(store) }

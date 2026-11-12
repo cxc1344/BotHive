@@ -32,7 +32,7 @@ internal object LinuxRuntime {
     private const val MAX_ROOTFS_ARCHIVE_BYTES = 64L * 1024L * 1024L
     private const val DOWNLOAD_DEADLINE_MS = 300_000L
     private const val TOTAL_STEPS = 9
-    private const val USER_AGENT = "BotHive-Android/0.5.4"
+    private const val USER_AGENT = "BotHive-Android/0.5.6"
 
     /** First-run provisioning inside the fresh rootfs; failure is soft (install still succeeds). */
     private const val PROVISION_CMD =

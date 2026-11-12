@@ -124,8 +124,10 @@ val marker = "__BOTHIVE_EXIT__"
 val wrapped = arrayOf("sh", "-c", "( $command ) 2>&1; echo $marker\$?")
 val process = newProcessReflect(wrapped)
 val output = StringBuilder()
-val done = java.util.concurrent.CountDownLatch(1)
-fun drain(stream: java.io.InputStream) {
+// One latch per drain thread: a shared latch let the *first* closed stream (stderr usually ends
+// before stdout) release await() early, so the marker line could be missed and exit became
+// [exit unknown]. Both streams must finish before we parse the exit code.
+fun drain(stream: java.io.InputStream, done: java.util.concurrent.CountDownLatch) {
 try {
 stream.bufferedReader().use { r ->
 val buf = CharArray(1024)
@@ -142,11 +144,13 @@ if (output.length < maxChars) output.append(buf, 0, n)
 done.countDown()
 }
 }
-Thread { drain(process.inputStream) }.apply { isDaemon = true; start() }
-Thread { drain(process.errorStream) }.apply { isDaemon = true; start() }
+val doneOut = java.util.concurrent.CountDownLatch(1)
+val doneErr = java.util.concurrent.CountDownLatch(1)
+Thread { drain(process.inputStream, doneOut) }.apply { isDaemon = true; start() }
+Thread { drain(process.errorStream, doneErr) }.apply { isDaemon = true; start() }
 
-// The stream closes when the shell finishes, which is the real completion signal.
-if (!done.await(timeoutSec, TimeUnit.SECONDS)) {
+// The streams close when the shell finishes, which is the real completion signal.
+if (!doneOut.await(timeoutSec, TimeUnit.SECONDS) || !doneErr.await(timeoutSec, TimeUnit.SECONDS)) {
 runCatching { process.destroy() }
 return@withContext "命令超时(${timeoutSec} 秒):$command\n已输出:${synchronized(output) { output.toString() }.take(2000)}"
 }
@@ -215,12 +219,19 @@ suspend fun keyOnDisplay(displayId: Int, keyCode: Int): String =
 
 /** Text injection fallback for the virtual display (the accessibility tree is not available there). */
 suspend fun textOnDisplay(displayId: Int, text: String): String {
-    // `input text` treats spaces specially; %s is the documented escape.
-    val escaped = text.replace(" ", "%s")
-        .replace("\\", "\\\\")
-        .replace("'", "\\'")
-    return exec("input --display $displayId text '$escaped'", 15, 2_000)
+    return exec("input --display $displayId text '${escapeInputText(text)}'", 15, 2_000)
 }
+
+/**
+ * Escapes text for `sh -c "... input text '...'"` and `input text` itself:
+ *  - `input text` takes no shell metacharacters, but it *does* treat `%s` as a space, so real
+ *    spaces become %s (documented behaviour) and a literal `%` stays as-is.
+ *  - For the surrounding single quotes we use the standard `'''` idiom; the old `\'` form
+ *    left a stray backslash and broke quoting on apostrophes like "it's".
+ */
+fun escapeInputText(text: String): String = text
+    .replace("'", "'\\''")
+    .replace(" ", "%s")
 
 /** Long press = a zero-distance swipe held for the duration. */
 suspend fun longPressOnDisplay(displayId: Int, x: Int, y: Int, ms: Long): String =

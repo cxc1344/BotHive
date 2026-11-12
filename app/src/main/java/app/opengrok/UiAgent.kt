@@ -127,8 +127,17 @@ fun AgentChatScreen(store: Store, go: (Screen) -> Unit) {
     val pickFiles = AttachPickerLauncher { staged.addAll(it) }
     val listState = rememberLazyListState()
     val last = msgs.lastOrNull()
+    // Smart auto-scroll: follow new output only when the user is already near the bottom,
+    // so reading earlier messages is never yanked back down mid-read.
+    var atBottom by remember { mutableStateOf(true) }
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.isScrollInProgress }
+            .collect { scrolling ->
+                if (scrolling) atBottom = listState.isNearBottom()
+            }
+    }
     LaunchedEffect(msgs.size, last?.tools?.size, last?.text) {
-        if (msgs.isNotEmpty()) listState.animateScrollToItem(msgs.lastIndex)
+        if (msgs.isNotEmpty() && atBottom) listState.animateScrollToItem(msgs.lastIndex)
     }
     if (agent == null) {
         Column(Modifier.fillMaxSize()) {
@@ -576,6 +585,9 @@ fun AgentSettingsScreen(store: Store, go: (Screen) -> Unit) {
             Text("操控模式", color = Fg, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             ScreenModeCard(store)
             HorizontalDivider(color = Line)
+            Text("专用手机模型", color = Fg, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+            PhoneModelCard()
+            HorizontalDivider(color = Line)
             Text("权限与通道", color = Fg, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
             AgentPermissions(store)
             HorizontalDivider(color = Line)
@@ -676,6 +688,94 @@ fun ScreenModeCard(store: Store) {
         }
         Text(
             "已知边界:银行/支付等启用 FLAG_SECURE 的页面在虚拟屏里会是黑屏,遇到请切回主屏模式处理;个别应用对副屏兼容性较差(方向或尺寸异常),以微信等主流应用可用为准。",
+            color = Sub, fontSize = 11.sp, lineHeight = 16.sp
+        )
+    }
+}
+
+/**
+ * Configuration for the optional AutoGLM-style phone operator.
+ *
+ * Unlike Operit, the endpoint is not locked to Zhipu: Base URL / Key / model are all free-form, so
+ * any OpenAI-compatible service works. Presets only prefill the URL.
+ */
+@Composable
+fun PhoneModelCard() {
+    val context = LocalContext.current
+    var on by remember { mutableStateOf(PhoneModel.enabled.value) }
+    var url by remember { mutableStateOf(PhoneModel.baseUrl.value) }
+    var key by remember { mutableStateOf(PhoneModel.apiKey.value) }
+    var model by remember { mutableStateOf(PhoneModel.model.value) }
+    var http by remember { mutableStateOf(PhoneModel.allowHttp.value) }
+    var showKey by remember { mutableStateOf(false) }
+    var msg by remember { mutableStateOf<String?>(null) }
+
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Card).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("启用专用手机模型", color = Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "AutoGLM 风格的手机操作模型:给它截图和任务,它一步步看屏点击,比通用对话模型更擅长连续操作。\n" +
+                        "不绑定厂商——任何 OpenAI 兼容接口都能填,预设只是帮你填 Base URL。",
+                    color = Sub, fontSize = 12.sp, lineHeight = 17.sp
+                )
+            }
+            Switch(checked = on, onCheckedChange = { on = it })
+        }
+
+        Text("快速填充(只填 URL,模型名按需改)", color = Sub, fontSize = 12.sp)
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            PhoneModel.presets.forEach { (name, u) ->
+                val sel = url == u
+                Box(
+                    Modifier.clip(RoundedCornerShape(16.dp)).background(if (sel) Honey else BeePanelRaised)
+                        .clickable {
+                            url = u
+                            PhoneModel.modelHints[name]?.let { if (model.isBlank()) model = it }
+                        }
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                ) { Text(name, color = if (sel) Ink else Fg, fontSize = 12.sp) }
+            }
+        }
+
+        Field("Base URL(如 https://open.bigmodel.cn/api/paas/v4)", url, { url = it }, keyboard = KeyboardType.Uri)
+        Field(
+            "API Key", key, { key = it }, keyboard = KeyboardType.Uri,
+            visual = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
+            trailing = {
+                TextButton(onClick = { showKey = !showKey }) {
+                    Text(if (showKey) "隐藏" else "显示", color = Sub)
+                }
+            }
+        )
+        Field("模型名(如 autoglm-phone-9b-multilingual)", model, { model = it }, keyboard = KeyboardType.Uri)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("允许 HTTP", color = Fg, fontSize = 14.sp)
+                Text("仅用于可信的本地或内网服务", color = Sub, fontSize = 11.sp)
+            }
+            Switch(checked = http, onCheckedChange = { http = it })
+        }
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            PillButton("保存", modifier = Modifier.weight(1f)) {
+                val ok = PhoneModel.save(context, on, url, key, model, http)
+                msg = if (ok) "已保存。${PhoneModel.describe()}" else PhoneModel.lastError.value
+            }
+            PillButton("测试", filled = false, modifier = Modifier.weight(1f)) {
+                val err = PhoneModel.validate(url, http)
+                msg = if (err != null) err
+                else if (model.isBlank()) "模型名不能为空"
+                else "配置格式正确。实际可用性会在 phone_task 第一次调用时验证。"
+            }
+        }
+        msg?.let { Text(it, color = if (it.startsWith("已保存") || it.startsWith("配置格式")) HoneyPale else BeeDanger, fontSize = 12.sp) }
+
+        Text(
+            "不填也能用:关掉这个开关时,Agent 仍然用当前对话模型 + screen_shot/tap_at 工具自己操作,只是连续操作不如专用模型稳。",
             color = Sub, fontSize = 11.sp, lineHeight = 16.sp
         )
     }

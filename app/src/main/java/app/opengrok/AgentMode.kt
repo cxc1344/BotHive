@@ -100,11 +100,43 @@ object AgentMode {
         VirtualScreen.release()
     }
 
-    /** Called when the Agent's run finishes so the overlay never outlives the task. */
+    /**
+     * Called when a chat turn finishes.
+     *
+     * The virtual display is deliberately NOT released here. Releasing per turn was a real bug:
+     * the Agent would open an app on the virtual screen in one turn, the display got torn down at
+     * the end of that turn, and the next turn's screen_shot/tap_at reported "虚拟屏未运行" while the
+     * user could still see the window. The model then retried and burned tokens.
+     *
+     * The display now lives for the whole virtual-mode session: it is released only when the user
+     * switches back to main-screen mode, taps stop on the floating window, or the app process dies.
+     * If the OS ever drops it underneath us, [ensureVirtual] rebuilds it on the next tool call.
+     */
     fun onTaskFinished() {
-        if (mode.value == Mode.Virtual) {
-            teardown()
-            // Keep the persisted preference: the next task should reopen the virtual screen.
+        // Intentionally empty: see the doc comment above.
+    }
+
+    /**
+     * Guarantees a live virtual display, rebuilding it when the previous one was released or lost.
+     * Returns null on success, or a human-readable error.
+     */
+    fun ensureVirtual(context: Context, owner: String): String? {
+        if (VirtualScreen.active.value && VirtualScreen.displayId.value >= 0) {
+            VirtualScreen.ownerName.value = owner
+            return null
         }
+        val blocking = blockers(context)
+        if (blocking.isNotEmpty()) return blocking.joinToString("；")
+        val err = VirtualScreen.ensure(context, owner)
+        if (err != null) return err
+        // Re-attach the floating window if it went away with the display.
+        if (!VirtualDisplayOverlay.isShowing()) {
+            VirtualDisplayOverlay.onStop = { stopHook?.invoke() }
+            VirtualDisplayOverlay.show(context, owner)?.let { msg ->
+                VirtualScreen.release()
+                return msg
+            }
+        }
+        return null
     }
 }
