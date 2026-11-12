@@ -87,7 +87,7 @@ fun ModeCapsule(current: String, go: (Screen) -> Unit) {
             .padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.weight(1f)) {
+        Box(Modifier.weight(1f)) {
             // Liquid lens indicator (Highest tier): samples the app backdrop, magnifies its center,
             // refracts the edges along the SDF normal with RGB separation, stretches with velocity.
             if (tier.shader && AppBackdrop.picture != null) {
@@ -101,11 +101,14 @@ fun ModeCapsule(current: String, go: (Screen) -> Unit) {
                     }.getOrNull()
                 }
                 if (lensBmp != null && capsuleWidthPx > 0f) {
-                    // Indicator geometry: the knob fills half of THIS BoxWithConstraints and its full
-                    // height, both taken from the incoming constraints. (Sizing the lens from the
-                    // capsule's own onGloballyPositioned height instead created a feedback loop: a
-                    // transient full-height measure during the screen transition latched the capsule
-                    // to near-full-screen height, because the lens then made the capsule that tall.)
+                    // The lens layer must NOT participate in sizing the capsule: the outer Box is
+                    // sized by the labels Row alone, and matchParentSize hands the lens exactly that
+                    // size; the inner BoxWithConstraints then reports the true indicator area.
+                    // (Sizing the lens from the incoming constraint cap, or from the capsule's own
+                    // measured height, both let a transient full-screen measure inflate the capsule
+                    // to near-full-screen height - seen on device twice, in two different ways.)
+                    Box(Modifier.matchParentSize()) {
+                    androidx.compose.foundation.layout.BoxWithConstraints {
                     val pad = with(density) { 4.dp.toPx() }
                     val knobW = with(density) { (maxWidth / 2).toPx() }
                     val knobX = capsuleLeftPx + pad + pos.value * knobW
@@ -130,7 +133,8 @@ fun ModeCapsule(current: String, go: (Screen) -> Unit) {
                                 edgePx = 10f,
                                 dispersionPx = 1.8f
                             )
-                    )
+                    }
+                    }
                 }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
