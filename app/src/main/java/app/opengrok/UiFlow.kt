@@ -133,6 +133,7 @@ fun ModeCapsule(current: String, go: (Screen) -> Unit) {
                                 edgePx = 10f,
                                 dispersionPx = 1.8f
                             )
+                    )
                     }
                     }
                 }
