@@ -11,15 +11,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-androidx.compose.ui.draw.graphicsLayer
-androidx.compose.runtime.mutableFloatStateOf
-androidx.compose.foundation.layout.size
-androidx.compose.foundation.layout.offset
-androidx.compose.animation.core.FastOutSlowInEasing
-androidx.compose.animation.core.tween
-androidx.compose.animation.core.spring
-androidx.compose.animation.core.Spring
-androidx.compose.animation.core.Animatable
+import androidx.compose.ui.draw.graphicsLayer
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.offset
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.Animatable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -27,9 +27,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import kotlinx.coroutines.Dispatchers
-androidx.compose.ui.layout.onGloballyPositioned
-androidx.compose.ui.unit.IntOffset
-kotlin.math.roundToInt
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.text.input.KeyboardType

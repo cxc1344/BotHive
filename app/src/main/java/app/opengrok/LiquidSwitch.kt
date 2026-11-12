@@ -7,9 +7,9 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-kotlin.math.absoluteValue
-androidx.compose.runtime.setValue
-androidx.compose.foundation.gestures.detectDragGestures
+import kotlin.math.absoluteValue
+import androidx.compose.runtime.setValue
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
@@ -30,9 +30,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
-androidx.compose.ui.graphics.drawscope.scale
-androidx.compose.ui.graphics.drawscope.translate
-androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
@@ -80,11 +80,12 @@ fun LiquidSwitch(
     val sheen = remember { Animatable(0f) }
     LaunchedEffect(checked) {
         if (tier.shader) {
-            sheen.value = 0f
+            sheen.snapTo(0f)
             sheen.animateTo(1f, tween(520, easing = FastOutSlowInEasing))
         }
     }
 
+    var previewChecked by remember { mutableStateOf(checked) }
     val onFill = Honey
     val offFill = Color(0xFF4A3C1C)
     val fill = if (previewChecked) onFill else offFill
@@ -94,7 +95,6 @@ fun LiquidSwitch(
     var dragging by remember { mutableStateOf(false) }
     var pressT by remember { mutableFloatStateOf(0f) }
     var dragStartPos by remember { mutableFloatStateOf(0f) }
-    var previewChecked by remember { mutableStateOf(checked) }
     val lift = animateFloatAsState(
         targetValue = if (dragging && tier.shader) 1f else 0f,
         animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow),
