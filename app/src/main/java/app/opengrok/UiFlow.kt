@@ -79,8 +79,8 @@ fun ModeCapsule(current: String, go: (Screen) -> Unit) {
             .glassSurface(tier = tier, radiusPx = radiusPx)
             .onGloballyPositioned { coords ->
                 // Position in the root (backdrop bitmap) coordinate space.
-                capsuleLeftPx = coords.positionInRoot().x
-                capsuleTopPx = coords.positionInRoot().y
+                capsuleLeftPx = coords.localToRoot(Offset.Zero).x
+                capsuleTopPx = coords.localToRoot(Offset.Zero).y
                 capsuleWidthPx = coords.size.width.toFloat()
                 capsuleHeightPx = coords.size.height.toFloat()
             }
