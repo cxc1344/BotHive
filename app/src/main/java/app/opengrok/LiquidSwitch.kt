@@ -22,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
@@ -138,8 +139,10 @@ fun LiquidSwitch(
                                     val clamped = raw.coerceIn(0f, 1f)
                                     val overshoot = (raw - clamped).absoluteValue
                                     val damped = clamped + (overshoot * 0.35f * (if (raw > 1f) 1f else -1f))
-                                    pos.snapTo(damped.coerceIn(-0.18f, 1.18f))
-                                    previewChecked = pos.value >= 0.5f
+                                    scope.launch {
+                                        pos.snapTo(damped.coerceIn(-0.18f, 1.18f))
+                                        previewChecked = pos.value >= 0.5f
+                                    }
                                 },
                                 onDragEnd = {
                                     dragging = false
@@ -179,7 +182,7 @@ fun LiquidSwitch(
                             )
                         } else {
                             // Off tier: plain tap only.
-                            androidx.compose.foundation.gestures.detectTapGestures {
+                            detectTapGestures {
                                 onCheckedChange(!checked)
                             }
                         }
