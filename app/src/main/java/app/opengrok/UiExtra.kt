@@ -99,6 +99,9 @@ fun SettingsScreen(store: Store, go: (Screen) -> Unit) {
             store.persistenceError.value?.let {
                 Text(it, color = BeeDanger, fontSize = 12.sp)
             }
+            Text("视觉效果", color = Fg, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+            GlassTierCard()
+            HorizontalDivider(color = Line)
             Text("Provider 预设", color = Fg, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
             Text("把常用服务商的 Base URL 与 Key 存成预设,建 Bot / Agent 时直接选用并从其模型列表点选,免去反复粘贴。Key 用设备 Keystore 加密保存。", color = Sub, fontSize = 12.sp)
             if (store.providers.isEmpty()) Text("还没有预设", color = Sub)
@@ -186,7 +189,7 @@ fun SettingsScreen(store: Store, go: (Screen) -> Unit) {
                         Text("保活服务", color = Fg, fontSize = 15.sp)
                         Text(if (kaOn) "运行中(常驻通知可见)" else "未开启", color = Sub, fontSize = 12.sp)
                     }
-                    androidx.compose.material3.Switch(checked = kaOn, onCheckedChange = { on ->
+                    LiquidSwitch(checked = kaOn, onCheckedChange = { on ->
                         kaOn = on
                         KeepAlive.setEnabled(ctx, on)
                     })
@@ -255,8 +258,71 @@ fun SettingsScreen(store: Store, go: (Screen) -> Unit) {
                 }
             }
             Spacer(Modifier.height(8.dp))
-            Text("BotHive 0.5.6", color = Sub, fontSize = 12.sp)
+            Text("BotHive 0.5.7", color = Sub, fontSize = 12.sp)
             Spacer(Modifier.height(16.dp))
+        }
+    }
+}
+
+/**
+ * "视觉效果" tier picker (the iOS-27-style intensity control): 关 / 中等 / 最高.
+ *
+ * The Highest tier is a promise, not a suggestion: it never silently downgrades. The GPU shader
+ * path only engages where the platform can run it (API 33+); everything else — liquid switch,
+ * glass layers, spring motion — runs at full spec regardless of device, because the user chose it.
+ */
+@Composable
+fun GlassTierCard() {
+    val context = LocalContext.current
+    val tier = GlassStyle.tier.value
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Card).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text(
+            "界面玻璃与动画强度,按手机性能自选。",
+            color = Sub, fontSize = 12.sp
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(
+                GlassTier.Off to "不要",
+                GlassTier.Medium to "中等",
+                GlassTier.Highest to "最高"
+            ).forEach { (t, label) ->
+                val sel = tier == t
+                Box(
+                    Modifier.weight(1f).clip(RoundedCornerShape(14.dp))
+                        .background(if (sel) Honey else BeePanelRaised)
+                        .clickable { GlassStyle.set(context, t) }
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(label, color = if (sel) Ink else Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            when (t) {
+                                GlassTier.Off -> "省电·扁平"
+                                GlassTier.Medium -> "玻璃·流畅"
+                                GlassTier.Highest -> "全特效·不降级"
+                            },
+                            color = if (sel) Ink.copy(alpha = .7f) else Sub,
+                            fontSize = 10.sp
+                        )
+                    }
+                }
+            }
+        }
+        val tip = when (tier) {
+            GlassTier.Off -> "已关闭所有玻璃与动画,纯扁平配色。"
+            GlassTier.Medium -> "玻璃层用渐变模拟,动画标准速度,老设备也流畅。"
+            GlassTier.Highest -> "GPU 折射着色器 + 高光 + 液态开关全开;只有着色器本身要求 Android 13,其余特效全速运行,不自动降级。"
+        }
+        Text(tip, color = HoneyPale, fontSize = 11.sp, lineHeight = 15.sp)
+        // A live LiquidSwitch so the user sees the effect immediately on this very card.
+        var demo by remember { mutableStateOf(true) }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("开关效果预览", color = Sub, fontSize = 12.sp, modifier = Modifier.weight(1f))
+            LiquidSwitch(checked = demo, onCheckedChange = { demo = it })
         }
     }
 }

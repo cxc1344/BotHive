@@ -6,6 +6,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -352,29 +353,31 @@ fun MarkdownText(
 @Composable
 private fun MdTable(header: List<String>, rows: List<List<String>>, color: Color, fontSize: androidx.compose.ui.unit.TextUnit) {
     val cols = maxOf(header.size, rows.maxOfOrNull { it.size } ?: 0).coerceAtLeast(1)
+    // Column alignment: rows are laid out inside one shared intrinsic-size pass, otherwise each
+    // Row measures independently and the columns drift out of line (the whole point of a table).
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
             .background(BeePanelRaised).border(1.dp, Line, RoundedCornerShape(10.dp))
     ) {
         Box(Modifier.horizontalScroll(rememberScrollState())) {
             Column {
-                Row(Modifier.background(Honey.copy(alpha = .14f))) {
+                Row(Modifier.background(Honey.copy(alpha = .14f)).width(IntrinsicSize.Max)) {
                     for (c in 0 until cols) {
                         Text(
                             inline(header.getOrElse(c) { "" }, color),
                             color = color, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
+                            modifier = Modifier.weight(1f, fill = false).padding(horizontal = 10.dp, vertical = 8.dp)
                         )
                     }
                 }
                 rows.forEach { row ->
                     Box(Modifier.fillMaxWidth().height(1.dp).background(Line.copy(alpha = .7f))) {}
-                    Row {
+                    Row(Modifier.width(IntrinsicSize.Max)) {
                         for (c in 0 until cols) {
                             Text(
                                 inline(row.getOrElse(c) { "" }, color),
                                 color = color, fontSize = 12.sp,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)
+                                modifier = Modifier.weight(1f, fill = false).padding(horizontal = 10.dp, vertical = 7.dp)
                             )
                         }
                     }

@@ -35,8 +35,16 @@ private fun fmtTime(ms: Long): String =
 /** Top-center capsule switching between Bot mode (chat list) and Agent mode (device Agent chat). */
 @Composable
 fun ModeCapsule(current: String, go: (Screen) -> Unit) {
+    val tier = GlassStyle.tier.value
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    // Radius in px for the glass pass (the pill's corner radius).
+    val radiusPx = with(density) { 999.dp.toPx() }
     Row(
-        Modifier.clip(RoundedCornerShape(999.dp)).background(Card).padding(4.dp),
+        Modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(if (tier.glassLayers) Card.copy(alpha = 0.86f) else Card)
+            .glassSurface(tier = tier, radiusPx = radiusPx)
+            .padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         listOf("bot" to "Bot", "agent" to "Agent").forEach { (m, label) ->
@@ -257,7 +265,7 @@ fun EditMcpScreen(store: Store, serverId: String?, go: (Screen) -> Unit) {
                     Text("启用", color = Fg, fontSize = 15.sp)
                     Text("启用后,它的工具会出现在所有 Bot 与 Agent 的工具列表里", color = Sub, fontSize = 12.sp)
                 }
-                Switch(checked = enabled, onCheckedChange = { enabled = it })
+                LiquidSwitch(checked = enabled, onCheckedChange = { enabled = it })
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = {

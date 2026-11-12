@@ -339,9 +339,13 @@ private fun StaggerIn(shown: Boolean, index: Int, content: @Composable () -> Uni
 private fun HiveHero(greeting: Pair<String, String>, store: Store, working: Int, onStatus: () -> Unit) {
     val mood = if (working > 0) BeeMood.Focused else BeeMood.Cheerful
     val shape = RoundedCornerShape(30.dp)
+    val tier = GlassStyle.tier.value
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val radiusPx = with(density) { 30.dp.toPx() }
     Box(
         Modifier.fillMaxWidth().clip(shape)
-            .background(Brush.linearGradient(listOf(BeePanelRaised, BeePanel)))
+            .background(if (tier.glassLayers) Brush.linearGradient(listOf(BeePanelRaised.copy(alpha = .82f), BeePanel.copy(alpha = .88f))) else Brush.linearGradient(listOf(BeePanelRaised, BeePanel)))
+            .glassSurface(tier = tier, radiusPx = radiusPx)
             .border(1.dp, Honey.copy(alpha = .42f), shape)
             .padding(start = 20.dp, end = 12.dp, top = 20.dp, bottom = 18.dp)
     ) {
@@ -368,7 +372,7 @@ private fun HiveHero(greeting: Pair<String, String>, store: Store, working: Int,
                 // not an instant sprite swap.
                 AnimatedContent(
                     targetState = mood,
-                    transitionSpec = { fadeIn(tween(420)) togetherWith fadeOut(tween(300)) },
+                    transitionSpec = { fadeIn(tween(GlassMotion.crossFade())) togetherWith fadeOut(tween(GlassMotion.crossFade() * 3 / 4)) },
                     label = "bee-mood"
                 ) { m ->
                     PixelBeePet(size = 96.dp, mood = m)
@@ -419,8 +423,12 @@ private fun StatusPill(store: Store, working: Int, onClick: () -> Unit) {
 @Composable
 private fun ContinueCard(e: ChatEntry, onClick: () -> Unit) {
     val shape = RoundedCornerShape(22.dp)
+    val tier = GlassStyle.tier.value
+    val radiusPx = with(androidx.compose.ui.platform.LocalDensity.current) { 22.dp.toPx() }
     Row(
-        Modifier.fillMaxWidth().clip(shape).background(BeePanelRaised).border(1.dp, Line, shape).clickable(onClick = onClick).padding(16.dp),
+        Modifier.fillMaxWidth().clip(shape).background(if (tier.glassLayers) BeePanelRaised.copy(alpha = .85f) else BeePanelRaised)
+            .glassSurface(tier = tier, radiusPx = radiusPx)
+            .border(1.dp, Line, shape).clickable(onClick = onClick).padding(16.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Avatar(e.seed, 44.dp, e.group)
@@ -438,11 +446,15 @@ private fun ContinueCard(e: ChatEntry, onClick: () -> Unit) {
 @Composable
 private fun HomeTile(title: String, sub: String, icon: ImageVector, primary: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val shape = RoundedCornerShape(22.dp)
-    val base = if (primary) Honey else BeePanelRaised
+    val tier = GlassStyle.tier.value
+    val radiusPx = with(androidx.compose.ui.platform.LocalDensity.current) { 22.dp.toPx() }
+    val base = if (primary) Honey else (if (tier.glassLayers) BeePanelRaised.copy(alpha = .85f) else BeePanelRaised)
     val ink = if (primary) Ink else Fg
     val subInk = if (primary) Ink.copy(alpha = .72f) else Sub
     Column(
-        modifier.clip(shape).background(base).border(1.dp, if (primary) HoneyPale else Line, shape)
+        modifier.clip(shape).background(base)
+            .glassSurface(tier = if (primary) GlassTier.Off else tier, radiusPx = radiusPx)
+            .border(1.dp, if (primary) HoneyPale else Line, shape)
             .clickable(onClick = onClick).padding(16.dp)
     ) {
         Box(Modifier.size(38.dp).clip(CircleShape).background(if (primary) Ink.copy(alpha = .12f) else Honey.copy(alpha = .12f)), contentAlignment = Alignment.Center) {
@@ -461,7 +473,7 @@ private class WorkRow(val title: String, val sub: String, val running: Boolean, 
 @Composable
 fun AppDrawer(store: Store, visible: Boolean, current: Screen, onClose: () -> Unit, go: (Screen) -> Unit) {
     Box(Modifier.fillMaxSize()) {
-        AnimatedVisibility(visible, enter = fadeIn(tween(220)), exit = fadeOut(tween(180))) {
+        AnimatedVisibility(visible, enter = fadeIn(tween(GlassMotion.drawer())), exit = fadeOut(tween(GlassMotion.drawer()))) {
             Box(
                 Modifier.fillMaxSize().background(Ink.copy(alpha = 0.62f))
                     .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { onClose() }
@@ -469,10 +481,10 @@ fun AppDrawer(store: Store, visible: Boolean, current: Screen, onClose: () -> Un
         }
         AnimatedVisibility(
             visible,
-            enter = slideInHorizontally(tween(300, easing = FastOutSlowInEasing)) { -it } +
-                fadeIn(tween(200)),
-            exit = slideOutHorizontally(tween(240, easing = FastOutSlowInEasing)) { -it } +
-                fadeOut(tween(160))
+            enter = slideInHorizontally(tween(GlassMotion.drawer(), easing = FastOutSlowInEasing)) { -it } +
+                fadeIn(tween(GlassMotion.screenFade())),
+            exit = slideOutHorizontally(tween(GlassMotion.drawer(), easing = FastOutSlowInEasing)) { -it } +
+                fadeOut(tween(GlassMotion.screenFade()))
         ) {
             DrawerPanel(store, current, onClose, go)
         }

@@ -153,6 +153,27 @@ fun App(store: Store) {
  */
 @Composable
 private fun ScreenHost(screen: Screen, store: Store, nav: (Screen) -> Unit) {
+    // Off tier renders screens directly with no transition.
+    if (!GlassStyle.tier.value.motion) {
+        when (screen) {
+            Screen.Home -> HomeScreen(store, nav)
+            Screen.BotMode -> {}
+            is Screen.Chat -> ChatScreen(store, screen.id, nav)
+            is Screen.EditBot -> EditBotScreen(store, screen.id, nav)
+            is Screen.EditProvider -> EditProviderScreen(store, screen.id, nav)
+            Screen.AgentChat -> AgentChatScreen(store, nav)
+            Screen.EditAgent -> EditAgentScreen(store, nav)
+            Screen.AgentSettings -> AgentSettingsScreen(store, nav)
+            Screen.Workflows -> WorkflowsScreen(store, nav)
+            is Screen.EditWorkflow -> EditWorkflowScreen(store, screen.id, nav)
+            is Screen.EditMcp -> EditMcpScreen(store, screen.id, nav)
+            is Screen.EditSkill -> EditSkillScreen(store, screen.id, nav)
+            Screen.NewGroup -> NewGroupScreen(store, nav)
+            Screen.Settings -> SettingsScreen(store, nav)
+            Screen.Search -> SearchScreen(store, nav)
+        }
+        return
+    }
     // Depth decides direction: 0 = home, 1 = main destinations, 2 = editors/detail.
     val depth = remember(screen) { screenDepth(screen) }
     val previousDepth = remember { mutableStateOf(depth) }
@@ -164,11 +185,11 @@ private fun ScreenHost(screen: Screen, store: Store, nav: (Screen) -> Unit) {
         transitionSpec = {
             val dir = if (forward) 1 else -1
             val enter = slideInHorizontally(
-                animationSpec = tween(280, easing = FastOutSlowInEasing),
+                animationSpec = tween(GlassMotion.screenSlide(), easing = FastOutSlowInEasing),
                 initialOffsetX = { full -> dir * (full / 12) }
-            ) + fadeIn(tween(220))
+            ) + fadeIn(tween(GlassMotion.screenFade()))
             val exit = slideOutHorizontally(
-                animationSpec = tween(240, easing = FastOutSlowInEasing),
+                animationSpec = tween(GlassMotion.screenSlide(), easing = FastOutSlowInEasing),
                 targetOffsetX = { full -> -dir * (full / 16) }
             ) + fadeOut(tween(180))
             enter togetherWith exit
@@ -256,9 +277,14 @@ fun ChatScreen(store: Store, id: String, go: (Screen) -> Unit) {
             ) {
                 items(msgs, key = { it.id }) { m ->
                     // Each message eases in once; existing rows are untouched when new ones arrive.
-                    var appeared by remember(m.id) { mutableStateOf(false) }
-                    LaunchedEffect(m.id) { appeared = true }
-                    RowEnter(appeared) {
+                    // Off tier: render flat, no entrance animation.
+                    if (GlassStyle.tier.value.motion) {
+                        var appeared by remember(m.id) { mutableStateOf(false) }
+                        LaunchedEffect(m.id) { appeared = true }
+                        RowEnter(appeared) {
+                            MsgView(store, m, showName = !isBot, thinking = busy && m.id == msgs.last().id, go = go, chatId = id)
+                        }
+                    } else {
                         MsgView(store, m, showName = !isBot, thinking = busy && m.id == msgs.last().id, go = go, chatId = id)
                     }
                 }
@@ -342,6 +368,8 @@ internal fun androidx.compose.foundation.lazy.LazyListState.isNearBottom(): Bool
 
 @Composable
 fun MsgView(store: Store, m: Msg, showName: Boolean, thinking: Boolean, go: (Screen) -> Unit, chatId: String = "") {
+    // Resend only makes sense where a message can actually be sent again; DM/wf threads are read-only.
+    val canResend = chatId.startsWith("bot:") || chatId.startsWith("group:") || chatId == AGENT_ID
     when {
         m.role == "project" -> ProjectCard(store, m.text, go)
         m.role == "system" -> Text(m.text, color = Sub, fontSize = 12.sp,
@@ -349,7 +377,7 @@ fun MsgView(store: Store, m: Msg, showName: Boolean, thinking: Boolean, go: (Scr
         m.from == null -> Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
             var askResend by remember { mutableStateOf(false) }
             Row(horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                if (!thinking) {
+                if (!thinking && canResend) {
                     Text(
                         "重发", color = Sub, fontSize = 11.sp,
                         modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable { askResend = true }
@@ -690,7 +718,7 @@ fun EditBotScreen(store: Store, botId: String?, go: (Screen) -> Unit) {
                     Text("总经理", color = Fg, fontSize = 15.sp)
                     Text("可立项、派工、审查员工成果", color = Sub, fontSize = 12.sp)
                 }
-                Switch(checked = isManager, onCheckedChange = { isManager = it })
+                LiquidSwitch(checked = isManager, onCheckedChange = { isManager = it })
             }
             HorizontalDivider(color = Line)
             Text("连接(Provider 预设一次配置、处处复用;或为这个 Bot 单独填写)", color = Sub, fontSize = 13.sp)
@@ -720,7 +748,7 @@ fun EditBotScreen(store: Store, botId: String?, go: (Screen) -> Unit) {
                         Text("允许 HTTP 明文连接", color = Fg, fontSize = 14.sp)
                         Text("仅对可信的本地或内网 API 开启,HTTP 可能泄露 API Key", color = Sub, fontSize = 11.sp)
                     }
-                    Switch(checked = allowInsecureHttp, onCheckedChange = { allowInsecureHttp = it })
+                    LiquidSwitch(checked = allowInsecureHttp, onCheckedChange = { allowInsecureHttp = it })
                 }
                 // Plain text keyboard + visual masking: never triggers the system secure keyboard,
                 // so paste/copy always works.
@@ -764,7 +792,7 @@ fun EditBotScreen(store: Store, botId: String?, go: (Screen) -> Unit) {
                     Text("Shell 命令先经我批准", color = Fg, fontSize = 14.sp)
                     Text("开启后,它每次想执行命令都会先在对话里发一张批准卡,你点执行才会真跑(安全策略拦截仍然先生效)", color = Sub, fontSize = 11.sp)
                 }
-                Switch(checked = shellAppr, onCheckedChange = { shellAppr = it })
+                LiquidSwitch(checked = shellAppr, onCheckedChange = { shellAppr = it })
             }
             Text("技能包", color = Fg, fontSize = 14.sp)
             SkillsPicker(store, skillSel)

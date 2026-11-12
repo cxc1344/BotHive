@@ -164,10 +164,15 @@ object Agent {
                 (if (others.isNotEmpty()) "同伴:$others(其中设备 Agent 在用户手机本地,能读写用户授权的手机文件夹),可用 ask_bot 私信求助。" else "") +
                 "群聊里其他 Bot 的发言会以 [名字] 开头。请使用用户的语言回复。" + skillSuffix
         }
-        // Attached images are inlined as base64 vision parts on the user's own messages.
+        // Context window: very long chats were sent wholesale, burning tokens (and money) on
+        // hundreds of stale messages before the model even saw the new one.
+        val window = history.takeLast(40)
+        // Attached images are inlined as base64 vision parts on user messages inside the window.
+        // Encoding is scoped to the window on purpose: encoding every image ever attached (then
+        // dropping most of them at send time) wasted both CPU and memory on long chats.
         val imgB64 = withContext(Dispatchers.IO) {
             val dir = File(store.appContext().filesDir, "attachments")
-            history.flatMap { it.images }.distinct().mapNotNull { name ->
+            window.flatMap { it.images }.distinct().mapNotNull { name ->
                 val f = File(dir, name)
                 if (f.exists()) runCatching {
                     name to java.util.Base64.getEncoder().encodeToString(f.readBytes())
@@ -176,9 +181,6 @@ object Agent {
         }
         val msgs = JSONArray()
         msgs.put(JSONObject().put("role", "system").put("content", sys))
-        // Context window: very long chats were sent wholesale, burning tokens (and money) on
-        // hundreds of stale messages before the model even saw the new one.
-        val window = history.takeLast(40)
         for (m in window) {
             if (m.text.isBlank() && m.images.isEmpty() || m.role == "system" || m.role == "project") continue
             when {

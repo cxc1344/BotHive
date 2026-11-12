@@ -684,6 +684,10 @@ class Store(private val ctx: Context) {
     /** Re-send an earlier user message: drops it and everything after it, then sends it again. */
     fun resendFrom(chatId: String, msgId: String): Boolean {
         if (chatId in busy) return false
+        // Read-only threads (manager↔bot DMs, workflow records) have no sender: resending there
+        // would delete the messages and then silently fail to deliver. Guard before mutating.
+        val canSend = chatId == AGENT_ID || chatId.startsWith("bot:") || chatId.startsWith("group:")
+        if (!canSend) return false
         val list = chat(chatId)
         val idx = list.indexOfFirst { it.id == msgId }
         if (idx < 0) return false

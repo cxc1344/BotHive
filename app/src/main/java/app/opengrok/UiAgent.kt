@@ -78,7 +78,7 @@ fun ConnSection(
                 Text("允许 HTTP 明文连接", color = Fg, fontSize = 14.sp)
                 Text("仅对可信的本地或内网 API 开启", color = Sub, fontSize = 11.sp)
             }
-            Switch(checked = allowHttp, onCheckedChange = onHttp)
+            LiquidSwitch(checked = allowHttp, onCheckedChange = onHttp)
         }
         Field(
             "API Key(多个 Key 可每行一个,遇 429 自动轮换)", apiKey, onKey, keyboard = KeyboardType.Uri,
@@ -175,13 +175,17 @@ fun AgentChatScreen(store: Store, go: (Screen) -> Unit) {
                 contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 items(msgs, key = { it.id }) { m ->
-                    var appeared by remember(m.id) { mutableStateOf(false) }
-                    LaunchedEffect(m.id) { appeared = true }
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = appeared,
-                        enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(220)) +
-                            androidx.compose.animation.slideInVertically(androidx.compose.animation.core.tween(260)) { it / 6 }
-                    ) {
+                    if (GlassStyle.tier.value.motion) {
+                        var appeared by remember(m.id) { mutableStateOf(false) }
+                        LaunchedEffect(m.id) { appeared = true }
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = appeared,
+                            enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(GlassMotion.itemEnter())) +
+                                androidx.compose.animation.slideInVertically(androidx.compose.animation.core.tween(GlassMotion.itemEnter())) { it / 6 }
+                        ) {
+                            MsgView(store, m, showName = false, thinking = busy && m.id == msgs.last().id, go = go, chatId = AGENT_ID)
+                        }
+                    } else {
                         MsgView(store, m, showName = false, thinking = busy && m.id == msgs.last().id, go = go, chatId = AGENT_ID)
                     }
                 }
@@ -255,7 +259,7 @@ fun EditAgentScreen(store: Store, go: (Screen) -> Unit) {
                     Text("Shell 命令先经我批准", color = Fg, fontSize = 14.sp)
                     Text("开启后,Agent 的每条命令都先在对话里等你点「执行」(Shizuku 命令不受此限,请谨慎授权 Shizuku)", color = Sub, fontSize = 11.sp)
                 }
-                androidx.compose.material3.Switch(checked = shellAppr, onCheckedChange = { shellAppr = it })
+                LiquidSwitch(checked = shellAppr, onCheckedChange = { shellAppr = it })
             }
             Text("技能包", color = Fg, fontSize = 14.sp)
             SkillsPicker(store, skillSel)
@@ -306,7 +310,7 @@ fun EditProviderScreen(store: Store, providerId: String?, go: (Screen) -> Unit) 
                     Text("允许 HTTP 明文连接", color = Fg, fontSize = 14.sp)
                     Text("仅对可信的本地或内网 API 开启,HTTP 可能泄露 API Key", color = Sub, fontSize = 11.sp)
                 }
-                Switch(checked = allowHttp, onCheckedChange = { allowHttp = it })
+                LiquidSwitch(checked = allowHttp, onCheckedChange = { allowHttp = it })
             }
             Field(
                 "API Key", key, { key = it }, keyboard = KeyboardType.Uri,
@@ -381,7 +385,7 @@ fun AgentForm(store: Store, onSaved: () -> Unit) {
             Text("Shell 命令先经我批准", color = Fg, fontSize = 14.sp)
             Text("开启后,Agent 的每条命令都先在对话里等你点「执行」(Shizuku 命令不受此限,请谨慎授权 Shizuku)", color = Sub, fontSize = 11.sp)
         }
-        Switch(checked = shellAppr, onCheckedChange = { shellAppr = it })
+        LiquidSwitch(checked = shellAppr, onCheckedChange = { shellAppr = it })
     }
     Spacer(Modifier.height(14.dp))
     Text("技能包", color = Fg, fontSize = 14.sp)
@@ -723,7 +727,7 @@ fun PhoneModelCard() {
                     color = Sub, fontSize = 12.sp, lineHeight = 17.sp
                 )
             }
-            Switch(checked = on, onCheckedChange = { on = it })
+            LiquidSwitch(checked = on, onCheckedChange = { on = it })
         }
 
         Text("快速填充(只填 URL,模型名按需改)", color = Sub, fontSize = 12.sp)
@@ -757,7 +761,7 @@ fun PhoneModelCard() {
                 Text("允许 HTTP", color = Fg, fontSize = 14.sp)
                 Text("仅用于可信的本地或内网服务", color = Sub, fontSize = 11.sp)
             }
-            Switch(checked = http, onCheckedChange = { http = it })
+            LiquidSwitch(checked = http, onCheckedChange = { http = it })
         }
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
