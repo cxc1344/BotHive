@@ -101,17 +101,19 @@ fun ModeCapsule(current: String, go: (Screen) -> Unit) {
                     }.getOrNull()
                 }
                 if (lensBmp != null && capsuleWidthPx > 0f) {
-                    // Indicator geometry: measured inner width split into two equal halves; the knob
-                    // slides by pos * knobW. Offsets live in root-px so the lens maps into backdrop.
-                    val pad = 4f
-                    val knobW = (capsuleWidthPx - pad * 2) / 2f
-                    val knobH = capsuleHeightPx - pad * 2
+                    // Indicator geometry: the knob fills half of THIS BoxWithConstraints and its full
+                    // height, both taken from the incoming constraints. (Sizing the lens from the
+                    // capsule's own onGloballyPositioned height instead created a feedback loop: a
+                    // transient full-height measure during the screen transition latched the capsule
+                    // to near-full-screen height, because the lens then made the capsule that tall.)
+                    val pad = with(density) { 4.dp.toPx() }
+                    val knobW = with(density) { (maxWidth / 2).toPx() }
                     val knobX = capsuleLeftPx + pad + pos.value * knobW
                     val knobY = capsuleTopPx + pad
                     Box(
                         Modifier
                             .offset { IntOffset((pos.value * knobW).roundToInt(), 0) }
-                            .size(with(density) { knobW.toDp() }, with(density) { knobH.toDp() })
+                            .size(maxWidth / 2, maxHeight)
                             .align(Alignment.CenterStart)
                             .graphicsLayer {
                                 // velocity stretch along the travel axis; spring settle handled by pos
