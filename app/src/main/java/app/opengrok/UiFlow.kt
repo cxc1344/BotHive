@@ -11,6 +11,15 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+androidx.compose.ui.draw.graphicsLayer
+androidx.compose.runtime.mutableFloatStateOf
+androidx.compose.foundation.layout.size
+androidx.compose.foundation.layout.offset
+androidx.compose.animation.core.FastOutSlowInEasing
+androidx.compose.animation.core.tween
+androidx.compose.animation.core.spring
+androidx.compose.animation.core.Spring
+androidx.compose.animation.core.Animatable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -18,6 +27,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import kotlinx.coroutines.Dispatchers
+androidx.compose.ui.layout.onGloballyPositioned
+androidx.compose.ui.unit.IntOffset
+kotlin.math.roundToInt
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.text.input.KeyboardType
@@ -39,25 +51,105 @@ fun ModeCapsule(current: String, go: (Screen) -> Unit) {
     val density = androidx.compose.ui.platform.LocalDensity.current
     // Radius in px for the glass pass (the pill's corner radius).
     val radiusPx = with(density) { 999.dp.toPx() }
+    // Capsule geometry in the AppBackdrop coordinate space (root view px), measured on layout.
+    var capsuleLeftPx by remember { mutableFloatStateOf(0f) }
+    var capsuleTopPx by remember { mutableFloatStateOf(0f) }
+    var capsuleWidthPx by remember { mutableFloatStateOf(0f) }
+    var capsuleHeightPx by remember { mutableFloatStateOf(0f) }
+    // Indicator travel for the liquid lens: 0 = Bot, 1 = Agent.
+    val target = if (current == "agent") 1f else 0f
+    val pos = remember { Animatable(target) }
+    var lastPos by remember { mutableFloatStateOf(target) }
+    LaunchedEffect(target) {
+        when {
+            !tier.motion -> pos.snapTo(target)
+            tier.shader -> pos.animateTo(target, spring(
+                dampingRatio = Spring.DampingRatioMediumBouncy,
+                stiffness = Spring.StiffnessMediumLow
+            ))
+            else -> pos.animateTo(target, tween(GlassMotion.drawer(), easing = FastOutSlowInEasing))
+        }
+    }
     Row(
         Modifier
             .clip(RoundedCornerShape(999.dp))
             .background(if (tier.glassLayers) Card.copy(alpha = 0.86f) else Card)
             .glassSurface(tier = tier, radiusPx = radiusPx)
+            .onGloballyPositioned { coords ->
+                // Position in the root (backdrop bitmap) coordinate space.
+                capsuleLeftPx = coords.positionInRoot().x
+                capsuleTopPx = coords.positionInRoot().y
+                capsuleWidthPx = coords.size.width.toFloat()
+                capsuleHeightPx = coords.size.height.toFloat()
+            }
             .padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        listOf("bot" to "Bot", "agent" to "Agent").forEach { (m, label) ->
-            val sel = current == m
-            Box(
-                Modifier.clip(RoundedCornerShape(999.dp))
-                    .background(if (sel) Honey else Color.Transparent)
-                    .clickable {
-                        if (!sel) go(if (m == "agent") Screen.AgentChat else Screen.BotMode)
+        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.weight(1f)) {
+            // Liquid lens indicator (Highest tier): samples the app backdrop, magnifies its center,
+            // refracts the edges along the SDF normal with RGB separation, stretches with velocity.
+            if (tier.shader && AppBackdrop.picture != null) {
+                // Rasterize the backdrop once per app-backdrop version (content/size change only),
+                // NOT per animation frame: the lens moves by updating uSurfaceTopLeft each frame,
+                // sampling different regions of the same bitmap. That is the small-surface update
+                // path the spec allows without re-rasterizing the page every frame.
+                val lensBmp = remember(AppBackdrop.version, AppBackdrop.width, AppBackdrop.height) {
+                    runCatching {
+                        BackdropLens.rasterize(AppBackdrop.picture!!, AppBackdrop.width, AppBackdrop.height)
+                    }.getOrNull()
+                }
+                if (lensBmp != null && capsuleWidthPx > 0f) {
+                    // Indicator geometry: measured inner width split into two equal halves; the knob
+                    // slides by pos * knobW. Offsets live in root-px so the lens maps into backdrop.
+                    val pad = 4f
+                    val knobW = (capsuleWidthPx - pad * 2) / 2f
+                    val knobH = capsuleHeightPx - pad * 2
+                    val knobX = capsuleLeftPx + pad + pos.value * knobW
+                    val knobY = capsuleTopPx + pad
+                    Box(
+                        Modifier
+                            .offset { IntOffset((pos.value * knobW).roundToInt(), 0) }
+                            .size(with(density) { knobW.toDp() }, with(density) { knobH.toDp() })
+                            .align(Alignment.CenterStart)
+                            .graphicsLayer {
+                                // velocity stretch along the travel axis; spring settle handled by pos
+                                val v = abs(pos.value - lastPos).coerceIn(0f, 0.2f)
+                                scaleX = 1f + v * 1.2f
+                                scaleY = 1f - v * 0.5f
+                                lastPos = pos.value
+                            }
+                            .backdropLens(
+                                backdrop = lensBmp,
+                                surfaceTopLeft = Offset(knobX, knobY),
+                                radiusPx = with(density) { 17.dp.toPx() },
+                                zoom = 1.12f,
+                                edgePx = 10f,
+                                dispersionPx = 1.8f
+                            )
+                    )
+                }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                listOf("bot" to "Bot", "agent" to "Agent").forEach { (m, label) ->
+                    val sel = current == m
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(if (sel && !tier.shader) Honey else Color.Transparent)
+                            .clickable {
+                                if (!sel) go(if (m == "agent") Screen.AgentChat else Screen.BotMode)
+                            }
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            label,
+                            color = if (sel) (if (tier.shader) Fg else Ink) else Fg,
+                            fontSize = 14.sp, fontWeight = FontWeight.SemiBold
+                        )
                     }
-                    .padding(horizontal = 24.dp, vertical = 8.dp)
-            ) {
-                Text(label, color = if (sel) Ink else Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                }
             }
         }
     }

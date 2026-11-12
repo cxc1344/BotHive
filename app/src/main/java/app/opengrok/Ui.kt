@@ -48,6 +48,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -129,7 +130,16 @@ fun App(store: Store) {
             androidx.compose.material3.LocalTextStyle provides
                 androidx.compose.material3.LocalTextStyle.current.copy(fontFamily = HiveFonts.Roman)
         ) {
-            Box(Modifier.fillMaxSize().background(Bg)) {
+            Box(Modifier.fillMaxSize().background(Bg).onGloballyPositioned { coords ->
+                // Keep the capturable backdrop in sync with the real background layer; the lens
+                // samples this exact picture. Recording is a display-list append (µs) and only
+                // runs when the size actually changes.
+                val w = coords.size.width
+                val h = coords.size.height
+                if (w > 0 && h > 0 && (AppBackdrop.width != w || AppBackdrop.height != h)) {
+                    AppBackdrop.record(w, h, 0.35f)
+                }
+            }) {
                 // One shared honeycomb wash behind every screen keeps the theme continuous while
                 // individual screens stay free to use their own surfaces on top of it.
                 HoneycombBackdrop(Modifier.fillMaxSize(), alpha = .35f)

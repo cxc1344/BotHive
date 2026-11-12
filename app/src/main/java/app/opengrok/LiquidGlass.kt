@@ -1,32 +1,18 @@
-package app.opengrok
-
-import android.graphics.RuntimeShader
-import android.os.Build
-import androidx.annotation.RequiresApi
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ShaderBrush
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.graphicsLayer
-
 /**
- * Liquid-glass rendering for BotHive, self-implemented from the public descriptions of the effect
- * (translucency + edge refraction + moving specular highlight), not copied from any library.
+ * Liquid-glass material for BotHive (v0.5.7 style, self-drawn).
  *
- * Two paths:
- *  - API 33+: an AGSL [RuntimeShader] does per-pixel rounded-rect lensing — content behind the
- *    surface is sampled with a curvature-based offset, RGB channels split slightly for prismatic
- *    fringing, and a directional specular rim + focal hotspot brighten the surface.
- *  - below API 33 (or tier < Highest): layered gradient approximation — vertical sheen, inner glow,
- *    1px rim light on the top-left edge. Cheap, no GPU shader, still reads as glass.
+ * IMPORTANT — what this file is and is not (naming kept honest after v0.5.8):
+ *  - This is a **self-drawn material**: gradient sheen + tint + curvature shading + specular, all
+ *    procedurally painted. It does NOT sample the pixels behind the surface. Anywhere the phrase
+ *    "GPU refraction" or "samples the backdrop" applies, that is [BackdropLens]'s territory, not
+ *    this file's.
+ *  - The earlier doc here claimed the shader "samples content behind the surface" — that was wrong
+ *    (a ShaderBrush has no access to backdrop content) and is corrected here. True backdrop
+ *    refraction lives in BackdropLens.kt and only runs on surfaces that provide a captured
+ *    backdrop bitmap at the Highest tier on API 33+.
  *
- * The tier gate lives in [Modifier.glassSurface]: Off never reaches this file's draw phases.
+ * Still used by: every surface at the Medium tier, every surface without a captured backdrop at
+ * the Highest tier, and as the silent fallback when the lens path fails.
  */
 object GlassShader {
 

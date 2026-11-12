@@ -258,7 +258,7 @@ fun SettingsScreen(store: Store, go: (Screen) -> Unit) {
                 }
             }
             Spacer(Modifier.height(8.dp))
-            Text("BotHive 0.5.7", color = Sub, fontSize = 12.sp)
+            Text("BotHive 0.5.8", color = Sub, fontSize = 12.sp)
             Spacer(Modifier.height(16.dp))
         }
     }
@@ -302,8 +302,8 @@ fun GlassTierCard() {
                         Text(
                             when (t) {
                                 GlassTier.Off -> "省电·扁平"
-                                GlassTier.Medium -> "玻璃·流畅"
-                                GlassTier.Highest -> "全特效·不降级"
+                                GlassTier.Medium -> "渐变玻璃·流畅"
+                                GlassTier.Highest -> "真折射·不降级"
                             },
                             color = if (sel) Ink.copy(alpha = .7f) else Sub,
                             fontSize = 10.sp
@@ -314,8 +314,8 @@ fun GlassTierCard() {
         }
         val tip = when (tier) {
             GlassTier.Off -> "已关闭所有玻璃与动画,纯扁平配色。"
-            GlassTier.Medium -> "玻璃层用渐变模拟,动画标准速度,老设备也流畅。"
-            GlassTier.Highest -> "GPU 折射着色器 + 高光 + 液态开关全开;只有着色器本身要求 Android 13,其余特效全速运行,不自动降级。"
+            GlassTier.Medium -> "玻璃层用渐变材质模拟,动画标准速度,老设备也流畅。"
+            GlassTier.Highest -> "模式胶囊与开关滑块真折射(采样身后画面,边缘位移+RGB色散);其余表面用渐变玻璃材质。着色器要求 Android 13,低版本自动回退材质,不崩溃。"
         }
         Text(tip, color = HoneyPale, fontSize = 11.sp, lineHeight = 15.sp)
         // A live LiquidSwitch so the user sees the effect immediately on this very card.

@@ -12,12 +12,12 @@ import androidx.compose.runtime.mutableStateOf
  *  - [Off]      no glass, no motion. Flat colours only. For old phones / battery saving.
  *  - [Medium]   glass surfaces drawn with gradient + rim-light layers (no GPU shader), standard
  *               animation speeds. Safe on any device from API 26 up.
- *  - [Highest]  everything on: AGSL RuntimeShader refraction, specular highlights, chromatic
- *               dispersion, liquid switch morphs, full-speed spring motion. **No fallback** —
- *               the user picked this tier knowing their phone can carry it, so the code never
- *               silently downgrades it; if the device lacks API 33 the shader layers degrade
- *               to the Medium-style layers only where the platform physically cannot run them,
- *               and everything else stays at full spec.
+ *  - [Highest]  everything on: true backdrop refraction on surfaces that provide a captured
+ *               backdrop (mode capsule indicator, switch knob while dragged — see BackdropLens.kt),
+ *               AGSL specular highlights, liquid switch morphs, full-speed spring motion.
+ *               **No downgrade**: the user picked this tier knowing their phone can carry it. The
+ *               only platform gate is API 33 for RuntimeShader — below that the shader surfaces
+ *               render the Medium-style material instead, and everything else stays at full spec.
  */
 enum class GlassTier {
     Off, Medium, Highest;

@@ -7,6 +7,9 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+kotlin.math.absoluteValue
+androidx.compose.runtime.setValue
+androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
@@ -27,6 +30,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
+androidx.compose.ui.graphics.drawscope.scale
+androidx.compose.ui.graphics.drawscope.translate
+androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.input.pointer.pointerInput
@@ -81,9 +87,25 @@ fun LiquidSwitch(
 
     val onFill = Honey
     val offFill = Color(0xFF4A3C1C)
-    val fill = if (checked) onFill else offFill
+    val fill = if (previewChecked) onFill else offFill
 
     var lastPos by remember { mutableFloatStateOf(if (checked) 1f else 0f) }
+    // Drag state: knob lifts into a glass lens while touched, settles solid at rest.
+    var dragging by remember { mutableStateOf(false) }
+    var pressT by remember { mutableFloatStateOf(0f) }
+    var dragStartPos by remember { mutableFloatStateOf(0f) }
+    var previewChecked by remember { mutableStateOf(checked) }
+    val lift = animateFloatAsState(
+        targetValue = if (dragging && tier.shader) 1f else 0f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow),
+        label = "knob-lift"
+    )
+    // Press light: knob brightens from inside on touch down.
+    val pressGlow = remember { Animatable(0f) }
+    LaunchedEffect(dragging) {
+        if (dragging && tier.shader) pressGlow.animateTo(1f, tween(140))
+        else pressGlow.animateTo(0f, tween(200))
+    }
 
     Box(
         modifier = modifier
@@ -91,8 +113,78 @@ fun LiquidSwitch(
             .height(trackH)
             .clip(RoundedCornerShape(999.dp))
             .background(Color.Black.copy(alpha = 0.35f))
-            .pointerInput(checked) {
-                detectTapGestures { onCheckedChange(!checked) }
+            .pointerInput(Unit) {
+                // One gesture detector owns the pointer: drag with 1:1 scrubbing, and a tap
+                // (down→up without meaningful move) flips the state. Two detectors on the same
+                // node would fight over the event stream, so this is a single pipeline.
+                var downX = 0f
+                var moved = false
+                kotlinx.coroutines.coroutineScope {
+                    launch {
+                        if (GlassStyle.tier.value.motion) {
+                            detectDragGestures(
+                                onDragStart = { offset ->
+                                    downX = offset.x
+                                    moved = false
+                                    dragging = true
+                                },
+                                onDrag = { change, _ ->
+                                    change.consume()
+                                    if (abs(change.position.x - downX) > 6f) moved = true
+                                    val wPx = size.width.toFloat()
+                                    val hPx = size.height.toFloat()
+                                    val travel = (wPx - hPx).coerceAtLeast(1f)
+                                    val raw = (change.position.x - hPx / 2f) / travel
+                                    val clamped = raw.coerceIn(0f, 1f)
+                                    val overshoot = (raw - clamped).absoluteValue
+                                    val damped = clamped + (overshoot * 0.35f * (if (raw > 1f) 1f else -1f))
+                                    pos.snapTo(damped.coerceIn(-0.18f, 1.18f))
+                                    previewChecked = pos.value >= 0.5f
+                                },
+                                onDragEnd = {
+                                    dragging = false
+                                    if (!moved) {
+                                        // tap: flip
+                                        val next = !checked
+                                        previewChecked = next
+                                        scope.launch {
+                                            pos.animateTo(if (next) 1f else 0f, spring(
+                                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                                stiffness = Spring.StiffnessMediumLow
+                                            ))
+                                        }
+                                        onCheckedChange(next)
+                                    } else {
+                                        val settled = pos.value >= 0.5f
+                                        previewChecked = settled
+                                        if (settled != checked) onCheckedChange(settled)
+                                        scope.launch {
+                                            pos.animateTo(if (settled) 1f else 0f, spring(
+                                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                                stiffness = Spring.StiffnessMediumLow
+                                            ))
+                                        }
+                                    }
+                                },
+                                onDragCancel = {
+                                    dragging = false
+                                    previewChecked = checked
+                                    scope.launch {
+                                        pos.animateTo(if (checked) 1f else 0f, spring(
+                                            dampingRatio = Spring.DampingRatioMediumBouncy,
+                                            stiffness = Spring.StiffnessMedium
+                                        ))
+                                    }
+                                }
+                            )
+                        } else {
+                            // Off tier: plain tap only.
+                            androidx.compose.foundation.gestures.detectTapGestures {
+                                onCheckedChange(!checked)
+                            }
+                        }
+                    }
+                }
             }
     ) {
         Canvas(Modifier.fillMaxSize()) {
@@ -146,8 +238,9 @@ fun LiquidSwitch(
             // Deform from frame-to-frame delta (a cheap, robust velocity proxy):
             // stretch along travel while moving, settle round when idle.
             val v = if (tier.shader) abs(pos.value - lastPos).coerceIn(0f, 0.25f) else 0f
-            val stretch = 1f + v * 1.4f                  // up to ~35% along X while in motion
-            val squash = 1f - v * 0.6f
+            val grow = lerp(1f, 1.3f, lift.value)        // knob grows while lifted, capped at 1.3x
+            val stretch = (1f + v * 1.4f) * grow
+            val squash = (1f - v * 0.6f) * grow
             val knobW = knobR * stretch
             val knobH = knobR * squash
             val cx = lerp(r, w - r, p)
@@ -162,21 +255,84 @@ fun LiquidSwitch(
                 center = Offset(cx + 1.5f, cy + 2f)
             )
 
-            // knob body: glass gradient with bright top rim
-            drawOval(
-                brush = Brush.linearGradient(
-                    0f to Color(0xFFFFF6DC),
-                    1f to Color(0xFFE8C760)
-                ),
-                topLeft = Offset(cx - knobW, cy - knobH),
-                size = Size(knobW * 2f, knobH * 2f)
-            )
-            // specular dot toward the light (top-left)
-            drawCircle(
-                color = Color.White.copy(alpha = 0.75f),
-                radius = knobR * 0.28f,
-                center = Offset(cx - knobR * 0.35f, cy - knobH * 0.45f)
-            )
+            val liftT = lift.value // 0 rest -> 1 pressed
+            if (liftT > 0.02f) {
+                // ---- glass lens state while pressed/dragging ----
+                // The knob becomes a magnifier over the track itself: track + fill are redrawn
+                // into the knob circle scaled 1.4..1.65x, centered on the knob, with a per-channel
+                // offset for RGB dispersion along the drag axis. Because it is redrawn from the
+                // same frame's state, the lens content is always live — no static gradient.
+                val magnify = lerp(1.4f, 1.65f, liftT)
+                fun drawTrackTinted(rMul: Float, gMul: Float, bMul: Float, dx: Float, alpha: Float) {
+                    val layerColor = Color(
+                        red = (fill.red * rMul).coerceIn(0f, 1f),
+                        green = (fill.green * gMul).coerceIn(0f, 1f),
+                        blue = (fill.blue * bMul).coerceIn(0f, 1f),
+                        alpha = alpha
+                    )
+                    // scaled track fill inside the knob circle (clip keeps it lens-shaped)
+                    val scaledW = w * magnify
+                    val scaledH = h * magnify
+                    val cxOnTrack = lerp(0f + scaledH / 2f, w - scaledH / 2f, pos.value.coerceIn(0f, 1f))
+                    val fillW2 = lerp(scaledH, scaledW, if (previewChecked) 1f else pos.value.coerceIn(0f, 1f))
+                    val topLeftX = if (previewChecked) w - fillW2 else 0f
+                    // map the track into knob-local space: translate so the knob center reads the
+                    // magnified track around it, then draw the same shapes the track uses.
+                    drawCircle(color = layerColor.copy(alpha = alpha * 0.55f), radius = knobR)
+                    clipRect(
+                        left = cx - knobW, top = cy - knobH,
+                        right = cx + knobW, bottom = cy + knobH
+                    ) {
+                        translate(left = cx - cxOnTrack * magnify + dx, top = cy - cy * magnify) {
+                            scale(magnify, magnify, pivot = Offset(cxOnTrack, cy)) {
+                                drawRoundRect(
+                                    color = layerColor,
+                                    topLeft = Offset(topLeftX, 0f),
+                                    size = Size(fillW2, h),
+                                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(h / 2f, h / 2f)
+                                )
+                            }
+                        }
+                    }
+                }
+                // RGB separation grows with drag velocity
+                val vDrag = abs(pos.value - lastPos).coerceIn(0f, 0.25f)
+                val disp = lerp(1.2f, 2.6f, vDrag / 0.25f) * liftT
+                drawTrackTinted(1.15f, 0.9f, 0.9f, -disp, 0.5f)
+                drawTrackTinted(1.0f, 1.0f, 1.0f, 0f, 0.85f)
+                drawTrackTinted(0.9f, 0.9f, 1.25f, disp, 0.5f)
+                // rising glass shading + moving highlight (position follows the drag)
+                drawOval(
+                    brush = Brush.verticalGradient(
+                        0f to Color.White.copy(alpha = 0.30f * liftT + 0.05f),
+                        0.45f to Color.Transparent,
+                        1f to Color.Black.copy(alpha = 0.16f * liftT)
+                    ),
+                    topLeft = Offset(cx - knobW, cy - knobH),
+                    size = Size(knobW * 2f, knobH * 2f)
+                )
+                val hlX = cx - knobW * 0.35f + pos.value * knobW * 0.4f
+                drawCircle(
+                    color = Color.White.copy(alpha = 0.28f + 0.5f * pressGlow.value),
+                    radius = knobR * (0.30f + 0.1f * pressGlow.value),
+                    center = Offset(hlX, cy - knobH * 0.45f)
+                )
+            } else {
+                // ---- rest state: quiet solid knob (0.5.7 look, zero extra draw cost) ----
+                drawOval(
+                    brush = Brush.linearGradient(
+                        0f to Color(0xFFFFF6DC),
+                        1f to Color(0xFFE8C760)
+                    ),
+                    topLeft = Offset(cx - knobW, cy - knobH),
+                    size = Size(knobW * 2f, knobH * 2f)
+                )
+                drawCircle(
+                    color = Color.White.copy(alpha = 0.75f),
+                    radius = knobR * 0.28f,
+                    center = Offset(cx - knobR * 0.35f, cy - knobH * 0.45f)
+                )
+            }
         }
     }
 }
