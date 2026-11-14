@@ -263,7 +263,7 @@ data class ThemePreset(
     val value: Float
 ) {
     val argb: Int
-        get() = Color.HSVToColor(floatArrayOf(hue, saturation, value))
+        get() = android.graphics.Color.HSVToColor(floatArrayOf(hue, saturation, value))
 
     val composeColor: Color
         get() = Color(argb)
@@ -296,15 +296,15 @@ object ThemeColor {
     var isCustom by mutableStateOf(false)
 
     val currentColor: Color
-        get() = Color.HSVToColor(floatArrayOf(hue, saturation, value))
+        get() = Color.hsv(hue, saturation, value)
 
     /** Deep/pressed variant (lower value) */
     val currentDeep: Color
-        get() = Color.HSVToColor(floatArrayOf(hue, saturation, (value * 0.85f).coerceIn(0f, 1f)))
+        get() = Color.hsv(hue, saturation, (value * 0.85f).coerceIn(0f, 1f))
 
     /** Pale/muted variant (lower saturation) */
     val currentPale: Color
-        get() = Color.HSVToColor(floatArrayOf(hue, (saturation * 0.45f).coerceIn(0f, 1f), value))
+        get() = Color.hsv(hue, (saturation * 0.45f).coerceIn(0f, 1f), value)
 
     fun init(context: Context) {
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
