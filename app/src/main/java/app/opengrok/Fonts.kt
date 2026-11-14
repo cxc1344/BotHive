@@ -1,7 +1,6 @@
 package app.opengrok
 
 import androidx.compose.material3.Typography
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -22,6 +21,10 @@ import androidx.compose.ui.unit.sp
  *
  * Rendering still falls back to the system for anything outside the subset (rare CJK, emoji),
  * which is normal Android/Skia behaviour; the subset covers ordinary Chinese text.
+ *
+ * vNext (Claude-style reskin): the serif is no longer the global body family. It is reserved for
+ * the display moments (greeting, page titles, sheet titles, thinking word) via [HiveSerif]; body
+ * text uses the platform sans. No new font files — the same subset does both jobs.
  */
 object HiveFonts {
     /** Body / UI family: the serif face, one file per weight. */
@@ -74,29 +77,17 @@ object HiveFonts {
 }
 
 /**
- * Material 3 typography bound to [HiveFonts.Roman]. Only the family changes, so existing layout
- * metrics stay as they were.
+ * Material 3 typography. vNext (Claude-style reskin): the **base family is the system sans**
+ * — body copy, list rows, buttons and labels are all sans, matching the reference app.
+ * The bundled serif ([HiveFonts.Roman]) stays for the display moments that carry the brand
+ * voice: greetings, page titles, Bot (project) names, sheet titles and the thinking-state word.
+ * Those call sites opt in explicitly via [HiveSerif] (see UiTokens.kt).
  */
 fun hiveTypography(): Typography {
     val base = Typography()
-    fun TextStyle.withFamily(): TextStyle = copy(fontFamily = HiveFonts.Roman)
-    return base.copy(
-        displayLarge = base.displayLarge.withFamily(),
-        displayMedium = base.displayMedium.withFamily(),
-        displaySmall = base.displaySmall.withFamily(),
-        headlineLarge = base.headlineLarge.withFamily(),
-        headlineMedium = base.headlineMedium.withFamily(),
-        headlineSmall = base.headlineSmall.withFamily(),
-        titleLarge = base.titleLarge.withFamily(),
-        titleMedium = base.titleMedium.withFamily(),
-        titleSmall = base.titleSmall.withFamily(),
-        bodyLarge = base.bodyLarge.withFamily(),
-        bodyMedium = base.bodyMedium.withFamily(),
-        bodySmall = base.bodySmall.withFamily(),
-        labelLarge = base.labelLarge.withFamily(),
-        labelMedium = base.labelMedium.withFamily(),
-        labelSmall = base.labelSmall.withFamily()
-    )
+    // One place decides the family: everything inherits the system sans, so the ~230 Text call
+    // sites need no editing (and cannot drift apart later).
+    return base
 }
 
 /** Line height helper so mixed CJK/Latin lines keep even spacing. */

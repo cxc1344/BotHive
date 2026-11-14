@@ -10,19 +10,22 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.opengrok.ThemeAccent
 
 /** Header action: export the conversation as Markdown, either shared or saved to a user-picked file. */
 @Composable
@@ -96,21 +99,30 @@ fun SearchScreen(store: Store, go: (Screen) -> Unit) {
         }.sortedByDescending { it.time }.take(300)
     }
     Column(Modifier.fillMaxSize()) {
+        // Top bar: back left, serif centred title (list-page pattern, STUDY §2.7).
         Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { go(Screen.Home) }) { Icon(Ic.Back, "返回", tint = Fg) }
-            TextField(
+            Text("搜索", style = HiveSerif.SheetTitle(), modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
+            Spacer(Modifier.width(48.dp))
+        }
+        // Search capsule (#20201E, magnifier + placeholder).
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+                .clip(RoundedCornerShape(UiTokens.RadiusCard)).background(Card).padding(horizontal = 12.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Ic.Search, null, tint = Sub, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(8.dp))
+            BasicTextField(
                 value = q, onValueChange = { q = it }, singleLine = true,
-                placeholder = { Text("搜索全部对话的消息", color = Sub) },
-                leadingIcon = { Icon(Ic.Search, null, tint = Sub) },
-                shape = RoundedCornerShape(16.dp), modifier = Modifier.weight(1f),
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = Card, unfocusedContainerColor = Card,
-                    focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent,
-                    focusedTextColor = Fg, unfocusedTextColor = Fg
-                )
+                textStyle = androidx.compose.ui.text.TextStyle(color = Fg, fontSize = 15.sp),
+                cursorBrush = SolidColor(ThemeAccent),
+                modifier = Modifier.weight(1f).padding(vertical = 10.dp),
+                decorationBox = { inner ->
+                    Box { if (q.isEmpty()) Text("搜索全部对话的消息", color = Sub, fontSize = 15.sp); inner() }
+                }
             )
         }
-        HorizontalDivider(color = Line)
         if (q.isNotBlank() && hits.isEmpty()) {
             Text("没有找到", color = Sub, fontSize = 13.sp, modifier = Modifier.padding(20.dp))
         }
@@ -134,7 +146,7 @@ fun SearchScreen(store: Store, go: (Screen) -> Unit) {
                             val i = rest.indexOf(k, ignoreCase = true)
                             if (i < 0 || k.isEmpty()) { append(rest); break }
                             append(rest.substring(0, i))
-                            withStyle(SpanStyle(color = Honey, fontWeight = FontWeight.Bold)) { append(rest.substring(i, i + k.length)) }
+                            withStyle(SpanStyle(color = ThemeAccent, fontWeight = FontWeight.Bold)) { append(rest.substring(i, i + k.length)) }
                             rest = rest.substring(i + k.length)
                         }
                     }, color = Sub, fontSize = 13.sp, maxLines = 3)

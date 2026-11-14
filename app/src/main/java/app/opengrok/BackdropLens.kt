@@ -84,6 +84,10 @@ uniform float uLightX;
 uniform float uLightY;
 uniform float uSpec;
 uniform float uTime;
+uniform float uBlurRadius;      // Gaussian blur radius for frosted interior (0 = no blur)
+uniform float uTintR;           // warm tint R (0-255)
+uniform float uTintG;           // warm tint G (0-255)
+uniform float uTintB;           // warm tint B (0-255)
 uniform shader uBackdrop;
 
 const float SMOOTH = 1.5;
@@ -104,14 +108,36 @@ float2 sdfNormal(float2 p, float2 half, float r) {
     return d.x > d.y ? float2(s.x, 0.0) : float2(0.0, s.y);
 }
 
-// Samples the backdrop at a position expressed in *this surface's* local px, mapping through
-// uSurfaceTopLeft into bitmap space. Clamps so the lens can never pull a black edge.
-half4 sampleBackdrop(float2 localXY) {
+// Gaussian blur kernel (5-tap separable approximation)
+half4 sampleBackdropBlurred(float2 localXY, float blurRadius) {
+    if (blurRadius <= 0.0) {
+        float2 bmpXY = uSurfaceTopLeft + localXY;
+        float2 lo = float2(0.5, 0.5);
+        float2 hi = uBackdropSize - float2(0.5, 0.5);
+        float2 clamped = clamp(bmpXY, lo, hi);
+        return uBackdrop.eval(clamped);
+    }
     float2 bmpXY = uSurfaceTopLeft + localXY;
     float2 lo = float2(0.5, 0.5);
     float2 hi = uBackdropSize - float2(0.5, 0.5);
-    float2 clamped = clamp(bmpXY, lo, hi);
-    return uBackdrop.eval(clamped);
+    float2 step = float2(1.0, 1.0) * blurRadius * 0.5; // approximate sigma
+    half4 sum = half4(0.0);
+    float wsum = 0.0;
+    // 5-tap horizontal + vertical (separable would need 2 passes; this is single-pass approx)
+    float2 offsets[5] = {
+        float2(0.0, 0.0),
+        float2(step.x, 0.0),
+        float2(-step.x, 0.0),
+        float2(0.0, step.y),
+        float2(0.0, -step.y)
+    };
+    float weights[5] = { 0.4f, 0.15f, 0.15f, 0.15f, 0.15f };
+    for (int i = 0; i < 5; i++) {
+        float2 clamped = clamp(bmpXY + offsets[i], lo, hi);
+        sum += uBackdrop.eval(clamped) * weights[i];
+        wsum += weights[i];
+    }
+    return sum / wsum;
 }
 
 half4 main(float2 xy) {
@@ -123,7 +149,7 @@ half4 main(float2 xy) {
 
     if (sdf > SMOOTH) {
         // Outside the lens: untouched backdrop passthrough keeps corners clean.
-        return sampleBackdrop(xy);
+        return sampleBackdropBlurred(xy, 0.0);
     }
 
     float2 n = sdfNormal(p, c, r);
@@ -139,21 +165,25 @@ half4 main(float2 xy) {
     float2 sampleLocal = fromCenter + c - n * push;               // p is from center; fromCenter+c = local pt
 
     // ---- chromatic dispersion: separate channels along the normal ----
-    half4 g = sampleBackdrop(sampleLocal);
+    half4 g = sampleBackdropBlurred(sampleLocal, uBlurRadius * (1.0 - depth));
     half4 outC = g;
     if (uDispersionPx > 0.0) {
         float2 shift = n * uDispersionPx * (0.4 + 0.6 * band);
-        half4 rr = sampleBackdrop(sampleLocal - shift);
-        half4 bb = sampleBackdrop(sampleLocal + shift);
+        half4 rr = sampleBackdropBlurred(sampleLocal - shift, uBlurRadius * (1.0 - depth));
+        half4 bb = sampleBackdropBlurred(sampleLocal + shift, uBlurRadius * (1.0 - depth));
         outC = half4(rr.r, g.g, bb.b, g.a);
     }
 
     // ---- 0.5.7 material layers, at reduced strength, on top of the refracted image ----
     float2 L = normalize(float2(uLightX, uLightY));
     // curvature shading (weaker than the self-drawn version: real refraction carries depth)
+    // curvature = 1 - depth where depth = clamp(-sdf / max(minHalf * 0.35, 1.0), 0.0, 1.0)
+    float depthForCurv = clamp(-sdf / max(minHalf * 0.35, 1.0), 0.0, 1.0);
+    float curvature = 1.0 - depthForCurv;
     outC.rgb += half(curvature * curvature * 0.05);
-    // tint
-    outC.rgb = mix(outC.rgb, uTint.rgb, half(uTintA * 0.35));
+    // warm tint (slightly saturated, warmer than plain honey)
+    half3 warmTint = half3(uTintR / 255.0, uTintG / 255.0, uTintB / 255.0);
+    outC.rgb = mix(outC.rgb, warmTint, half(uTintA * 0.35));
     // specular rim + drifting pool
     float rimBand = smoothstep(-4.0, -0.5, sdf);
     float3 L3 = float3(L, 0.6);
@@ -248,6 +278,11 @@ fun Modifier.backdropLens(
     zoom: Float = 1.12f,
     edgePx: Float = 10f,
     dispersionPx: Float = 1.8f,
+    blurRadius: Float = 4f,
+    tintR: Float = 255f,
+    tintG: Float = 232f,
+    tintB: Float = 196f,
+    tintA: Float = 0.08f,
     tint: Color = Honey.copy(alpha = 0.10f),
     light: Offset = Offset(-0.55f, -0.85f)
 ): Modifier {
@@ -276,8 +311,11 @@ fun Modifier.backdropLens(
                     shader.setFloatUniform("uEdgePx", edgePx)
                     shader.setFloatUniform("uRefractPx", edgePx * 0.9f)
                     shader.setFloatUniform("uDispersionPx", dispersionPx)
-                    shader.setFloatUniform("uTintA", tint.alpha)
-                    shader.setFloatUniform("uTint", tint.red, tint.green, tint.blue, 1f)
+                    shader.setFloatUniform("uBlurRadius", blurRadius)
+                    shader.setFloatUniform("uTintR", tintR)
+                    shader.setFloatUniform("uTintG", tintG)
+                    shader.setFloatUniform("uTintB", tintB)
+                    shader.setFloatUniform("uTintA", tintA)
                     shader.setFloatUniform("uLightX", light.x)
                     shader.setFloatUniform("uLightY", light.y)
                     shader.setFloatUniform("uSpec", 0.9f)

@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+import app.opengrok.ThemeAccent
 
 /**
  * Liquid toggle switch — self-implemented interpretation of the OriginOS 7 / iOS 27 control
@@ -50,6 +51,12 @@ import kotlin.math.abs
  *
  * Respect the global tier: [GlassTier.Off] renders a plain Material-style flat switch with no
  * morph; Medium gets the fill wave; Highest adds knob stretch, sheen sweep and spring bounce.
+ *
+ * Goo dynamics (this build):
+ * - Knob stretches horizontally into a droplet (peak ~1.5x) while moving, with subtle tail taper.
+ * - Fill color lags behind knob position (fluid "slosh" feel) — fill leads on press, trails on release.
+ * - Press glow: knob brightens from inside on touch down.
+ * - Resting state unchanged: OFF state keeps the theme-color disk under the knob (design intent).
  */
 @Composable
 fun LiquidSwitch(
@@ -87,7 +94,7 @@ fun LiquidSwitch(
     }
 
     var previewChecked by remember { mutableStateOf(checked) }
-    val onFill = Honey
+    val onFill = ThemeAccent
     val offFill = Color(0xFF4A3C1C)
     val fill = if (previewChecked) onFill else offFill
 
@@ -106,6 +113,20 @@ fun LiquidSwitch(
     LaunchedEffect(dragging) {
         if (dragging && tier.shader) pressGlow.animateTo(1f, tween(140))
         else pressGlow.animateTo(0f, tween(200))
+    }
+
+    // Fill lag: the colored fill follows the knob with a slight delay (liquid slosh).
+    // We animate a separate fillPos that trails pos.value with a spring.
+    val fillPos = remember { Animatable(if (checked) 1f else 0f) }
+    LaunchedEffect(pos.value) {
+        if (tier.shader) {
+            fillPos.animateTo(pos.value, spring(
+                dampingRatio = Spring.DampingRatioMediumBouncy,
+                stiffness = Spring.StiffnessLow
+            ))
+        } else {
+            fillPos.snapTo(pos.value)
+        }
     }
 
     Box(
@@ -197,13 +218,14 @@ fun LiquidSwitch(
             val knobR = r - 3.dp.toPx()
             val travel = w - h
             val p = pos.value
+            val fp = fillPos.value // lagged fill position
 
-            // ---- liquid fill: grows from the knob side like fluid pouring ----
-            // Fill width follows the knob with a slight lead so it feels pressurised.
-            val fillW = lerp(h, w, if (checked) 1f else p.coerceIn(0f, 1f))
+            // ---- liquid fill with lag: grows from the knob side like fluid pouring ----
+            // Fill width follows fillPos (lagged) so it "sloshes" behind the knob.
+            val fillW = lerp(h, w, if (previewChecked) 1f else fp.coerceIn(0f, 1f))
             drawRoundRect(
                 color = fill,
-                topLeft = Offset(if (checked) w - fillW else 0f, 0f),
+                topLeft = Offset(if (previewChecked) w - fillW else 0f, 0f),
                 size = Size(fillW, h),
                 cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r)
             )
@@ -215,7 +237,7 @@ fun LiquidSwitch(
                     0.5f to Color.Transparent,
                     1f to Color.Black.copy(alpha = 0.12f)
                 ),
-                topLeft = Offset(if (checked) w - fillW else 0f, 0f),
+                topLeft = Offset(if (previewChecked) w - fillW else 0f, 0f),
                 size = Size(fillW, h),
                 cornerRadius = androidx.compose.ui.geometry.CornerRadius(r, r)
             )
@@ -238,14 +260,13 @@ fun LiquidSwitch(
             }
 
             // ---- knob: stretches along the motion axis while moving (liquid deformation) ----
-            // Deform from frame-to-frame delta (a cheap, robust velocity proxy):
-            // stretch along travel while moving, settle round when idle.
-            val v = if (tier.shader) abs(pos.value - lastPos).coerceIn(0f, 0.25f) else 0f
-            val grow = lerp(1f, 1.3f, lift.value)        // knob grows while lifted, capped at 1.3x
-            val stretch = (1f + v * 1.4f) * grow
-            val squash = (1f - v * 0.6f) * grow
-            val knobW = knobR * stretch
-            val knobH = knobR * squash
+            // Droplet stretch: horizontal stretch up to ~1.5x at peak velocity, with tail taper.
+            val v = if (tier.shader) abs(pos.value - lastPos).coerceIn(0f, 0.3f) else 0f
+            val grow = lerp(1f, 1.25f, lift.value)        // knob grows while lifted, capped at 1.25x
+            val stretchX = (1f + v * 1.5f) * grow         // peak ~1.5x horizontal
+            val stretchY = (1f - v * 0.5f) * grow         // slight vertical squash
+            val knobW = knobR * stretchX
+            val knobH = knobR * stretchY
             val cx = lerp(r, w - r, p)
             val cy = h / 2f
 
@@ -299,8 +320,8 @@ fun LiquidSwitch(
                     }
                 }
                 // RGB separation grows with drag velocity
-                val vDrag = abs(pos.value - lastPos).coerceIn(0f, 0.25f)
-                val disp = lerp(1.2f, 2.6f, vDrag / 0.25f) * liftT
+                val vDrag = abs(pos.value - lastPos).coerceIn(0f, 0.3f)
+                val disp = lerp(1.2f, 2.6f, vDrag / 0.3f) * liftT
                 drawTrackTinted(1.15f, 0.9f, 0.9f, -disp, 0.5f)
                 drawTrackTinted(1.0f, 1.0f, 1.0f, 0f, 0.85f)
                 drawTrackTinted(0.9f, 0.9f, 1.25f, disp, 0.5f)
@@ -322,6 +343,8 @@ fun LiquidSwitch(
                 )
             } else {
                 // ---- rest state: quiet solid knob (0.5.7 look, zero extra draw cost) ----
+                // IMPORTANT: The theme-color disk under the knob in OFF state is an intentional
+                // design element (既定設計) — do NOT remove it.
                 drawOval(
                     brush = Brush.linearGradient(
                         0f to Color(0xFFFFF6DC),

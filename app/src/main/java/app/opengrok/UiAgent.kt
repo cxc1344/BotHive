@@ -26,6 +26,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -33,6 +34,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
+import app.opengrok.ThemeAccent
+import app.opengrok.ThemeAccentDeep
+import app.opengrok.ThemeAccentPale
 
 /**
  * Shared connection picker (provider preset or custom fields) + model field with a
@@ -55,13 +59,13 @@ fun ConnSection(
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         val selCustom = providerId.isEmpty()
         Box(
-            Modifier.clip(RoundedCornerShape(20.dp)).background(if (selCustom) Honey else Card)
+            Modifier.clip(RoundedCornerShape(20.dp)).background(if (selCustom) ThemeAccent else Card)
                 .clickable { onProvider("") }.padding(horizontal = 16.dp, vertical = 8.dp)
         ) { Text("自定义", color = if (selCustom) Ink else Fg, fontSize = 14.sp) }
         store.providers.forEach { p ->
             val sel = providerId == p.id
             Box(
-                Modifier.clip(RoundedCornerShape(20.dp)).background(if (sel) Honey else Card)
+                Modifier.clip(RoundedCornerShape(20.dp)).background(if (sel) ThemeAccent else Card)
                     .clickable { onProvider(p.id); models = emptyList(); modelMsg = "" }
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             ) { Text(p.name, color = if (sel) Ink else Fg, fontSize = 14.sp) }
@@ -109,7 +113,7 @@ fun ConnSection(
             models.forEach { mid ->
                 val sel = model == mid
                 Box(
-                    Modifier.clip(RoundedCornerShape(16.dp)).background(if (sel) Honey else Card)
+                    Modifier.clip(RoundedCornerShape(16.dp)).background(if (sel) ThemeAccent else Card)
                         .clickable { onModel(mid) }.padding(horizontal = 12.dp, vertical = 6.dp)
                 ) { Text(mid, color = if (sel) Ink else Fg, fontSize = 12.sp) }
             }
@@ -147,12 +151,14 @@ fun AgentChatScreen(store: Store, go: (Screen) -> Unit) {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                Text("设备 Agent", color = Fg, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                BrandOrb(30.dp)
+                Spacer(Modifier.height(14.dp))
+                Text("设备 Agent", style = HiveSerif.Title(24.sp), textAlign = TextAlign.Center)
                 Spacer(Modifier.height(10.dp))
                 Text(
                     "住在手机本地的一位 Agent:管理手机文件(普通 / Shizuku / Root 分档)、看屏操作、查状态与通知," +
                         "还有自己的 Ubuntu 沙盒;能和云端 Bot 互相派活。",
-                    color = Sub, fontSize = 14.sp, lineHeight = 21.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    color = Sub, fontSize = 14.sp, lineHeight = 21.sp, textAlign = TextAlign.Center
                 )
                 Spacer(Modifier.height(20.dp))
                 PillButton("创建 Agent", modifier = Modifier.fillMaxWidth()) { go(Screen.EditAgent) }
@@ -193,32 +199,18 @@ fun AgentChatScreen(store: Store, go: (Screen) -> Unit) {
             if (msgs.isEmpty()) EmptyChatHint("新对话已就绪", "让 Agent 帮你整理手机文件、查看状态与通知、操作屏幕，或把活派给云端 Bot。")
         }
         AttachChips(staged) { staged.remove(it) }
-        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.Bottom) {
-            IconButton(onClick = { pickFiles() }, modifier = Modifier.size(48.dp)) {
-                Icon(Ic.Attach, null, tint = Fg)
-            }
-            TextField(
-                value = input, onValueChange = { input = it },
-                modifier = Modifier.weight(1f), placeholder = { Text("吩咐 Agent 做点什么…") },
-                shape = RoundedCornerShape(26.dp), maxLines = 5,
-                colors = TextFieldDefaults.colors(
-                    focusedContainerColor = Card, unfocusedContainerColor = Card,
-                    focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent,
-                    focusedTextColor = Fg, unfocusedTextColor = Fg
-                )
-            )
-            Spacer(Modifier.width(8.dp))
-            if (busy) {
-                StopButton { store.stopChat(AGENT_ID) }
-            } else {
-                val can = (input.isNotBlank() || staged.isNotEmpty()) && agent != null
-                SendButton(can) {
-                    store.sendAgent(input.trim(), staged.toList())
-                    input = ""
-                    staged.clear()
-                }
-            }
-        }
+        ChatComposer(
+            value = input, onValueChange = { input = it },
+            hint = "吩咐 Agent 做点什么…", busy = busy,
+            canSend = (input.isNotBlank() || staged.isNotEmpty()) && agent != null,
+            onPickFiles = pickFiles,
+            onSend = {
+                store.sendAgent(input.trim(), staged.toList())
+                input = ""
+                staged.clear()
+            },
+            onStop = { store.stopChat(AGENT_ID) }
+        )
     }
 }
 
@@ -237,7 +229,7 @@ fun EditAgentScreen(store: Store, go: (Screen) -> Unit) {
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { go(Screen.Home) }) { Icon(Ic.Back, null, tint = Fg) }
-            Text(if (old == null) "创建 Agent" else "编辑 Agent", color = Fg, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text(if (old == null) "创建 Agent" else "编辑 Agent", style = HiveSerif.SheetTitle())
         }
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp),
@@ -297,7 +289,7 @@ fun EditProviderScreen(store: Store, providerId: String?, go: (Screen) -> Unit) 
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { go(Screen.Settings) }) { Icon(Ic.Back, null, tint = Fg) }
-            Text(if (old == null) "添加 Provider" else "编辑 Provider", color = Fg, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text(if (old == null) "添加 Provider" else "编辑 Provider", style = HiveSerif.SheetTitle())
         }
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp),
@@ -507,7 +499,7 @@ fun AgentPermissions(store: Store) {
                     reconnectMsg = A11y.reconnect(context)
                     a11yTick++
                 }
-                reconnectMsg?.let { Text(it, color = HoneyPale, fontSize = 12.sp) }
+                reconnectMsg?.let { Text(it, color = ThemeAccentPale, fontSize = 12.sp) }
             }
             PillButton("去开启无障碍", filled = false, modifier = Modifier.fillMaxWidth()) {
                 try {
@@ -577,7 +569,7 @@ fun AgentSettingsScreen(store: Store, go: (Screen) -> Unit) {
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { go(Screen.AgentChat) }) { Icon(Ic.Back, null, tint = Fg) }
-            Text("Agent 设置", color = Fg, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text("Agent 设置", style = HiveSerif.SheetTitle())
         }
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp),
@@ -650,10 +642,10 @@ fun ScreenModeCard(store: Store) {
             color = Sub, fontSize = 12.sp, lineHeight = 18.sp
         )
         if (current == AgentMode.Mode.Virtual) {
-            Text(VirtualScreen.describe(), color = HoneyPale, fontSize = 12.sp)
+            Text(VirtualScreen.describe(), color = ThemeAccentPale, fontSize = 12.sp)
         }
         if (blockers.isNotEmpty()) {
-            Text("虚拟屏前置条件未满足:", color = HoneyPale, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Text("虚拟屏前置条件未满足:", color = ThemeAccentPale, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
             blockers.forEach { Text("· $it", color = BeeDanger, fontSize = 12.sp) }
             if (!VirtualDisplayOverlay.hasPermission(context)) {
                 PillButton("去开启「显示在其他应用上层」", filled = false, modifier = Modifier.fillMaxWidth()) {
@@ -735,7 +727,7 @@ fun PhoneModelCard() {
             PhoneModel.presets.forEach { (name, u) ->
                 val sel = url == u
                 Box(
-                    Modifier.clip(RoundedCornerShape(16.dp)).background(if (sel) Honey else BeePanelRaised)
+                    Modifier.clip(RoundedCornerShape(16.dp)).background(if (sel) ThemeAccent else BeePanelRaised)
                         .clickable {
                             url = u
                             PhoneModel.modelHints[name]?.let { if (model.isBlank()) model = it }
@@ -776,7 +768,7 @@ fun PhoneModelCard() {
                 else "配置格式正确。实际可用性会在 phone_task 第一次调用时验证。"
             }
         }
-        msg?.let { Text(it, color = if (it.startsWith("已保存") || it.startsWith("配置格式")) HoneyPale else BeeDanger, fontSize = 12.sp) }
+        msg?.let { Text(it, color = if (it.startsWith("已保存") || it.startsWith("配置格式")) ThemeAccentPale else BeeDanger, fontSize = 12.sp) }
 
         Text(
             "不填也能用:关掉这个开关时,Agent 仍然用当前对话模型 + screen_shot/tap_at 工具自己操作,只是连续操作不如专用模型稳。",

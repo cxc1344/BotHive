@@ -12,7 +12,6 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
@@ -35,10 +34,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -52,21 +49,34 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.launch
 import java.util.UUID
+import app.opengrok.ThemeAccent
+import app.opengrok.ThemeAccentDeep
 
-// BotHive 0.5 · Pixel Bee visual system
-val Bg = Color(0xFF171207)
-val Card = Color(0xFF28200E)
-val Line = Color(0xFF4A3C1C)
-val Fg = Color(0xFFFFF4D2)
-val Sub = Color(0xFFD5BE83)
-val Honey = Color(0xFFFFC53D)
-val HoneyDeep = Color(0xFFFFA62B)
-val HoneyPale = Color(0xFFFFE6A1)
-val Ink = Color(0xFF211806)
-val BeeGreen = Color(0xFF9DDC77)
-val BeeDanger = Color(0xFFFF8376)
-val BeePanel = Color(0xFF211A0B)
-val BeePanelRaised = Color(0xFF322711)
+// BotHive vNext · Claude-style skeleton palette (sampled values in UiTokens.kt).
+// The legacy names below are what ~230 call sites reference; re-pointing them here
+// recolours every screen in one place. The bee's own colours live in BeeUi.kt and
+// are untouched. Floating surfaces layer the glass material over these values.
+// Accent colors (Honey/HoneyDeep/HoneyPale) are now driven by ThemeColor (user-selectable).
+val Bg = Color(0xFF151515)            // page background: warm near-black
+val Card = Color(0xFF20201E)          // grouped card / glass body
+val Line = Color(0xFF2E2E2C)          // hairline separators
+val Fg = Color(0xFFF5F5F2)            // primary text: near-white
+val Sub = Color(0xFF9B9B97)           // secondary text: grey
+val Honey: Color get() = ThemeColor.currentColor   // accent: live getter over ThemeColor state (Muse landing repair: was Color.Unspecified, which broke Markdown/LiquidGlass/BackdropLens consumers)
+val HoneyDeep: Color get() = ThemeColor.currentDeep     // pressed/deeper variant
+val HoneyPale: Color get() = ThemeColor.currentPale     // muted variant
+val Ink = Color(0xFF151515)           // "on-accent" ink (accent/white surfaces take dark text)
+val BeeGreen = Color(0xFF9DDC77)      // success/running dot (unchanged, bee-family colour)
+val BeeDanger = Color(0xFFE0705A)     // danger text: coral red (semantic, not theme-driven)
+val BeePanel = Color(0xFF1B1B1A)      // sunken panel
+val BeePanelRaised = Color(0xFF20201E) // raised panel = card colour
+
+// Resolved at composition time via ThemeColor — use these in composables:
+// (getters, not frozen vals: each read re-reads ThemeColor's snapshot state,
+//  so a theme change in Settings recolours live — Muse landing repair.)
+val ThemeAccent: Color get() = ThemeColor.currentColor
+val ThemeAccentDeep: Color get() = ThemeColor.currentDeep
+val ThemeAccentPale: Color get() = ThemeColor.currentPale
 
 sealed interface Screen {
     data object Home : Screen
@@ -91,6 +101,7 @@ sealed interface Screen {
 fun App(store: Store) {
     val ctx = LocalContext.current
     remember { UiState.init(ctx) }
+    remember { ThemeColor.init(ctx) }
     var screen by remember { mutableStateOf<Screen>(Screen.Home) }
     var drawer by remember { mutableStateOf(false) }
     val nav: (Screen) -> Unit = { s ->
@@ -112,11 +123,12 @@ fun App(store: Store) {
         }
     }
     MaterialTheme(
-        // LaTeX-family typography (Latin Modern) with the system family as CJK fallback.
+        // vNext: body/UI typography is the system sans (Claude look); the bundled serif is
+        // reserved for display moments via HiveSerif (greeting / titles / sheet titles).
         typography = hiveTypography(),
         colorScheme = darkColorScheme(
-            primary = Honey, onPrimary = Ink,
-            primaryContainer = HoneyDeep, onPrimaryContainer = Ink,
+            primary = ThemeAccent, onPrimary = Ink,
+            primaryContainer = ThemeAccentDeep, onPrimaryContainer = Fg,
             secondary = BeeGreen, onSecondary = Ink,
             background = Bg, surface = Bg, onSurface = Fg,
             surfaceVariant = Card, onSurfaceVariant = Sub, outline = Line,
@@ -125,10 +137,10 @@ fun App(store: Store) {
     ) {
         CompositionLocalProvider(
             LocalOpenDrawer provides { drawer = true },
-            // Every Text that does not set its own fontFamily inherits the LaTeX family here, so the
-            // ~230 call sites do not each need editing (and cannot drift apart later).
+            // vNext drops the global serif override: the ~230 Text call sites inherit the
+            // sans base family; serif moments opt in explicitly with HiveSerif styles.
             androidx.compose.material3.LocalTextStyle provides
-                androidx.compose.material3.LocalTextStyle.current.copy(fontFamily = HiveFonts.Roman)
+                androidx.compose.material3.LocalTextStyle.current
         ) {
             Box(Modifier.fillMaxSize().background(Bg).onGloballyPositioned { coords ->
                 // Keep the capturable backdrop in sync with the real background layer; the lens
@@ -301,43 +313,41 @@ fun ChatScreen(store: Store, id: String, go: (Screen) -> Unit) {
             }
             if (msgs.isEmpty()) EmptyChatHint("开始对话", "在下方输入消息，Bot 会在自己的沙盒里干活；点工具调用可查看每一步。")
         }
-        if (!readOnly && isManager) {
-            Row(Modifier.fillMaxWidth().padding(start = 16.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier.clip(RoundedCornerShape(16.dp)).background(if (projectMode) Honey else Card)
-                        .clickable { projectMode = !projectMode }.padding(horizontal = 14.dp, vertical = 6.dp)
-                ) { Text(if (projectMode) "立项模式:开" else "立项模式:关(普通对话)", color = if (projectMode) Ink else Sub, fontSize = 13.sp) }
-            }
-        }
         if (!readOnly) {
             AttachChips(staged) { staged.remove(it) }
-            Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.Bottom) {
-                IconButton(onClick = { pickFiles() }, modifier = Modifier.size(48.dp)) {
-                    Icon(Ic.Attach, null, tint = Fg)
-                }
-                TextField(
-                    value = input, onValueChange = { input = it },
-                    modifier = Modifier.weight(1f), placeholder = { Text(if (isManager && projectMode) "下达任务,总经理先出分工方案…" else "发消息…") },
-                    shape = RoundedCornerShape(26.dp), maxLines = 5,
-                    colors = TextFieldDefaults.colors(
-                        focusedContainerColor = Card, unfocusedContainerColor = Card,
-                        focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent,
-                        focusedTextColor = Fg, unfocusedTextColor = Fg
-                    )
-                )
-                Spacer(Modifier.width(8.dp))
-                if (busy) {
-                    StopButton { store.stopChat(id) }
-                } else {
-                    val can = input.isNotBlank() || staged.isNotEmpty()
-                    SendButton(can) {
-                        if (isManager && projectMode && staged.isEmpty()) store.startProject(id, input.trim())
-                        else store.send(id, input.trim(), staged.toList())
-                        input = ""
-                        staged.clear()
+            // Claude-style composer: capsule at rest, two-row card while the keyboard is up.
+            ChatComposer(
+                value = input,
+                onValueChange = { input = it },
+                hint = if (isManager && projectMode) "下达任务,总经理先出分工方案…" else "发消息…",
+                busy = busy,
+                canSend = input.isNotBlank() || staged.isNotEmpty(),
+                onPickFiles = pickFiles,
+                extraChip = {
+                    // Mode chip lives in the composer's second row (only shown when the manager
+                    // chat can actually start projects — honest copy, real toggle).
+                    if (isManager) {
+                        Box(
+                            Modifier.clip(RoundedCornerShape(UiTokens.RadiusChip))
+                                .background(if (projectMode) ThemeAccent.copy(alpha = 0.18f) else PILL)
+                                .clickable { projectMode = !projectMode }
+                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                if (projectMode) "立项模式" else "普通对话",
+                                color = if (projectMode) ThemeAccent else Sub, fontSize = 12.sp
+                            )
+                        }
                     }
-                }
-            }
+                },
+                onSend = {
+                    if (isManager && projectMode && staged.isEmpty()) store.startProject(id, input.trim())
+                    else store.send(id, input.trim(), staged.toList())
+                    input = ""
+                    staged.clear()
+                },
+                onStop = { store.stopChat(id) }
+            )
         }
     }
     if (confirm) {
@@ -395,11 +405,12 @@ fun MsgView(store: Store, m: Msg, showName: Boolean, thinking: Boolean, go: (Scr
                     )
                     Spacer(Modifier.width(4.dp))
                 }
+                // Claude-style user bubble: right-aligned, flat dark-grey, fully rounded.
                 Surface(
-                    color = HoneyDeep, shape = RoundedCornerShape(20.dp, 20.dp, 6.dp, 20.dp),
+                    color = UserBubble, shape = RoundedCornerShape(20.dp),
                     modifier = Modifier.widthIn(max = 300.dp)
                 ) {
-                    Column(Modifier.padding(14.dp, 10.dp)) {
+                    Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
                         if (m.images.isNotEmpty()) {
                             val ctx = androidx.compose.ui.platform.LocalContext.current
                             m.images.forEachIndexed { i, name ->
@@ -420,7 +431,7 @@ fun MsgView(store: Store, m: Msg, showName: Boolean, thinking: Boolean, go: (Scr
                             }
                         }
                         // User input stays literal: typing **text** should not become bold.
-                        if (m.text.isNotBlank()) SelectionContainer { Text(m.text, color = Fg, fontSize = 16.sp) }
+                        if (m.text.isNotBlank()) SelectionContainer { Text(m.text, color = Fg, fontSize = 16.sp, lineHeight = 23.sp) }
                     }
                 }
             }
@@ -444,14 +455,57 @@ fun MsgView(store: Store, m: Msg, showName: Boolean, thinking: Boolean, go: (Scr
             if (m.tools.isNotEmpty()) ToolsPanel(m.tools, m.id, thinking, store, chatId, m.from)
             if (m.text.isNotBlank()) {
                 // Assistant replies are Markdown: headings, lists, code, tables all render as such.
-                SelectionContainer { MarkdownText(m.text) }
+                // vNext: no bubble — plain text laid straight onto the page colour, generous
+                // paragraph spacing (the container padding below is the only chrome).
+                SelectionContainer { MarkdownText(m.text, fontSize = 16.sp, lineHeight = 23.sp) }
             } else if (thinking) ThinkingDots()
+            // Action row under the assistant message: only the capabilities that exist today —
+            // copy and resend (read-out is a 0.5.10 feature and is NOT shown).
+            if (!thinking && m.text.isNotBlank() && chatId.isNotBlank() && canResendChat(chatId)) {
+                AssistantActions(store, chatId, m)
+            }
         }
     }
 }
 
-/** Expanded/collapsed state of each tool row, keyed by message id + position + tool id so it survives list recycling. */
-private val toolOpen = mutableStateMapOf<String, Boolean>()
+/** Resend is offered exactly where Store.resendFrom can act (bot/group/agent threads). */
+private fun canResendChat(chatId: String): Boolean =
+    chatId.startsWith("bot:") || chatId.startsWith("group:") || chatId == AGENT_ID
+
+/** Copy / resend icons under an assistant message, small and grey like the reference app. */
+@Composable
+private fun AssistantActions(store: Store, chatId: String, m: Msg) {
+    val ctx = LocalContext.current
+    var askResend by remember { mutableStateOf(false) }
+    Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Box(
+            Modifier.size(30.dp).clip(CircleShape).clickable {
+                val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("message", m.text))
+                android.widget.Toast.makeText(ctx, "已复制", android.widget.Toast.LENGTH_SHORT).show()
+            },
+            contentAlignment = Alignment.Center
+        ) { Icon(Ic.Copy, "复制", tint = Sub, modifier = Modifier.size(16.dp)) }
+        Box(
+            Modifier.size(30.dp).clip(CircleShape).clickable { askResend = true },
+            contentAlignment = Alignment.Center
+        ) { Icon(Ic.Refresh, "重发", tint = Sub, modifier = Modifier.size(16.dp)) }
+    }
+    if (askResend) {
+        AlertDialog(
+            onDismissRequest = { askResend = false },
+            title = { Text("从此处重新生成?") },
+            text = { Text("这条回复之后的内容会被清除,然后让 Bot 重新作答。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    askResend = false
+                    store.resendFrom(chatId, m.id)
+                }) { Text("重新生成") }
+            },
+            dismissButton = { TextButton(onClick = { askResend = false }) { Text("取消") } }
+        )
+    }
+}
 
 private val SUMMARY_KEYS = listOf("command", "path", "url", "bot_name", "query", "title", "name", "text", "package", "action")
 private val EXIT_RE = Regex("""\[exit (-?\d+)\]""")
@@ -491,25 +545,67 @@ private fun prettyArgs(args: String): String {
     return sb.toString().ifBlank { args }
 }
 
-/** Short badge for calls that did not succeed (blocked by the safety policy, or non-zero exit). */
-private fun toolBadge(t: ToolCall): String? {
-    if (t.output.startsWith("【安全策略已拦截】")) return "已拦截"
+/** Coral dot shown when a call did not succeed (blocked by the safety policy, or non-zero exit). */
+private fun toolBadge(t: ToolCall): Boolean {
+    if (t.output.startsWith("【安全策略已拦截】")) return true
     val m = EXIT_RE.findAll(t.output).lastOrNull()
-    if (m != null && m.groupValues[1] != "0") return "exit " + m.groupValues[1]
-    return null
+    return m != null && m.groupValues[1] != "0"
 }
 
-/** Every tool call is its own collapsible row: one-line summary, tap to expand full args and output. */
+/** Every tool call collapses to one grey step line: icon + one-line summary + chevron (STUDY §2.4). */
 @Composable
 fun ToolsPanel(
     tools: List<ToolCall>, scopeKey: String, live: Boolean,
     store: Store? = null, chatId: String = "", botId: String? = null
 ) {
-    Column(Modifier.fillMaxWidth().padding(bottom = 10.dp).clip(RoundedCornerShape(14.dp)).background(Card)) {
-        tools.forEachIndexed { i, t ->
-            if (i > 0) HorizontalDivider(color = Line)
-            val running = live && i == tools.lastIndex && t.output.isBlank()
-            ToolRow(t, "$scopeKey#$i:${t.id}", running, if (store != null && !running) ToolActions(store, chatId, botId) else null)
+    // vNext: the whole run collapses to ONE grey line ("N 步 · 摘要") that opens the Summary
+    // sheet (STUDY §2.5 timeline); the previous inline expandable rows move in there.
+    var showSummary by remember { mutableStateOf(false) }
+    val runningIdx = if (live) tools.indexOfFirst { it.output.isBlank() } else -1
+    val done = tools.count { it.output.isNotBlank() }
+    Column(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+        Row(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                .clickable { showSummary = true }.padding(horizontal = 4.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Ic.Terminal, null, tint = Sub, modifier = Modifier.size(15.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(
+                when {
+                    runningIdx >= 0 -> "执行工具中 · ${toolSummary(tools[runningIdx].args).ifBlank { tools[runningIdx].name }}"
+                    tools.size == 1 -> "${tools[0].name} · ${toolSummary(tools[0].args).ifBlank { "完成" }}"
+                    else -> "$done 项工具调用"
+                },
+                color = Sub, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            if (runningIdx >= 0) {
+                ThinkingDots(compact = true)
+                Spacer(Modifier.width(6.dp))
+            } else if (tools.any { toolBadge(it) }) {
+                Box(Modifier.size(7.dp).clip(CircleShape).background(BeeDanger))
+                Spacer(Modifier.width(6.dp))
+            }
+            Icon(Ic.Chevron, null, tint = Sub, modifier = Modifier.size(16.dp))
+        }
+    }
+    if (showSummary) {
+        ClaudeSheet(title = "执行摘要", visible = true, onDismiss = { showSummary = false }) {
+            tools.forEachIndexed { i, t ->
+                val running = live && i == runningIdx
+                SummaryStepRow(
+                    icon = Ic.Terminal,
+                    name = t.name,
+                    detail = toolSummary(t.args),
+                    running = running,
+                    last = i == tools.lastIndex,
+                    onClick = {}
+                )
+                // Expanded detail: args + output + actions (copy / re-run), same content the old
+                // inline rows had — now reached through the sheet instead of the list.
+                if (store != null && !running) ToolDetail(t, ToolActions(store, chatId, botId))
+            }
         }
     }
 }
@@ -523,67 +619,43 @@ private fun copyText(t: ToolCall): String {
     return if (t.name == "shell" && o != null && o.has("command")) o.optString("command") else t.args
 }
 
+/** Detail block for one tool call inside the Summary sheet: args, output, copy / re-run actions. */
 @Composable
-private fun ToolRow(t: ToolCall, key: String, running: Boolean, actions: ToolActions? = null) {
-    val open = toolOpen[key] ?: running
-    val rot by animateFloatAsState(if (open) 180f else 0f, label = "rot")
-    val badge = toolBadge(t)
-    Column(Modifier.fillMaxWidth()) {
-        Row(
-            Modifier.fillMaxWidth().clickable { toolOpen[key] = !open }.padding(horizontal = 12.dp, vertical = 11.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (running) CircularProgressIndicator(Modifier.size(14.dp), color = Sub, strokeWidth = 2.dp)
-            else Icon(Ic.Terminal, null, tint = Sub, modifier = Modifier.size(15.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(t.name, color = Fg, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-            Spacer(Modifier.width(8.dp))
-            Text(
-                toolSummary(t.args), color = Sub, fontSize = 12.sp, fontFamily = HiveFonts.Mono,
-                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f)
-            )
-            if (badge != null) {
-                Spacer(Modifier.width(6.dp))
-                Text(badge, color = BeeDanger, fontSize = 11.sp)
+private fun ToolDetail(t: ToolCall, actions: ToolActions) {
+    Column(Modifier.fillMaxWidth().padding(start = 44.dp, bottom = 4.dp)) {
+        // Tool screenshots (e.g. phone_task captures) — restored during landing verification;
+        // the reskin's first pass dropped this block that the old inline rows had.
+        if (t.image.isNotBlank()) {
+            val ctx = androidx.compose.ui.platform.LocalContext.current
+            val bmp = remember(t.image) {
+                runCatching { android.graphics.BitmapFactory.decodeFile(t.image) }.getOrNull()
             }
-            Spacer(Modifier.width(4.dp))
-            Icon(Ic.Down, null, tint = Sub, modifier = Modifier.size(18.dp).rotate(rot))
+            if (bmp != null) {
+                Text("截图", color = Sub, fontSize = 11.sp)
+                Image(
+                    bmp.asImageBitmap(), "屏幕截图",
+                    Modifier.fillMaxWidth().heightIn(max = 320.dp).clip(RoundedCornerShape(10.dp))
+                        .padding(top = 4.dp, bottom = 10.dp),
+                    contentScale = androidx.compose.ui.layout.ContentScale.FillWidth
+                )
+            }
         }
-        AnimatedVisibility(open) {
-            SelectionContainer {
-                Column(Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 12.dp)) {
-                    if (t.image.isNotBlank()) {
-                        val ctx = androidx.compose.ui.platform.LocalContext.current
-                        val bmp = remember(t.image) {
-                            runCatching { android.graphics.BitmapFactory.decodeFile(t.image) }.getOrNull()
-                        }
-                        if (bmp != null) {
-                            Text("截图", color = Sub, fontSize = 11.sp)
-                            Image(
-                                bmp.asImageBitmap(), "屏幕截图",
-                                Modifier.fillMaxWidth().heightIn(max = 320.dp).clip(RoundedCornerShape(10.dp))
-                                    .padding(top = 4.dp, bottom = 10.dp),
-                                contentScale = androidx.compose.ui.layout.ContentScale.FillWidth
-                            )
-                        }
-                    }
-                    Text("参数", color = Sub, fontSize = 11.sp)
-                    Text(
-                        prettyArgs(t.args), color = Fg, fontSize = 12.sp, fontFamily = HiveFonts.Mono,
-                        modifier = Modifier.padding(top = 2.dp, bottom = 10.dp)
-                    )
-                    Text("输出", color = Sub, fontSize = 11.sp)
-                    Box(Modifier.fillMaxWidth().heightIn(max = 280.dp).padding(top = 2.dp)) {
-                        val empty = t.output.isBlank()
-                        Text(
-                            if (empty) (if (running) "运行中…" else "(无输出)") else t.output,
-                            color = if (empty) Sub else Fg, fontSize = 12.sp, fontFamily = HiveFonts.Mono,
-                            modifier = Modifier.verticalScroll(rememberScrollState())
-                        )
-                    }
-                    if (actions != null) ToolActionRow(t, actions)
-                }
+        if (t.output.isNotBlank() || t.args.isNotBlank()) {
+            Text("参数", color = Sub, fontSize = 11.sp)
+            Text(
+                prettyArgs(t.args), color = Fg, fontSize = 12.sp, fontFamily = HiveFonts.Mono,
+                modifier = Modifier.padding(top = 2.dp, bottom = 8.dp)
+            )
+            Text("输出", color = Sub, fontSize = 11.sp)
+            Box(Modifier.fillMaxWidth().heightIn(max = 220.dp).padding(top = 2.dp)) {
+                val empty = t.output.isBlank()
+                Text(
+                    if (empty) "(无输出)" else t.output,
+                    color = if (empty) Sub else Fg, fontSize = 12.sp, fontFamily = HiveFonts.Mono,
+                    modifier = Modifier.verticalScroll(rememberScrollState())
+                )
             }
+            ToolActionRow(t, actions)
         }
     }
 }
@@ -627,9 +699,9 @@ fun SmallChip(text: String, onClick: () -> Unit) {
     ) { Text(text, color = Fg, fontSize = 12.sp) }
 }
 
-/** Three-dot loading indicator shown while a Bot is preparing its reply. */
+/** Three-dot loading indicator shown while a Bot is preparing its reply — coral, sequentially lit. */
 @Composable
-fun ThinkingDots() {
+fun ThinkingDots(compact: Boolean = false) {
     val t = rememberInfiniteTransition(label = "dots")
     val phase by t.animateFloat(
         initialValue = 0f, targetValue = 3f,
@@ -637,12 +709,15 @@ fun ThinkingDots() {
         label = "phase"
     )
     Row(
-        Modifier.padding(vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        Modifier.padding(vertical = if (compact) 0.dp else 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         for (i in 0..2) {
-            Box(Modifier.size(7.dp).clip(CircleShape).background(if (phase.toInt() == i) Fg else Line))
+            Box(
+                Modifier.size(if (compact) 5.dp else 7.dp).clip(CircleShape)
+                    .background(if (phase.toInt() == i) ThemeAccent else ThemeAccent.copy(alpha = 0.28f))
+            )
         }
     }
 }
@@ -662,8 +737,8 @@ fun Field(
         modifier = Modifier.fillMaxWidth(),
         colors = OutlinedTextFieldDefaults.colors(
             focusedTextColor = Fg, unfocusedTextColor = Fg,
-            focusedBorderColor = Honey, unfocusedBorderColor = Line,
-            focusedLabelColor = Honey, unfocusedLabelColor = Sub, cursorColor = Honey
+            focusedBorderColor = ThemeAccent, unfocusedBorderColor = Line,
+            focusedLabelColor = ThemeAccent, unfocusedLabelColor = Sub, cursorColor = ThemeAccent
         )
     )
 }
@@ -672,7 +747,7 @@ fun Field(
 fun PillButton(text: String, filled: Boolean = true, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Box(
         modifier.clip(RoundedCornerShape(26.dp))
-            .background(if (filled) Honey else Card)
+            .background(if (filled) PillWhite else Card)
             .clickable(onClick = onClick).padding(vertical = 14.dp),
         contentAlignment = Alignment.Center
     ) { Text(text, color = if (filled) Ink else Fg, fontWeight = FontWeight.SemiBold) }
@@ -701,7 +776,7 @@ fun EditBotScreen(store: Store, botId: String?, go: (Screen) -> Unit) {
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { back() }) { Icon(Ic.Back, null, tint = Fg) }
-            Text(if (old == null) "新建 Bot" else "编辑 Bot", color = Fg, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text(if (old == null) "新建 Bot" else "编辑 Bot", style = HiveSerif.SheetTitle())
         }
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp),
@@ -713,7 +788,7 @@ fun EditBotScreen(store: Store, botId: String?, go: (Screen) -> Unit) {
                 PRESETS.forEach { p ->
                     val sel = preset == p.name
                     Box(
-                        Modifier.clip(RoundedCornerShape(20.dp)).background(if (sel) Honey else Card)
+                        Modifier.clip(RoundedCornerShape(20.dp)).background(if (sel) ThemeAccent else Card)
                             .clickable {
                                 preset = p.name; prompt = p.prompt; isManager = p.manager
                                 if (name.isBlank() && p.prompt.isNotEmpty()) name = p.name
@@ -735,13 +810,13 @@ fun EditBotScreen(store: Store, botId: String?, go: (Screen) -> Unit) {
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 val selCustom = providerId.isEmpty()
                 Box(
-                    Modifier.clip(RoundedCornerShape(20.dp)).background(if (selCustom) Honey else Card)
+                    Modifier.clip(RoundedCornerShape(20.dp)).background(if (selCustom) ThemeAccent else Card)
                         .clickable { providerId = "" }.padding(horizontal = 16.dp, vertical = 8.dp)
                 ) { Text("自定义", color = if (selCustom) Ink else Fg, fontSize = 14.sp) }
                 store.providers.forEach { p ->
                     val sel = providerId == p.id
                     Box(
-                        Modifier.clip(RoundedCornerShape(20.dp)).background(if (sel) Honey else Card)
+                        Modifier.clip(RoundedCornerShape(20.dp)).background(if (sel) ThemeAccent else Card)
                             .clickable { providerId = p.id; models = emptyList(); modelMsg = "" }
                             .padding(horizontal = 16.dp, vertical = 8.dp)
                     ) { Text(p.name, color = if (sel) Ink else Fg, fontSize = 14.sp) }
@@ -791,7 +866,7 @@ fun EditBotScreen(store: Store, botId: String?, go: (Screen) -> Unit) {
                     models.forEach { mid ->
                         val sel = model == mid
                         Box(
-                            Modifier.clip(RoundedCornerShape(16.dp)).background(if (sel) Honey else Card)
+                            Modifier.clip(RoundedCornerShape(16.dp)).background(if (sel) ThemeAccent else Card)
                                 .clickable { model = mid }.padding(horizontal = 12.dp, vertical = 6.dp)
                         ) { Text(mid, color = if (sel) Ink else Fg, fontSize = 12.sp) }
                     }
@@ -842,7 +917,7 @@ fun NewGroupScreen(store: Store, go: (Screen) -> Unit) {
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { go(Screen.Home) }) { Icon(Ic.Back, null, tint = Fg) }
-            Text("新建群聊", color = Fg, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text("新建群聊", style = HiveSerif.SheetTitle())
         }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
             Field("群名", name, { name = it })
