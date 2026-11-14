@@ -8,6 +8,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
@@ -17,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -316,7 +318,7 @@ fun GlassTierCard() {
                             .clip(RoundedCornerShape(12.dp))
                             .background(
                                 when (t) {
-                                    GlassTier.Off -> BeePanel
+                                    GlassTier.Off -> SolidColor(BeePanel)
                                     GlassTier.Medium -> Brush.verticalGradient(listOf(BeePanel, Color(0xFF2E2E2C)))
                                     GlassTier.Highest -> Brush.verticalGradient(listOf(Color(0xFF2E2E2C), Card, BeePanel))
                                 }
@@ -416,7 +418,7 @@ fun ThemeColorCard() {
                     valueRange = 0f..360f, steps = 360,
                     modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
                     colors = androidx.compose.material3.SliderDefaults.colors(
-                        thumbColor = ThemeAccent, trackColor = ThemeAccent.copy(alpha = 0.3f),
+                        thumbColor = ThemeAccent,
                         activeTrackColor = ThemeAccent, inactiveTrackColor = Line
                     )
                 )
@@ -430,7 +432,7 @@ fun ThemeColorCard() {
                     valueRange = 0f..1f, steps = 100,
                     modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
                     colors = androidx.compose.material3.SliderDefaults.colors(
-                        thumbColor = ThemeAccent, trackColor = ThemeAccent.copy(alpha = 0.3f),
+                        thumbColor = ThemeAccent,
                         activeTrackColor = ThemeAccent, inactiveTrackColor = Line
                     )
                 )
@@ -444,7 +446,7 @@ fun ThemeColorCard() {
                     valueRange = 0f..1f, steps = 100,
                     modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
                     colors = androidx.compose.material3.SliderDefaults.colors(
-                        thumbColor = ThemeAccent, trackColor = ThemeAccent.copy(alpha = 0.3f),
+                        thumbColor = ThemeAccent,
                         activeTrackColor = ThemeAccent, inactiveTrackColor = Line
                     )
                 )
@@ -454,7 +456,7 @@ fun ThemeColorCard() {
         Box(
             Modifier.fillMaxWidth().height(36.dp)
                 .clip(RoundedCornerShape(10.dp))
-                .background(Color.HSVToColor(floatArrayOf(customHue, customSat, customVal)))
+                .background(Color(android.graphics.Color.HSVToColor(floatArrayOf(customHue, customSat, customVal))))
                 .padding(vertical = 8.dp)
         )
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
