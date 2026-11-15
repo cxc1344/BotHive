@@ -1,6 +1,30 @@
-# BotHive（Android）
+<div align="center">
 
-[![Build APK](https://github.com/cxc1344/BotHive/actions/workflows/build.yml/badge.svg)](https://github.com/cxc1344/BotHive/actions) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+<img src="docs/logo.svg" width="120" alt="BotHive 像素蜜蜂">
+
+# BotHive
+
+**把一队 AI「员工」、每人一个独立 Linux 沙箱，和一整套液态玻璃界面，装进你的 Android 手机。**
+
+一个 APK · 本地运行 · 原生界面 · 自带 API Key
+
+<p>
+  <a href="https://github.com/cxc1344/BotHive/actions"><img src="https://github.com/cxc1344/BotHive/actions/workflows/build.yml/badge.svg" alt="Build APK"></a>
+  <a href="https://github.com/cxc1344/BotHive/releases"><img src="https://img.shields.io/github/v/release/cxc1344/BotHive" alt="Latest release"></a>
+  <a href="https://github.com/cxc1344/BotHive/stargazers"><img src="https://img.shields.io/github/stars/cxc1344/BotHive" alt="Stars"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+</p>
+<p>
+  <img src="https://img.shields.io/badge/Kotlin-2.0.20-7F52FF?logo=kotlin&logoColor=white" alt="Kotlin 2.0.20">
+  <img src="https://img.shields.io/badge/Jetpack_Compose-Native_UI-4285F4?logo=jetpackcompose&logoColor=white" alt="Jetpack Compose">
+  <img src="https://img.shields.io/badge/Android-8.0+-3DDC84?logo=android&logoColor=white" alt="Android 8.0+">
+  <img src="https://img.shields.io/badge/Ubuntu_24.04-PRoot-E95420?logo=ubuntu&logoColor=white" alt="Ubuntu 24.04 · PRoot">
+  <img src="https://img.shields.io/badge/Architecture-ARM64-0091BD" alt="ARM64">
+</p>
+
+[下载](#下载) · [快速开始](#快速开始) · [功能](#功能已实现) · [截图](#截图) · [路线图](#路线图) · [构建](#构建)
+
+</div>
 
 安卓版多 Bot 协作应用：用你自己的 API Key 自建 AI「员工」，给每个 Bot 写人设、派模型、建群协作；还能立项让**总经理 Bot** 自己拆任务、派活、审查、打回返工，最后向你汇报。v0.4 起新增 **Agent 模式**：一位住在手机本地的设备 Agent，能读写你授权的手机文件夹、查看设备状态与应用使用时长、打开应用，并与云端 Bot 互相派活。
 
