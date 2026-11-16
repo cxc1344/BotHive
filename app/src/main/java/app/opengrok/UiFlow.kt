@@ -53,220 +53,6 @@ import app.opengrok.ThemeAccentPale
 private fun fmtTime(ms: Long): String =
     if (ms <= 0) "—" else SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(ms))
 
-/** Top-center capsule switching between Bot mode (chat list) and Agent mode (device Agent chat). */
-@Composable
-fun ModeCapsule(current: String, go: (Screen) -> Unit) {
-    val tier = GlassStyle.tier.value
-    val density = androidx.compose.ui.platform.LocalDensity.current
-    val scope = rememberCoroutineScope()
-    // Radius in px for the glass pass (the pill's corner radius).
-    val radiusPx = with(density) { 999.dp.toPx() }
-    // Capsule geometry in the AppBackdrop coordinate space (root view px), measured on layout.
-    var capsuleLeftPx by remember { mutableFloatStateOf(0f) }
-    var capsuleTopPx by remember { mutableFloatStateOf(0f) }
-    var capsuleWidthPx by remember { mutableFloatStateOf(0f) }
-    var capsuleHeightPx by remember { mutableFloatStateOf(0f) }
-
-    // ---- Goo dynamics (press squash + spring slide with stretch/overshoot/settle) ----
-    // We drive two animatables: pos (0..1 travel) and press (0..1 down-pressure).
-    // Press: on tap/drag start -> quick squash (scaleY 0.94, scaleX 1.06) ~80ms, then release.
-    // Slide: spring with medium-bouncy damping; velocity stretches knob horizontally (peak ~1.6x),
-    // overshoots slightly, then damped settle (2-3 bounces) over ~600ms total.
-    val target = if (current == "agent") 1f else 0f
-    val pos = remember { Animatable(target) }
-    val press = remember { Animatable(0f) }
-    var lastPos by remember { mutableFloatStateOf(target) }
-
-    fun launchPress(down: Boolean) {
-        scope.launch {
-            if (down) {
-                press.animateTo(1f, tween(80, easing = FastOutSlowInEasing))
-            } else {
-                press.animateTo(0f, tween(180, easing = FastOutSlowInEasing))
-            }
-        }
-    }
-
-    // Slide animation: spring with bouncy feel
-    LaunchedEffect(target) {
-        if (!tier.motion) {
-            pos.snapTo(target)
-        } else if (tier.shader) {
-            pos.animateTo(target, spring(
-                dampingRatio = Spring.DampingRatioMediumBouncy,
-                stiffness = Spring.StiffnessMediumLow
-            ))
-        } else {
-            pos.animateTo(target, tween(GlassMotion.drawer(), easing = FastOutSlowInEasing))
-        }
-    }
-
-    Row(
-        Modifier
-            .clip(RoundedCornerShape(999.dp))
-            .background(if (tier.glassLayers) Card.copy(alpha = 0.86f) else Card)
-            .glassSurface(tier = tier, radiusPx = radiusPx, tint = SheetGlassTint)
-            .onGloballyPositioned { coords ->
-                capsuleLeftPx = coords.localToRoot(Offset.Zero).x
-                capsuleTopPx = coords.localToRoot(Offset.Zero).y
-                capsuleWidthPx = coords.size.width.toFloat()
-                capsuleHeightPx = coords.size.height.toFloat()
-            }
-            .padding(4.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        Box(Modifier.weight(1f)) {
-            // Liquid lens indicator (Highest tier): samples the app backdrop, magnifies its center,
-            // refracts the edges along the SDF normal with RGB separation, stretches with velocity.
-            if (tier.shader && AppBackdrop.picture != null) {
-                val lensBmp = remember(AppBackdrop.version, AppBackdrop.width, AppBackdrop.height) {
-                    runCatching {
-                        BackdropLens.rasterize(AppBackdrop.picture!!, AppBackdrop.width, AppBackdrop.height)
-                    }.getOrNull()
-                }
-                if (lensBmp != null && capsuleWidthPx > 0f) {
-                    Box(Modifier.matchParentSize()) {
-                    androidx.compose.foundation.layout.BoxWithConstraints {
-                    val pad = with(density) { 4.dp.toPx() }
-                    val knobW = with(density) { (maxWidth / 2).toPx() }
-                    val knobH = maxHeight.toFloat()
-                    // Press squash: vertical scale 0.94, horizontal 1.06 at peak press
-                    val pressSquashY = 1f - press.value * 0.06f
-                    val pressSquashX = 1f + press.value * 0.06f
-                    // Velocity stretch: horizontal stretch up to 1.6x at peak velocity
-                    val velocity = abs(pos.value - lastPos).coerceIn(0f, 0.3f)
-                    val stretchX = 1f + velocity * 1.8f   // peak ~1.5-1.7x
-                    val stretchY = 1f - velocity * 0.4f   // slight vertical squash while stretching
-                    val totalScaleX = pressSquashX * stretchX
-                    val totalScaleY = pressSquashY * stretchY
-
-                    val knobX = capsuleLeftPx + pad + pos.value * knobW
-                    val knobY = capsuleTopPx + pad
-
-                    Box(
-                        Modifier
-                            .offset { IntOffset((pos.value * knobW).roundToInt(), 0) }
-                            .size(maxWidth / 2, maxHeight)
-                            .align(Alignment.CenterStart)
-                            .graphicsLayer {
-                                scaleX = totalScaleX
-                                scaleY = totalScaleY
-                                // Pivot at center of knob for natural stretch
-                                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(
-                                    androidx.compose.ui.geometry.Offset(size.width * 0.5f, size.height * 0.5f)
-                                )
-                                lastPos = pos.value
-                            }
-                            .backdropLens(
-                                backdrop = lensBmp,
-                                surfaceTopLeft = Offset(knobX, knobY),
-                                radiusPx = with(density) { 17.dp.toPx() },
-                                zoom = UiTokens.LENS_ZOOM_CAPSULE,
-                                edgePx = UiTokens.LENS_BEVEL_PX,
-                                dispersionPx = UiTokens.LENS_DISP_PX,
-                                blurRadius = UiTokens.LENS_BLUR_RADIUS,
-                                tintR = UiTokens.LENS_TINT_R,
-                                tintG = UiTokens.LENS_TINT_G,
-                                tintB = UiTokens.LENS_TINT_B,
-                                tintA = UiTokens.LENS_TINT_A
-                            )
-                    )
-                    }
-                    }
-                }
-            }
-            // Labels with text refraction (option b: double-layer, clip magnified copy inside slider)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                listOf("bot" to "Bot", "agent" to "Agent").forEach { (m, label) ->
-                    val sel = current == m
-                    Box(
-                        Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(999.dp))
-                            .background(if (sel && !tier.shader) Color(0xFF313131) else Color.Transparent)
-                            .clickable {
-                                if (!sel) {
-                                    launchPress(true)
-                                    scope.launch {
-                                        delay(650)
-                                        launchPress(false)
-                                    }
-                                    go(if (m == "agent") Screen.AgentChat else Screen.BotMode)
-                                }
-                            }
-                            .padding(vertical = 8.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        // Base label
-                        Text(
-                            label,
-                            color = if (sel) Fg else Sub,
-                            fontSize = 14.sp, fontWeight = FontWeight.SemiBold
-                        )
-                        // Refracted label copy (option b): drawn only when slider overlaps this label
-                        if (tier.shader && AppBackdrop.picture != null) {
-                            val lensBmp = remember(AppBackdrop.version, AppBackdrop.width, AppBackdrop.height) {
-                                runCatching {
-                                    BackdropLens.rasterize(AppBackdrop.picture!!, AppBackdrop.width, AppBackdrop.height)
-                                }.getOrNull()
-                            }
-                            // Refracted label copy (option b): drawn only when slider overlaps this label,
-                            // magnified + horizontally shifted to simulate true lens refraction — not blur.
-                            if (tier.shader && AppBackdrop.picture != null && capsuleWidthPx > 0f) {
-                                // Muse landing repair: geometry below is in ROOT PX; the original
-                                // passed raw px floats to Modifier.size(Dp, Dp) (compile error) and
-                                // used .dp on px travel/shift values (density-multiplied offsets).
-                                // Convert px -> dp via density, and centre the copy on the base label.
-                                val pad = with(density) { 4.dp.toPx() }
-                                val knobW = (capsuleWidthPx / 2f - pad * 2)
-                                val knobH = capsuleHeightPx - pad * 2
-                                val knobLeft = capsuleLeftPx + pad + pos.value * knobW
-                                val knobRight = knobLeft + knobW
-                                val labelIndex = if (m == "bot") 0 else 1
-                                val labelW = capsuleWidthPx / 2f
-                                val labelLeft = capsuleLeftPx + labelIndex * labelW
-                                val labelRight = labelLeft + labelW
-                                val overlaps = knobLeft < labelRight && knobRight > labelLeft
-                                if (overlaps) {
-                                    Box(
-                                        Modifier
-                                            .size(with(density) { knobW.toDp() }, with(density) { knobH.toDp() })
-                                            .offset(x = with(density) { (knobLeft - labelLeft).toDp() })
-                                            .align(Alignment.CenterStart)
-                                            .clip(RoundedCornerShape(999.dp))
-                                    ) {
-                                        // Label-width stage: at zoom 1 the copy sits exactly over the
-                                        // base label; magnification about the knob centre drifts it by
-                                        // (labelCentre - knobCentre) * (zoom - 1), like a real lens.
-                                        val zoom = UiTokens.LENS_ZOOM_CAPSULE
-                                        val labelCentre = labelLeft + labelW / 2f
-                                        val knobCentre = knobLeft + knobW / 2f
-                                        val driftPx = (labelCentre - knobCentre) * (zoom - 1f)
-                                        Box(
-                                            Modifier
-                                                .size(with(density) { labelW.toDp() }, with(density) { knobH.toDp() })
-                                                .offset(x = with(density) { (-(knobLeft - labelLeft)).toDp() }),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Text(
-                                                label,
-                                                color = if (sel) Fg else Sub,
-                                                fontSize = 14.sp * zoom,
-                                                fontWeight = FontWeight.SemiBold,
-                                                modifier = Modifier.offset(x = with(density) { driftPx.toDp() }, y = 0.dp)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 /** In-chat approval cards (permission broker): pending shell commands for this chat. */
 @Composable
 fun ApprovalCards(store: Store, chatId: String) {
@@ -409,16 +195,12 @@ fun EditWorkflowScreen(store: Store, wfId: String?, go: (Screen) -> Unit) {
                         Text("步骤 ${idx + 1}", color = Fg, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                         if (steps.size > 1) Text("删除", color = Sub, modifier = Modifier.clickable { steps.removeAt(idx) }.padding(6.dp))
                     }
-                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        candidates.forEach { (cid, cname) ->
-                            val sel = step.botId == cid
-                            Box(
-                                Modifier.clip(RoundedCornerShape(16.dp)).background(if (sel) ThemeAccent else Bg)
-                                    .clickable { steps[idx] = step.copy(botId = cid) }
-                                    .padding(horizontal = 12.dp, vertical = 6.dp)
-                            ) { Text(cname, color = if (sel) Ink else Fg, fontSize = 12.sp) }
-                        }
-                    }
+                    LiquidChoice(
+                        options = candidates.map { it.second },
+                        selected = candidates.indexOfFirst { it.first == step.botId },
+                        onSelect = { i -> candidates.getOrNull(i)?.let { steps[idx] = step.copy(botId = it.first) } },
+                        height = 36.dp, fontSize = 12.sp
+                    )
                     Field("指令(可用 {prev} 引用上一步输出)", step.instruction, { steps[idx] = step.copy(instruction = it) },
                         singleLine = false, minLines = 2)
                 }
@@ -571,9 +353,9 @@ fun StopButton(onStop: () -> Unit) {
 @Composable
 fun SendButton(enabled: Boolean, onClick: () -> Unit) {
     Box(
-        Modifier.size(40.dp).clip(androidx.compose.foundation.shape.CircleShape)
-            .background(if (enabled) PillWhite else Color(0xFF313131))
-            .clickable(enabled = enabled) { onClick() },
+        Modifier.size(40.dp).pressBounce(enabled = enabled, onClick = onClick)
+            .clip(androidx.compose.foundation.shape.CircleShape)
+            .background(if (enabled) PillWhite else Color(0xFF313131)),
         contentAlignment = Alignment.Center
     ) { Icon(Ic.Send, "发送", tint = if (enabled) Ink else Sub, modifier = Modifier.size(18.dp)) }
 }

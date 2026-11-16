@@ -220,7 +220,7 @@ fun ChatSubHeader(seed: String, group: Boolean, title: String, subtitle: String,
 @Composable
 fun HeaderPill(text: String, icon: ImageVector, enabled: Boolean = true, onClick: () -> Unit) {
     Row(
-        Modifier.clip(RoundedCornerShape(999.dp)).background(Card).clickable(enabled = enabled, onClick = onClick)
+        Modifier.pressBounce(enabled = enabled, onClick = onClick).clip(RoundedCornerShape(999.dp)).background(Card)
             .padding(horizontal = 12.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -262,8 +262,12 @@ fun HomeScreen(store: Store, go: (Screen) -> Unit) {
     val keyboard = WindowInsets.ime.getBottom(LocalDensity.current) > 0
 
     Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize()) {
-            // Top bar: drawer toggle left. (The reference app's ghost icon has no counterpart
+        Column(
+            Modifier.fillMaxSize().background(
+                androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Coral.copy(alpha = 0.07f), Color.Transparent), endY = 1100f)
+            )
+        ) {
+            // Top bar: drawer toggle left, mode capsule centre, settings right. (The reference app's ghost icon has no counterpart
             // in this app; nothing here would be honest to invent, so the right side stays empty.)
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(44.dp)) {
@@ -272,7 +276,8 @@ fun HomeScreen(store: Store, go: (Screen) -> Unit) {
                         Box(Modifier.align(Alignment.TopEnd).padding(top = 9.dp, end = 9.dp).size(8.dp).clip(CircleShape).background(ThemeAccent))
                     }
                 }
-                Spacer(Modifier.weight(1f))
+                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { ModeCapsule(ModeMemory.last.value, go) }
+                IconButton(onClick = { go(Screen.Settings) }, modifier = Modifier.size(44.dp)) { Icon(Ic.Gear, "设置", tint = Fg) }
             }
             Column(
                 Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).imePadding(),
@@ -290,6 +295,12 @@ fun HomeScreen(store: Store, go: (Screen) -> Unit) {
                 // One status pill: current default Bot / model; tapping opens the model sheet.
                 AnimatedVisibility(shown, enter = fadeIn(tween(500, delayMillis = 150))) {
                     HomeStatusPill(store) { b -> modelBot = b; modelSheet = true }
+                }
+                if (!keyboard) {
+                    Spacer(Modifier.height(20.dp))
+                    AnimatedVisibility(shown, enter = fadeIn(tween(600, delayMillis = 300)) + slideInVertically(tween(600, delayMillis = 300)) { it / 6 }) {
+                        HomeQuickActions(store, go)
+                    }
                 }
                 Spacer(Modifier.weight(0.58f))
             }
@@ -322,8 +333,8 @@ private fun HomeStatusPill(store: Store, onPickBot: (Bot?) -> Unit) {
     val working = store.busy.size + store.projects.count { it.stage in ACTIVE_STAGES }
     val defaultBot = store.bots.firstOrNull { "bot:${it.id}" == UiState.lastBotChat } ?: store.bots.firstOrNull()
     Row(
-        Modifier.clip(RoundedCornerShape(UiTokens.RadiusChip)).background(PILL)
-            .clickable { onPickBot(defaultBot) }.padding(horizontal = 14.dp, vertical = 8.dp),
+        Modifier.pressBounce { onPickBot(defaultBot) }.clip(RoundedCornerShape(UiTokens.RadiusChip)).background(PILL)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(Modifier.size(7.dp).clip(CircleShape).background(if (working > 0) BeeGreen else ThemeAccent))

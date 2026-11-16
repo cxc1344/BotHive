@@ -10,6 +10,8 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.scaleIn
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -205,15 +207,20 @@ private fun ScreenHost(screen: Screen, store: Store, nav: (Screen) -> Unit) {
     AnimatedContent(
         targetState = screen,
         transitionSpec = {
-            val dir = if (forward) 1 else -1
+            // Bot <-> Agent: the page slides the same way the capsule's drop does.
+            val modeSwitch = (initialState is Screen.Chat && targetState == Screen.AgentChat) ||
+                (initialState == Screen.AgentChat && targetState is Screen.Chat)
+            val dir = if (modeSwitch) (if (targetState == Screen.AgentChat) 1 else -1) else if (forward) 1 else -1
+            val dist = if (modeSwitch) 5 else 12
             val enter = slideInHorizontally(
-                animationSpec = tween(GlassMotion.screenSlide(), easing = FastOutSlowInEasing),
-                initialOffsetX = { full -> dir * (full / 12) }
-            ) + fadeIn(tween(GlassMotion.screenFade()))
+                animationSpec = spring(dampingRatio = 0.88f, stiffness = 420f),
+                initialOffsetX = { full -> dir * (full / dist) }
+            ) + fadeIn(tween(GlassMotion.screenFade())) +
+                scaleIn(initialScale = 0.975f, animationSpec = spring(dampingRatio = 0.9f, stiffness = 420f))
             val exit = slideOutHorizontally(
                 animationSpec = tween(GlassMotion.screenSlide(), easing = FastOutSlowInEasing),
-                targetOffsetX = { full -> -dir * (full / 16) }
-            ) + fadeOut(tween(180))
+                targetOffsetX = { full -> -dir * (full / (dist + 4)) }
+            ) + fadeOut(tween(150))
             enter togetherWith exit
         },
         label = "screen"
@@ -694,7 +701,7 @@ private fun ToolActionRow(t: ToolCall, a: ToolActions) {
 @Composable
 fun SmallChip(text: String, onClick: () -> Unit) {
     Box(
-        Modifier.clip(RoundedCornerShape(14.dp)).background(Line).clickable(onClick = onClick)
+        Modifier.pressBounce(onClick = onClick).clip(RoundedCornerShape(14.dp)).background(Line)
             .padding(horizontal = 12.dp, vertical = 6.dp)
     ) { Text(text, color = Fg, fontSize = 12.sp) }
 }
@@ -746,9 +753,9 @@ fun Field(
 @Composable
 fun PillButton(text: String, filled: Boolean = true, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Box(
-        modifier.clip(RoundedCornerShape(26.dp))
+        modifier.pressBounce(onClick = onClick).clip(RoundedCornerShape(26.dp))
             .background(if (filled) PillWhite else Card)
-            .clickable(onClick = onClick).padding(vertical = 14.dp),
+            .padding(vertical = 14.dp),
         contentAlignment = Alignment.Center
     ) { Text(text, color = if (filled) Ink else Fg, fontWeight = FontWeight.SemiBold) }
 }
@@ -784,19 +791,15 @@ fun EditBotScreen(store: Store, botId: String?, go: (Screen) -> Unit) {
         ) {
             Field("名字", name, { name = it })
             Text("预设", color = Sub, fontSize = 13.sp)
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PRESETS.forEach { p ->
-                    val sel = preset == p.name
-                    Box(
-                        Modifier.clip(RoundedCornerShape(20.dp)).background(if (sel) ThemeAccent else Card)
-                            .clickable {
-                                preset = p.name; prompt = p.prompt; isManager = p.manager
-                                if (name.isBlank() && p.prompt.isNotEmpty()) name = p.name
-                            }
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
-                    ) { Text(p.name, color = if (sel) Ink else Fg, fontSize = 14.sp) }
+            LiquidChoice(
+                options = PRESETS.map { it.name },
+                selected = PRESETS.indexOfFirst { it.name == preset },
+                onSelect = { i ->
+                    val p = PRESETS[i]
+                    preset = p.name; prompt = p.prompt; isManager = p.manager
+                    if (name.isBlank() && p.prompt.isNotEmpty()) name = p.name
                 }
-            }
+            )
             Field("System Prompt", prompt, { prompt = it; preset = "自定义" }, singleLine = false, minLines = 5)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -807,21 +810,13 @@ fun EditBotScreen(store: Store, botId: String?, go: (Screen) -> Unit) {
             }
             HorizontalDivider(color = Line)
             Text("连接(Provider 预设一次配置、处处复用;或为这个 Bot 单独填写)", color = Sub, fontSize = 13.sp)
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                val selCustom = providerId.isEmpty()
-                Box(
-                    Modifier.clip(RoundedCornerShape(20.dp)).background(if (selCustom) ThemeAccent else Card)
-                        .clickable { providerId = "" }.padding(horizontal = 16.dp, vertical = 8.dp)
-                ) { Text("自定义", color = if (selCustom) Ink else Fg, fontSize = 14.sp) }
-                store.providers.forEach { p ->
-                    val sel = providerId == p.id
-                    Box(
-                        Modifier.clip(RoundedCornerShape(20.dp)).background(if (sel) ThemeAccent else Card)
-                            .clickable { providerId = p.id; models = emptyList(); modelMsg = "" }
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
-                    ) { Text(p.name, color = if (sel) Ink else Fg, fontSize = 14.sp) }
+            LiquidChoice(
+                options = listOf("自定义") + store.providers.map { it.name },
+                selected = if (providerId.isEmpty()) 0 else store.providers.indexOfFirst { it.id == providerId }.let { if (it < 0) -1 else it + 1 },
+                onSelect = { i ->
+                    if (i == 0) providerId = "" else { providerId = store.providers[i - 1].id; models = emptyList(); modelMsg = "" }
                 }
-            }
+            )
             val prov = store.provider(providerId)
             if (prov != null) {
                 Text("使用预设「${prov.name}」:${prov.baseUrl} · Key 已保存在预设中(在设置里管理)", color = Sub, fontSize = 12.sp)
@@ -862,15 +857,10 @@ fun EditBotScreen(store: Store, botId: String?, go: (Screen) -> Unit) {
                 if (modelMsg.isNotBlank()) Text(modelMsg, color = Sub, fontSize = 12.sp, modifier = Modifier.weight(1f))
             }
             if (models.isNotEmpty()) {
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    models.forEach { mid ->
-                        val sel = model == mid
-                        Box(
-                            Modifier.clip(RoundedCornerShape(16.dp)).background(if (sel) ThemeAccent else Card)
-                                .clickable { model = mid }.padding(horizontal = 12.dp, vertical = 6.dp)
-                        ) { Text(mid, color = if (sel) Ink else Fg, fontSize = 12.sp) }
-                    }
-                }
+                LiquidChoice(
+                    options = models, selected = models.indexOf(model), onSelect = { i -> model = models[i] },
+                    height = 36.dp, fontSize = 12.sp
+                )
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {

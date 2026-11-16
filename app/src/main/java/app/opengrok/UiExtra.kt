@@ -304,46 +304,17 @@ fun GlassTierCard() {
             "界面玻璃与动画强度,按手机性能自选。",
             color = Sub, fontSize = 12.sp
         )
-        // Three preview tiles with a selected blue outline + label, like the reference Color mode row.
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            listOf(
-                GlassTier.Off to "不要",
-                GlassTier.Medium to "中等",
-                GlassTier.Highest to "最高"
-            ).forEach { (t, label) ->
-                val sel = tier == t
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
-                    Box(
-                        Modifier.fillMaxWidth().height(64.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(
-                                when (t) {
-                                    GlassTier.Off -> SolidColor(BeePanel)
-                                    GlassTier.Medium -> Brush.verticalGradient(listOf(BeePanel, Color(0xFF2E2E2C)))
-                                    GlassTier.Highest -> Brush.verticalGradient(listOf(Color(0xFF2E2E2C), Card, BeePanel))
-                                }
-                            )
-                            .border(
-                                2.dp,
-                                if (sel) SelectBlue else Line.copy(alpha = 0.6f),
-                                RoundedCornerShape(12.dp)
-                            )
-                            .clickable { GlassStyle.set(context, t) },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Box(Modifier.size(10.dp).clip(CircleShape).background(ThemeAccent))
-                    }
-                    Text(
-                        label, color = if (sel) SelectBlue else Sub,
-                        fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp)
-                    )
-                }
-            }
-        }
+        val tiers = listOf(GlassTier.Off, GlassTier.Medium, GlassTier.Highest)
+        LiquidSegmented(
+            options = listOf("不要", "中等", "最高"),
+            selected = tiers.indexOf(tier),
+            onSelect = { i -> GlassStyle.set(context, tiers[i]) },
+            modifier = Modifier.fillMaxWidth(), height = 44.dp
+        )
         val tip = when (tier) {
             GlassTier.Off -> "已关闭所有玻璃与动画,纯扁平配色。"
             GlassTier.Medium -> "玻璃层用渐变材质模拟,动画标准速度,老设备也流畅。"
-            GlassTier.Highest -> "模式胶囊与开关滑块真折射(采样身后画面,边缘位移+RGB色散);其余表面用渐变玻璃材质。着色器要求 Android 13,低版本自动回退材质,不崩溃。"
+            GlassTier.Highest -> "所有选择器都是液态水滴:滑动时拉伸、落点回弹、按压膨胀、可拖拽;玻璃层用渐变材质,GPU 真折射需要 Android 13,低版本自动回退,不崩溃。"
         }
         Text(tip, color = ThemeAccentPale, fontSize = 11.sp, lineHeight = 15.sp)
         // A live LiquidSwitch so the user sees the effect immediately on this very card.

@@ -56,21 +56,13 @@ fun ConnSection(
     var modelMsg by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     Text("连接(Provider 预设一次配置、处处复用;或单独填写)", color = Sub, fontSize = 13.sp)
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        val selCustom = providerId.isEmpty()
-        Box(
-            Modifier.clip(RoundedCornerShape(20.dp)).background(if (selCustom) ThemeAccent else Card)
-                .clickable { onProvider("") }.padding(horizontal = 16.dp, vertical = 8.dp)
-        ) { Text("自定义", color = if (selCustom) Ink else Fg, fontSize = 14.sp) }
-        store.providers.forEach { p ->
-            val sel = providerId == p.id
-            Box(
-                Modifier.clip(RoundedCornerShape(20.dp)).background(if (sel) ThemeAccent else Card)
-                    .clickable { onProvider(p.id); models = emptyList(); modelMsg = "" }
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
-            ) { Text(p.name, color = if (sel) Ink else Fg, fontSize = 14.sp) }
+    LiquidChoice(
+        options = listOf("自定义") + store.providers.map { it.name },
+        selected = if (providerId.isEmpty()) 0 else store.providers.indexOfFirst { it.id == providerId }.let { if (it < 0) -1 else it + 1 },
+        onSelect = { i ->
+            if (i == 0) onProvider("") else { onProvider(store.providers[i - 1].id); models = emptyList(); modelMsg = "" }
         }
-    }
+    )
     val prov = store.provider(providerId)
     if (prov != null) {
         Text("使用预设「${prov.name}」:${prov.baseUrl} · Key 已保存在预设中(在设置里管理)", color = Sub, fontSize = 12.sp)
@@ -109,15 +101,10 @@ fun ConnSection(
         if (modelMsg.isNotBlank()) Text(modelMsg, color = Sub, fontSize = 12.sp, modifier = Modifier.weight(1f))
     }
     if (models.isNotEmpty()) {
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            models.forEach { mid ->
-                val sel = model == mid
-                Box(
-                    Modifier.clip(RoundedCornerShape(16.dp)).background(if (sel) ThemeAccent else Card)
-                        .clickable { onModel(mid) }.padding(horizontal = 12.dp, vertical = 6.dp)
-                ) { Text(mid, color = if (sel) Ink else Fg, fontSize = 12.sp) }
-            }
-        }
+        LiquidChoice(
+            options = models, selected = models.indexOf(model), onSelect = { i -> onModel(models[i]) },
+            height = 36.dp, fontSize = 12.sp
+        )
     }
 }
 
@@ -660,24 +647,25 @@ fun ScreenModeCard(store: Store) {
                 }
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (current == AgentMode.Mode.Main) {
-                PillButton("切到虚拟屏模式", modifier = Modifier.weight(1f)) {
-                    val name = store.agent.value?.name ?: "Agent"
+        LiquidSegmented(
+            options = listOf("主屏", "虚拟屏"),
+            selected = if (current == AgentMode.Mode.Main) 0 else 1,
+            onSelect = { i ->
+                val name = store.agent.value?.name ?: "Agent"
+                if (i == 1) {
                     val out = AgentMode.switchTo(context, name, virtual = true)
                     error = if (out.startsWith("已切到")) null else out
-                }
-            } else {
-                PillButton("切回主屏模式", modifier = Modifier.weight(1f)) {
-                    AgentMode.switchTo(context, store.agent.value?.name ?: "Agent", virtual = false)
+                } else {
+                    AgentMode.switchTo(context, name, virtual = false)
                     error = null
                 }
-            }
-            PillButton("刷新状态", filled = false, modifier = Modifier.weight(0.7f)) {
-                ShizukuTools.refresh()
-                refreshTick++
-                error = null
-            }
+            },
+            modifier = Modifier.fillMaxWidth(), height = 42.dp
+        )
+        PillButton("刷新状态", filled = false, modifier = Modifier.fillMaxWidth()) {
+            ShizukuTools.refresh()
+            refreshTick++
+            error = null
         }
         (error ?: AgentMode.lastError.value)?.let {
             Text(it, color = BeeDanger, fontSize = 12.sp)
@@ -723,19 +711,16 @@ fun PhoneModelCard() {
         }
 
         Text("快速填充(只填 URL,模型名按需改)", color = Sub, fontSize = 12.sp)
-        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            PhoneModel.presets.forEach { (name, u) ->
-                val sel = url == u
-                Box(
-                    Modifier.clip(RoundedCornerShape(16.dp)).background(if (sel) ThemeAccent else BeePanelRaised)
-                        .clickable {
-                            url = u
-                            PhoneModel.modelHints[name]?.let { if (model.isBlank()) model = it }
-                        }
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
-                ) { Text(name, color = if (sel) Ink else Fg, fontSize = 12.sp) }
-            }
-        }
+        LiquidChoice(
+            options = PhoneModel.presets.map { it.first },
+            selected = PhoneModel.presets.indexOfFirst { it.second == url },
+            onSelect = { i ->
+                val (name, u) = PhoneModel.presets[i]
+                url = u
+                PhoneModel.modelHints[name]?.let { if (model.isBlank()) model = it }
+            },
+            height = 36.dp, fontSize = 12.sp
+        )
 
         Field("Base URL(如 https://open.bigmodel.cn/api/paas/v4)", url, { url = it }, keyboard = KeyboardType.Uri)
         Field(
