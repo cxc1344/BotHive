@@ -35,6 +35,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -598,6 +600,14 @@ fun ToolsPanel(
         }
     }
     if (showSummary) {
+        // Hosted in a full-screen Dialog: inline inside a LazyColumn item the sheet's
+        // weighted content column collapses to zero height (unbounded item height),
+        // which left the summary sheet showing only its title. The Dialog window
+        // gives ClaudeSheet the bounded full-screen constraints it was designed for.
+        Dialog(
+            onDismissRequest = { showSummary = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
+        ) {
         ClaudeSheet(title = "执行摘要", visible = true, onDismiss = { showSummary = false }) {
             tools.forEachIndexed { i, t ->
                 val running = live && i == runningIdx
@@ -613,6 +623,7 @@ fun ToolsPanel(
                 // inline rows had — now reached through the sheet instead of the list.
                 if (store != null && !running) ToolDetail(t, ToolActions(store, chatId, botId))
             }
+        }
         }
     }
 }
