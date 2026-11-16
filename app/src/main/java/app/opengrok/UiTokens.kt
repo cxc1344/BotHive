@@ -319,6 +319,7 @@ object ThemeColor {
         saturation = s
         value = v
         isCustom = custom
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         prefs.edit()
             .putFloat(KEY_HUE, h)
             .putFloat(KEY_SAT, s)
