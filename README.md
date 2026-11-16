@@ -38,9 +38,9 @@
 
 ## 下载
 
-到 [Releases](https://github.com/cxc1344/BotHive/releases) 下载最新版 APK（当前 **v0.6.0**）。
+到 [Releases](https://github.com/cxc1344/BotHive/releases) 下载最新版 APK（当前 **v0.6.1**）。
 
-直达当前版 APK：[BotHive-v0.6.0.apk](https://github.com/cxc1344/BotHive/releases/download/v0.6.0/BotHive-v0.6.0.apk)
+直达当前版 APK：[BotHive-v0.6.1.apk](https://github.com/cxc1344/BotHive/releases/download/v0.6.1/BotHive-v0.6.1.apk)
 
 > 注意：自 v0.4.8 起正式版使用固定项目签名，后续版本可直接覆盖安装。之前装的是调试版的话，换到正式版仍需先卸载一次（建议先用对话页的导出功能把重要对话存为 Markdown）。应用显示名已统一为 **BotHive**；包名仍为 `app.opengrok`，可与同类应用并存。
 
