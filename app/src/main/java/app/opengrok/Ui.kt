@@ -712,7 +712,8 @@ private fun ToolActionRow(t: ToolCall, a: ToolActions) {
 @Composable
 fun SmallChip(text: String, onClick: () -> Unit) {
     Box(
-        Modifier.pressBounce(onClick = onClick).clip(RoundedCornerShape(14.dp)).background(Line)
+        Modifier.pressBounce(onClick = onClick)
+            .harmonyGlass(thickness = ImmersiveThickness.THIN, radius = 14.dp, fallbackBg = Line)
             .padding(horizontal = 12.dp, vertical = 6.dp)
     ) { Text(text, color = Fg, fontSize = 12.sp) }
 }
@@ -764,8 +765,11 @@ fun Field(
 @Composable
 fun PillButton(text: String, filled: Boolean = true, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Box(
-        modifier.pressBounce(onClick = onClick).clip(RoundedCornerShape(26.dp))
-            .background(if (filled) PillWhite else Card)
+        modifier.pressBounce(onClick = onClick)
+            .then(
+                if (filled) Modifier.clip(RoundedCornerShape(26.dp)).background(PillWhite)
+                else Modifier.harmonyGlass(thickness = ImmersiveThickness.THIN, radius = 26.dp, fallbackBg = Card)
+            )
             .padding(vertical = 14.dp),
         contentAlignment = Alignment.Center
     ) { Text(text, color = if (filled) Ink else Fg, fontWeight = FontWeight.SemiBold) }

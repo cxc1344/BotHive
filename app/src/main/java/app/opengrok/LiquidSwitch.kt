@@ -133,8 +133,12 @@ fun LiquidSwitch(
         modifier = modifier
             .width(trackW)
             .height(trackH)
-            .clip(RoundedCornerShape(999.dp))
-            .background(Color.Black.copy(alpha = 0.35f))
+            .harmonyGlass(
+                thickness = ImmersiveThickness.THIN,
+                radius = 999.dp,
+                tint = if (previewChecked) ThemeAccent.copy(alpha = 0.22f) else Color.White.copy(alpha = 0.06f),
+                fallbackBg = Color(0xFF2A261C)
+            )
             .pointerInput(Unit) {
                 // One gesture detector owns the pointer: drag with 1:1 scrubbing, and a tap
                 // (down→up without meaningful move) flips the state. Two detectors on the same

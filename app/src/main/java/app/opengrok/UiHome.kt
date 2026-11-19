@@ -188,10 +188,10 @@ fun BrandOrb(size: Dp) {
 fun AppTopBar(store: Store, current: String, go: (Screen) -> Unit) {
     val open = LocalOpenDrawer.current
     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(44.dp)) {
+        Box(Modifier.size(42.dp).harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = Card)) {
             IconButton(onClick = open, modifier = Modifier.fillMaxSize()) { Icon(Ic.Menu, "菜单", tint = Fg) }
             if (store.busy.isNotEmpty()) {
-                Box(Modifier.align(Alignment.TopEnd).padding(top = 9.dp, end = 9.dp).size(8.dp).clip(CircleShape).background(BeeGreen))
+                Box(Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 8.dp).size(8.dp).clip(CircleShape).background(BeeGreen))
             }
         }
         if (current.isNotBlank()) {
@@ -199,7 +199,9 @@ fun AppTopBar(store: Store, current: String, go: (Screen) -> Unit) {
         } else {
             Spacer(Modifier.weight(1f))
         }
-        IconButton(onClick = { go(Screen.Settings) }, modifier = Modifier.size(44.dp)) { Icon(Ic.Gear, "设置", tint = Fg) }
+        Box(Modifier.size(42.dp).harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = Card)) {
+            IconButton(onClick = { go(Screen.Settings) }, modifier = Modifier.fillMaxSize()) { Icon(Ic.Gear, "设置", tint = Fg) }
+        }
     }
 }
 
@@ -220,7 +222,8 @@ fun ChatSubHeader(seed: String, group: Boolean, title: String, subtitle: String,
 @Composable
 fun HeaderPill(text: String, icon: ImageVector, enabled: Boolean = true, onClick: () -> Unit) {
     Row(
-        Modifier.pressBounce(enabled = enabled, onClick = onClick).clip(RoundedCornerShape(999.dp)).background(Card)
+        Modifier.pressBounce(enabled = enabled, onClick = onClick)
+            .harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = Card)
             .padding(horizontal = 12.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -427,7 +430,7 @@ private fun DrawerPanel(store: Store, current: Screen, onClose: () -> Unit, go: 
     val entries = buildEntries(store).filter { it.time > 0L }
     Column(
         Modifier.fillMaxHeight().fillMaxWidth(0.88f).widthIn(max = 360.dp)
-            .clip(RoundedCornerShape(topEnd = 28.dp, bottomEnd = 28.dp)).background(BeePanel)
+            .harmonyGlass(thickness = ImmersiveThickness.ULTRA_THICK, radius = 28.dp, fallbackBg = BeePanel)
             .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { }
             .systemBarsPadding().imePadding()
     ) {

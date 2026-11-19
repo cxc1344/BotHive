@@ -125,50 +125,62 @@ private fun RowScope.TabItems(
 }
 
 private fun DrawScope.drawLiquidDrop(
-    l: Float, r: Float, alpha: Float, press: Float, baseW: Float, liquid: Boolean, layered: Boolean
+    l: Float, r: Float, alpha: Float, press: Float, baseW: Float, liquid: Boolean, layered: Boolean, accent: Color
 ) {
     if (alpha <= 0.01f || r <= l) return
     val stretch = if (baseW > 1f) ((r - l) / baseW - 1f).coerceIn(0f, 0.9f) else 0f
     val squash = if (liquid) 1f - 0.12f * stretch else 1f
-    val swell = press * 2.dp.toPx()
+    val swell = press * 2.4.dp.toPx()
     val h = size.height * squash + swell
     val top = (size.height - h) / 2f
-    val x = l - swell * 0.8f
-    val w = (r - l) + swell * 1.6f
+    val x = l - swell * 0.85f
+    val w = (r - l) + swell * 1.7f
     val cr = CornerRadius(h / 2f, h / 2f)
     if (layered) {
         drawRoundRect(
-            color = Color.Black.copy(alpha = 0.30f * alpha), topLeft = Offset(x + 1.dp.toPx(), top + 2.5.dp.toPx()),
+            color = Color.Black.copy(alpha = 0.26f * alpha), topLeft = Offset(x + 0.5.dp.toPx(), top + 2.dp.toPx()),
             size = Size(w, h), cornerRadius = cr
         )
     }
+    // HarmonyOS NEXT Immersive Light translucent crystal pill tinted subtly with active theme accent.
     drawRoundRect(
-        brush = Brush.verticalGradient(listOf(Color(0xFF474744), Color(0xFF30302E)), startY = top, endY = top + h),
+        brush = Brush.verticalGradient(
+            listOf(Color.White.copy(alpha = 0.20f), accent.copy(alpha = 0.22f), Color(0xFF282826).copy(alpha = 0.68f)),
+            startY = top, endY = top + h
+        ),
         topLeft = Offset(x, top), size = Size(w, h), cornerRadius = cr, alpha = alpha
     )
     if (layered) {
+        // Inner Fresnel optical glow + interactive press light expansion.
+        val glowBoost = 1f + press * 0.45f
         drawRoundRect(
             brush = Brush.verticalGradient(
-                listOf(Color.White.copy(alpha = 0.17f), Color.White.copy(alpha = 0.02f)), startY = top, endY = top + h
+                listOf(Color.White.copy(alpha = (0.28f * glowBoost).coerceAtMost(0.45f)), Color.White.copy(alpha = 0.04f)),
+                startY = top, endY = top + h
             ),
             topLeft = Offset(x, top), size = Size(w, h), cornerRadius = cr, alpha = alpha
         )
         drawRoundRect(
-            color = Color.White.copy(alpha = 0.20f * alpha), topLeft = Offset(x, top), size = Size(w, h),
-            cornerRadius = cr, style = Stroke(1.dp.toPx())
+            brush = Brush.verticalGradient(
+                listOf(Color.White.copy(alpha = 0.42f * alpha), accent.copy(alpha = 0.30f * alpha), Color.White.copy(alpha = 0.12f * alpha)),
+                startY = top, endY = top + h
+            ),
+            topLeft = Offset(x, top), size = Size(w, h),
+            cornerRadius = cr, style = Stroke(1.1.dp.toPx())
         )
         drawRoundRect(
             brush = Brush.horizontalGradient(
-                listOf(Color.Transparent, Color.White.copy(alpha = 0.55f * alpha), Color.Transparent), startX = x, endX = x + w
+                listOf(Color.Transparent, Color.White.copy(alpha = (0.68f * alpha * glowBoost).coerceAtMost(0.9f)), Color.Transparent),
+                startX = x, endX = x + w
             ),
-            topLeft = Offset(x + h * 0.3f, top + 1.6.dp.toPx()), size = Size(max(1f, w - h * 0.6f), 1.2.dp.toPx()),
+            topLeft = Offset(x + h * 0.26f, top + 1.4.dp.toPx()), size = Size(max(1f, w - h * 0.52f), 1.3.dp.toPx()),
             cornerRadius = CornerRadius(1f, 1f)
         )
     }
     if (liquid) {
         drawOval(
-            color = Color.White.copy(alpha = 0.16f * alpha),
-            topLeft = Offset(x + h * 0.42f, top + h * 0.16f), size = Size(h * 0.55f, h * 0.20f)
+            color = Color.White.copy(alpha = (0.20f + press * 0.12f) * alpha),
+            topLeft = Offset(x + h * 0.38f, top + h * 0.14f), size = Size(h * 0.62f, h * 0.22f)
         )
     }
 }
@@ -336,10 +348,9 @@ fun LiquidSegmented(
         )
     }
 
-    val shape = RoundedCornerShape(percent = 50)
-    val trackMod = modifier.height(height).clip(shape)
-        .background(if (tier.glassLayers) Card.copy(alpha = 0.92f) else Card)
-        .border(1.dp, Color.White.copy(alpha = 0.07f), shape)
+    val accent = ThemeAccent
+    val trackMod = modifier.height(height)
+        .harmonyGlass(thickness = ImmersiveThickness.THIN, radius = 999.dp, fallbackBg = Card)
     val innerH = height - 6.dp
     val sizeMod = if (scrollable) Modifier.height(innerH) else Modifier.fillMaxSize()
 
@@ -361,7 +372,7 @@ fun LiquidSegmented(
                     if (!dc.isNaN()) {
                         l = dc - baseW / 2f; r = dc + baseW / 2f
                     }
-                    drawLiquidDrop(l, r, shown.value, press.value, baseW, liquid, layered)
+                    drawLiquidDrop(l, r, shown.value, press.value, baseW, liquid, layered, accent)
                 }
         ) {
             Row(sizeMod) { TabItems(options, Sub, scrollable, fontSize, itemPadding, bounds) }
@@ -459,8 +470,9 @@ fun HomeQuickActions(store: Store, go: (Screen) -> Unit) {
     ) {
         actions.forEach { a ->
             Row(
-                Modifier.pressBounce { a.run() }.clip(shape).background(Card.copy(alpha = 0.92f))
-                    .border(1.dp, Color.White.copy(alpha = 0.07f), shape).padding(horizontal = 14.dp, vertical = 9.dp),
+                Modifier.pressBounce { a.run() }
+                    .harmonyGlass(thickness = ImmersiveThickness.THIN, radius = 999.dp, fallbackBg = Card)
+                    .padding(horizontal = 14.dp, vertical = 9.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(a.icon, null, tint = Fg, modifier = Modifier.size(16.dp))

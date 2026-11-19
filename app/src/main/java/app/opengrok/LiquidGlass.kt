@@ -14,7 +14,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 
 /**
  * Liquid-glass material for BotHive (v0.5.7 style, self-drawn).
@@ -201,4 +208,55 @@ private fun DrawScope.drawGlassLayers(
         Brush.linearGradient(0f to rim, 0.35f to Color.Transparent),
         size = Size(w, 2.0f)
     )
+}
+
+/**
+ * Unified HarmonyOS NEXT Immersive Light glass modifier.
+ *
+ * Follows the Immersive Light visual & power contract:
+ *  - Thickness selects one of the 5 semantic optical tiers (ULTRA_THIN .. ULTRA_THICK).
+ *  - Off tier cleanly degrades to [fallbackBg] with zero transparent-backing glitches.
+ *  - Medium tier / API < 33 uses layered optical gradients + 1dp Fresnel edge highlight.
+ *  - Highest tier on API 33+ runs the AGSL Immersive Light shader behind crisp content.
+ *  - Never nest harmonyGlass inside an already glass-backed parent container.
+ */
+@Composable
+fun Modifier.harmonyGlass(
+    thickness: ImmersiveThickness = ImmersiveThickness.REGULAR,
+    radius: Dp = 20.dp,
+    tint: Color = Color.Transparent,
+    fallbackBg: Color = Card,
+    lightEffect: Boolean = true,
+    light: Offset = Offset(-0.55f, -0.85f)
+): Modifier {
+    val tier = GlassStyle.tier.value
+    val shape = RoundedCornerShape(radius)
+    if (!tier.glassLayers) {
+        return this.clip(shape).background(fallbackBg)
+    }
+    val density = LocalDensity.current
+    val radiusPx = with(density) { if (radius >= 900.dp) 48.dp.toPx() else radius.toPx() }
+    val resolvedTint = if (tint.alpha > 0.001f) tint else ThemeAccent.copy(alpha = (0.04f + thickness.veilAlpha * 0.25f).coerceAtMost(0.14f))
+    val baseAlpha = (0.30f + thickness.veilAlpha * 1.45f).coerceIn(0.32f, 0.84f)
+    val rimAlpha = (0.10f + 0.12f * thickness.rimStrength).coerceAtMost(0.24f)
+    return this
+        .clip(shape)
+        .background(fallbackBg.copy(alpha = baseAlpha))
+        .border(
+            width = 0.8.dp,
+            brush = Brush.verticalGradient(
+                0f to Color.White.copy(alpha = rimAlpha),
+                0.45f to Color.White.copy(alpha = rimAlpha * 0.35f),
+                1f to Color.White.copy(alpha = rimAlpha * 0.15f)
+            ),
+            shape = shape
+        )
+        .glassSurface(
+            tier = tier,
+            radiusPx = radiusPx,
+            tint = resolvedTint,
+            light = light,
+            thickness = thickness,
+            lightEffect = lightEffect
+        )
 }

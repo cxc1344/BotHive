@@ -59,11 +59,21 @@ fun ApprovalCards(store: Store, chatId: String) {
     store.pendingApprovals.filter { it.chatId == chatId }.forEach { ap ->
         Column(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
-                .clip(RoundedCornerShape(14.dp)).background(BeePanelRaised).padding(12.dp),
+                .harmonyGlass(thickness = ImmersiveThickness.THICK, radius = 16.dp, fallbackBg = BeePanelRaised)
+                .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Text("待批准命令 · ${store.botName(ap.botId)}", color = ThemeAccentPale, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-            Text(ap.command, color = Fg, fontSize = 13.sp, fontFamily = HiveFonts.Mono, maxLines = 5, overflow = TextOverflow.Ellipsis)
+            val kindLabel = when (ap.toolName) {
+                "shizuku_shell" -> "待批准 Shizuku 命令"
+                "fs_delete" -> "待批准删除文件"
+                else -> "待批准命令"
+            }
+            val displayCmd = if (ap.toolName == "fs_delete" && ap.command.contains("|")) {
+                val parts = ap.command.split("|", limit = 2)
+                "[${parts[0]}] ${parts[1]}"
+            } else ap.command
+            Text("$kindLabel · ${store.botName(ap.botId)}", color = ThemeAccentPale, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Text(displayCmd, color = Fg, fontSize = 13.sp, fontFamily = HiveFonts.Mono, maxLines = 5, overflow = TextOverflow.Ellipsis)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 PillButton("执行", modifier = Modifier.weight(1f)) { store.executeApproval(ap) }
                 PillButton("拒绝", filled = false, modifier = Modifier.weight(1f)) { store.rejectApproval(ap) }
