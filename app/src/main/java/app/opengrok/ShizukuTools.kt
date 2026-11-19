@@ -228,8 +228,8 @@ suspend fun textOnDisplay(displayId: Int, text: String): String {
     }
     val b64 = java.util.Base64.getEncoder().encodeToString(text.toByteArray(Charsets.UTF_8))
     val clipCmd = "TXT=\$(printf %s '$b64' | base64 -d); " +
-        "cmd clipboard set-text "\$TXT" 2>/dev/null || " +
-        "service call clipboard 2 i32 1 i32 0 s16 "\$TXT" >/dev/null 2>&1; " +
+        "cmd clipboard set-text \"\$TXT\" 2>/dev/null || " +
+        "service call clipboard 2 i32 1 i32 0 s16 \"\$TXT\" >/dev/null 2>&1; " +
         "input --display $displayId keyevent 279"
     val out = exec(clipCmd, 15, 2_000)
     return if (out.contains("[exit 0]")) "已通过剪贴板粘贴输入非 ASCII 文本到虚拟屏 #$displayId。\n$out"
