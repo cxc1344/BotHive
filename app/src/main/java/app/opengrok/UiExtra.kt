@@ -315,7 +315,7 @@ fun GlassTierCard() {
         val tip = when (tier) {
             GlassTier.Off -> "已关闭所有玻璃与动画,纯扁平配色。"
             GlassTier.Medium -> "玻璃层用渐变材质模拟,动画标准速度,老设备也流畅。"
-            GlassTier.Highest -> "所有选择器都是液态水滴:滑动时拉伸、落点回弹、按压膨胀、可拖拽;玻璃层用渐变材质,GPU 真折射需要 Android 13,低版本自动回退,不崩溃。"
+            GlassTier.Highest -> "沉浸光感 5 档材质梯度(顶栏超薄/底栏薄透/弹窗超厚)+ 双层菲涅尔光晕 + 零重分配真透镜折射(Android 13+,低版本自动无感回退)。"
         }
         Text(tip, color = ThemeAccentPale, fontSize = 11.sp, lineHeight = 15.sp)
         // A live LiquidSwitch so the user sees the effect immediately on this very card.

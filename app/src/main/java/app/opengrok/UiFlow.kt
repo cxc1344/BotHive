@@ -397,7 +397,7 @@ fun ChatComposer(
             Modifier.fillMaxWidth()
                 .clip(RoundedCornerShape(radius))
                 .background(if (tier.glassLayers) Card.copy(alpha = 0.88f) else Card)
-                .glassSurface(tier = tier, radiusPx = radiusPx, tint = SheetGlassTint)
+                .glassSurface(tier = tier, radiusPx = radiusPx, tint = SheetGlassTint, thickness = ImmersiveThickness.THIN)
                 .padding(horizontal = 6.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {

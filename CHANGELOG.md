@@ -1,5 +1,23 @@
 # 更新日志
 
+## v0.6.2 — 2026-11-19
+
+### 稳定性与安全修复
+- **修复复制 Bot 主线程死循环（P0）**：`Store.duplicateBot` 重写为递增后缀生成器（`副本`、`副本 2`、`副本 3`…），彻底消除二次复制同名 Bot 时的 ANR 死循环。
+- **主推理循环上限护栏（P0）**：`Agent.run` 新增单轮 `MAX_TOOL_ROUNDS = 24` 工具调用上限，防止模型陷入工具重试死循环消耗 API 额度。
+- **解除沙箱与守卫冲突（P1）**：`Guard` 放开工作区内的相对 `cd` 与 `/workspace/...` 路径映射，使 `Sandbox` 的 `.og-cwd` 工作目录持久化真正生效，不再误拦 `rm -rf /workspace/tmp`；同步更新 `tools/guard_selfcheck.py`。
+- **提示词与预设校准（P1）**：为普通云端 Bot 补全 `clockSuffix` 当前时间锚点；修正 `AGENT_DEFAULT_PROMPT` 中的 `fs_*` 工具名；将误入的个人化预设技能替换为通用「结构化学习辅导」。
+- **MCP 与设备通道加固（P1）**：`Mcp` 改用 `AtomicInteger` 生成 JSON-RPC `id`，增加 URL 合法性校验并将暴露工具名严格限制在 64 字符内（超长加短哈希防碰撞）；`ShizukuTools.textOnDisplay` 为中文等非 ASCII 字符补齐剪贴板粘贴（`keyevent 279`）兜底通道。
+- **内存与密钥原子性（P2）**：`Store.downscaleToJpeg` 补齐 `Bitmap.recycle()`；`PhoneModel.save` 改为先加密成功再提交内存态；统一同步版本号至 `0.6.2`。
+
+### 竞品对标能力升级
+- **高危工具统一人工审批（对标 Grok Bot）**：将「命令先批准」从 `shell` 扩展至 `shizuku_shell` 与 `fs_delete`（`Approval.toolName` 向后兼容旧存档）。
+- **记忆分类与关键词检索（对标 Operit AI）**：`remember` 支持可选 `category` 分类标签，`recall` 支持 `query` 关键词筛选，上限提升至 150 条并自动去重连续重复项。
+
+### 鸿蒙 NEXT 沉浸光感液态玻璃升级
+- **5 档材质厚度梯度（`ImmersiveThickness`）**：对齐 HarmonyOS 沉浸光感设计语言（`ULTRA_THIN` / `THIN` / `REGULAR` / `THICK` / `ULTRA_THICK`），顶栏轻薄透光、底栏交互折射、半模态/弹窗高对比可读。
+- **双层菲涅尔光晕与零分配透镜**：升级 `GlassShader` AGSL 着色器加入双层内发光边缘与漫反射光场；`BackdropLens` 缓存 `BitmapShader` 消除动画期间逐帧堆分配。
+
 ## 0.6.1（修复）
 
 - 修复「执行摘要」弹层打开后只有标题、步骤列表空白：弹层原本内联组合在聊天列表的消息项里，高度约束无界，内容区（weight 布局）被压成 0 高。改为用全屏 Dialog 托管弹层，步骤时间线（名称 / 摘要 / 参数 / 输出）恢复正常显示。模型选择器等其他弹层不受影响。

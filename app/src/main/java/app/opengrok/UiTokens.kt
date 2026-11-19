@@ -168,7 +168,7 @@ fun ClaudeSheet(
             Column(
                 Modifier.fillMaxSize().clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { }
                     .background(if (tier.glassLayers) Brush.verticalGradient(listOf(Card.copy(alpha = 0.55f), Card)) else Brush.verticalGradient(listOf(Card, Card)))
-                    .glassSurface(tier = tier, radiusPx = radiusPx, tint = SheetGlassTint)
+                    .glassSurface(tier = tier, radiusPx = radiusPx, tint = SheetGlassTint, thickness = ImmersiveThickness.ULTRA_THICK)
                     .clip(RoundedCornerShape(topStart = UiTokens.RadiusSheet, topEnd = UiTokens.RadiusSheet))
                     .statusBarsPadding()
             ) {

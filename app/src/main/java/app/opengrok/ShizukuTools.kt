@@ -217,9 +217,23 @@ suspend fun swipeOnDisplay(displayId: Int, x1: Int, y1: Int, x2: Int, y2: Int, m
 suspend fun keyOnDisplay(displayId: Int, keyCode: Int): String =
     exec("input --display $displayId keyevent $keyCode", 12, 2_000)
 
-/** Text injection fallback for the virtual display (the accessibility tree is not available there). */
+/**
+ * Text injection for the virtual display. Pure ASCII uses native `input text`; strings containing
+ * non-ASCII characters (e.g. Chinese) fall back to clipboard write + PASTE (KEYCODE_PASTE = 279)
+ * because Android's `input text` drops non-ASCII input.
+ */
 suspend fun textOnDisplay(displayId: Int, text: String): String {
-    return exec("input --display $displayId text '${escapeInputText(text)}'", 15, 2_000)
+    if (text.all { it.code in 0x20..0x7E }) {
+        return exec("input --display $displayId text '${escapeInputText(text)}'", 15, 2_000)
+    }
+    val b64 = java.util.Base64.getEncoder().encodeToString(text.toByteArray(Charsets.UTF_8))
+    val clipCmd = "TXT=\$(printf %s '$b64' | base64 -d); " +
+        "cmd clipboard set-text "\$TXT" 2>/dev/null || " +
+        "service call clipboard 2 i32 1 i32 0 s16 "\$TXT" >/dev/null 2>&1; " +
+        "input --display $displayId keyevent 279"
+    val out = exec(clipCmd, 15, 2_000)
+    return if (out.contains("[exit 0]")) "已通过剪贴板粘贴输入非 ASCII 文本到虚拟屏 #$displayId。\n$out"
+    else "非 ASCII 文本输入尝试完成(部分 ROM 可能限制后台剪贴板,如未上屏请切主屏或确认输入框已聚焦):\n$out"
 }
 
 /**

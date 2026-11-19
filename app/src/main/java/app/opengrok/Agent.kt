@@ -38,6 +38,9 @@ object ApiEndpoint {
 
 /** OpenAI-compatible chat/completions agent loop with two tools: shell, ask_bot. */
 object Agent {
+    /** Hard cap on tool-calling rounds per user turn to prevent runaway loops and quota burn. */
+    private const val MAX_TOOL_ROUNDS = 24
+
     /** Screenshot captured by the latest screen_shot call, keyed by bot id so concurrent chats never mix up shots. */
     private val pendingShots = java.util.concurrent.ConcurrentHashMap<String, File>()
 
@@ -74,9 +77,10 @@ object Agent {
         put(fn("ask_bot", "向另一个 Bot 或设备 Agent 发私信求助/派活,返回对方的回复。",
             JSONObject().put("bot_name", str("对方的名字")).put("message", str("要说的话")),
             "bot_name", "message"))
-        put(fn("remember", "把一条重要事实存入你的长期记忆(跨会话保留,如用户偏好、项目约定、关键结论)。",
-            JSONObject().put("text", str("要记住的内容")), "text"))
-        put(fn("recall", "取回你的全部长期记忆条目。", JSONObject()))
+        put(fn("remember", "把一条重要事实存入你的长期记忆(跨会话保留,如用户偏好、项目约定、关键结论)。可附可选分类标签 category。",
+            JSONObject().put("text", str("要记住的内容")).put("category", str("可选分类标签,如 偏好/项目/设备")), "text"))
+        put(fn("recall", "取回你的长期记忆条目;传入可选 query 可按关键词或分类筛选。",
+            JSONObject().put("query", str("可选筛选关键词或分类标签"))))
         put(fn("schedule_task", "给自己派一个定时任务:到点后你会在自己的对话里收到这条任务并执行。delay_minutes 是多少分钟后执行;repeat_daily 为 true 时此后每天同一时间重复。",
             JSONObject().put("task", str("到点要执行的任务内容"))
                 .put("delay_minutes", JSONObject().put("type", "integer").put("description", "多少分钟后首次执行"))
@@ -159,7 +163,7 @@ object Agent {
                 "屏幕操作走视觉模式:先 screen_shot 截屏(截图会随结果附给你看),判断目标在画面中的相对位置,再用 0-1000 归一化坐标调用 tap_at 点击 / long_press 长按 / drag_at 拖动;左上角是 (0,0),右下角是 (1000,1000),例如正中央是 (500,500)。每操作几步重新截屏核对,别凭记忆连点。无障碍通道不增加文件权限。" +
                 "如果用户希望不被打断,可用 screen_mode 切到虚拟屏模式:Agent 在独立虚拟显示屏里操作 App,画面显示在可拖动的悬浮窗里。虚拟屏模式下 screen_dump / tap_text 不可用(节点树绑主屏),一切以 screen_shot 看图为准;遇到 FLAG_SECURE 页面(银行/支付)会黑屏,应提示用户切回主屏模式。请使用用户的语言回复。" + skillSuffix
         } else {
-            bot.prompt + "\n\n你叫「${bot.name}」,运行在一部安卓手机上,有自己独立的工作目录(Ubuntu 环境),可用 shell 工具执行命令。" +
+            bot.prompt + clockSuffix + "\n\n你叫「${bot.name}」,运行在一部安卓手机上,有自己独立的工作目录(Ubuntu 环境),可用 shell 工具执行命令。" +
                 "工作目录不是操作系统级安全隔离,只允许读写自己的工作目录,不得尝试访问应用数据或其他 Bot 的文件。" +
                 (if (others.isNotEmpty()) "同伴:$others(其中设备 Agent 在用户手机本地,能读写用户授权的手机文件夹),可用 ask_bot 私信求助。" else "") +
                 "群聊里其他 Bot 的发言会以 [名字] 开头。请使用用户的语言回复。" + skillSuffix
@@ -212,7 +216,9 @@ object Agent {
             for (i in 0 until extra.length()) put(extra.get(i))
         }
         try {
-            while (true) {
+            var rounds = 0
+            while (rounds < MAX_TOOL_ROUNDS) {
+                rounds++
                 val message = withContext(Dispatchers.IO) { call(bot, msgs, allDefs) }
                 val calls = message.optJSONArray("tool_calls")
                 if (calls == null || calls.length() == 0) {
@@ -250,6 +256,7 @@ object Agent {
                     }
                 }
             }
+            return "已达到单轮工具调用上限($MAX_TOOL_ROUNDS 步),为避免死循环消耗额度已自动中止。你可以继续回复让我从当前进度接着做。"
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -313,7 +320,12 @@ object Agent {
                         "fs_read" -> FsTools.read(store.appContext(), p, ch)
                         "fs_write" -> FsTools.write(store.appContext(), p, a.optString("content"), ch)
                         "fs_scan" -> FsTools.scan(p, a.optInt("depth", 2))
-                        else -> FsTools.delete(store.appContext(), p, ch)
+                        else -> {
+                            if (bot.shellApproval && chatId.isNotEmpty()) {
+                                withContext(Dispatchers.Main) { store.requestApproval(chatId, bot.id, "$ch|$p", "fs_delete") }
+                                "【等待用户批准】删除操作($p)已提交到对话顶部等用户点「执行」。请简短告知用户等待批准,不要重复提交。"
+                            } else FsTools.delete(store.appContext(), p, ch)
+                        }
                     }
                 }
             }
@@ -368,15 +380,18 @@ object Agent {
             }
             "remember" -> {
                 val text = a.optString("text").trim()
+                val cat = a.optString("category").trim()
                 if (text.isBlank()) "内容为空,未保存。"
                 else {
-                    withContext(Dispatchers.Main) { store.remember(bot.id, text) }
-                    "已存入长期记忆。"
+                    withContext(Dispatchers.Main) { store.remember(bot.id, text, cat) }
+                    if (cat.isNotEmpty()) "已存入长期记忆(分类:$cat)。" else "已存入长期记忆。"
                 }
             }
             "recall" -> {
-                val list = store.recall(bot.id)
-                if (list.isEmpty()) "(长期记忆为空)" else list.mapIndexed { i, t -> "${i + 1}. $t" }.joinToString("\n")
+                val q = a.optString("query").trim()
+                val list = store.recall(bot.id, q)
+                if (list.isEmpty()) (if (q.isEmpty()) "(长期记忆为空)" else "(未找到包含「$q」的记忆)")
+                else list.mapIndexed { i, t -> "${i + 1}. $t" }.joinToString("\n")
             }
             "schedule_task" -> {
                 val task = a.optString("task").trim()
@@ -441,7 +456,11 @@ object Agent {
             }
             "shizuku_shell" -> {
                 if (bot.id != AGENT_ID) return "该工具只有设备 Agent 可用。"
-                ShizukuTools.shell(a.optString("command"))
+                val cmd = a.optString("command")
+                if (bot.shellApproval && chatId.isNotEmpty()) {
+                    withContext(Dispatchers.Main) { store.requestApproval(chatId, bot.id, cmd, "shizuku_shell") }
+                    "【等待用户批准】这条 Shizuku 命令已提交到对话顶部等用户点「执行」。请简短说明命令用途,不要重复提交。"
+                } else ShizukuTools.shell(cmd)
             }
             "phone_task" -> {
                 if (bot.id != AGENT_ID) return "该工具只有设备 Agent 可用。"

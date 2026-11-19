@@ -63,10 +63,10 @@ val PRESET_SKILLS: List<Skill> = listOf(
         "整理文件时:①先用 fs_scan 统计各目录大小摸清现状(fs_list 逐个看太慢);②给出按类型/日期的归类方案清单让用户确认;③只移动不删除,删除必须逐项经用户同意;④重名加后缀,绝不覆盖;⑤整理完汇报移动了什么、还剩什么。"),
     Skill("preset-frugal", "省额度模式",
         "省钱省额度:①回答尽量简短直接;②能一次工具调用解决的不分多次,查多项信息时先合并规划;③长输出先给摘要,用户要细节再展开;④遇到 429 不要连环重试,等一等或提示用户在 Key 池里多备几个 Key 自动轮换。"),
-    Skill("preset-tutor", "初二学习辅导",
-        "给初二学生讲题:数学只用初二上册学过的方法(全等三角形、轴对称、等腰/等边三角形、角平分线、平行线、坐标系、面积法),禁用勾股定理、三角函数、相似三角形——绕不开时先明说超纲;语文文言文逐字直译,重点字词单独释义;英语是他的强项,不用多教。讲题先拆思路再分步,最后留一道同类小题让他自己试。"),
+    Skill("preset-tutor", "结构化学习辅导",
+        "辅导学习时:①先确认对方当前阶段与已知基础,不用超纲方法(绕不开时先说明);②先拆核心思路再分步推导,关键概念用生活类比讲透;③讲完给一道难度相当的同类小题让对方独立练习,再针对薄弱点复盘。"),
     Skill("preset-ubuntu", "Ubuntu 工具箱",
-        "沙盒速查:工作目录会跨命令保持(cd 到哪下条命令就从哪开始);装包用 apt-get update && apt-get install -y <包名>;已预装 python3、nodejs、git、curl、jq、ffmpeg;单条命令超时 30 秒,长任务拆开跑或 nohup 写日志再读结果;和手机互传文件用 fs 工具。")
+        "沙盒速查:工作目录默认 /workspace 且会跨命令保持(支持工作区内的相对 cd 或 cd /workspace/...);装包用 apt-get update && apt-get install -y <包名>;已预装 python3、nodejs、git、curl、jq、ffmpeg;单条命令超时 30 秒,长任务拆开跑或 nohup 写日志再读结果;和手机互传文件用 fs_* 工具。")
 )
 
 /** A reusable instruction pack ("技能") that can be attached to Bots / the Agent; its content joins the system prompt. */
@@ -82,7 +82,9 @@ data class Approval(
     val chatId: String,
     val botId: String,
     val command: String,
-    val createdMs: Long
+    val createdMs: Long,
+    /** Tool waiting for approval: "shell" (default), "shizuku_shell", or "fs_delete". */
+    val toolName: String = "shell"
 )
 
 /** A remote MCP server (Streamable HTTP JSON-RPC). headers may carry secrets; stored Keystore-encrypted. */
@@ -119,7 +121,7 @@ data class Workflow(
 
 const val AGENT_DEFAULT_PROMPT =
     "你是一个运行在用户安卓手机上的设备 Agent。你有这些工具:shell(Ubuntu Linux 环境,可装软件、跑脚本)、" +
-    "手机文件工具 list_dir/read_file/write_file(作用域是用户授权的文件夹)、系统工具(device_status 设备状态、app_usage 应用使用时长、list_apps/launch_app 应用管理、shizuku_shell 可选的 shell 级特权通道)、" +
+    "手机文件工具 fs_list/fs_read/fs_write/fs_delete/fs_scan(绝对路径,支持普通/Shizuku/Root 三通道)、系统工具(device_status 设备状态、app_usage 应用使用时长、list_apps/launch_app 应用管理、shizuku_shell 可选的 shell 级特权通道)、" +
     "屏幕操作工具(screen_shot 截屏看屏、tap_at 点击、long_press 长按、drag_at 拖动、input_text 输入、press_key 系统键;需无障碍已开启。视觉模式:先 screen_shot 看画面,再把目标在画面中的相对位置换算成 0-1000 坐标进行点击/长按/拖动;文字备用:screen_dump 读界面文字、tap_text 按文字点击)。" +
     "remember/recall(长期记忆)、ask_bot(向云端 Bot 同伴求助或派活)。" +
     "动手前先想清楚步骤;涉及写/删文件先确认路径在授权目录内。完成任务后简洁汇报做了什么、结果如何。"

@@ -82,17 +82,26 @@ object PhoneModel {
             lastError.value = urlErr
             return false
         }
+        val cleanUrl = url.trim().trimEnd('/')
+        val cleanKey = key.trim()
+        val cleanModel = mdl.trim()
+        val encKey = try {
+            Secrets.enc(cleanKey)
+        } catch (e: Exception) {
+            lastError.value = "密钥加密失败:${e.message ?: e.javaClass.simpleName}"
+            return false
+        }
         enabled.value = on
-        baseUrl.value = url.trim().trimEnd('/')
-        apiKey.value = key.trim()
-        model.value = mdl.trim()
+        baseUrl.value = cleanUrl
+        apiKey.value = cleanKey
+        model.value = cleanModel
         allowHttp.value = http
         lastError.value = null
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putBoolean(K_ENABLED, on)
-            .putString(K_BASE, baseUrl.value)
-            .putString(K_KEY, Secrets.enc(apiKey.value))
-            .putString(K_MODEL, model.value)
+            .putString(K_BASE, cleanUrl)
+            .putString(K_KEY, encKey)
+            .putString(K_MODEL, cleanModel)
             .putBoolean(K_HTTP, http)
             .apply()
         return true

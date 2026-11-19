@@ -284,11 +284,22 @@ fun Modifier.backdropLens(
     tintB: Float = 196f,
     tintA: Float = 0.08f,
     tint: Color = Honey.copy(alpha = 0.10f),
-    light: Offset = Offset(-0.55f, -0.85f)
+    light: Offset = Offset(-0.55f, -0.85f),
+    thickness: ImmersiveThickness = ImmersiveThickness.THIN
 ): Modifier {
     val tier = GlassStyle.tier.value
     if (!tier.shader || !BackdropLens.supported() || backdrop == null) {
-        return glassSurface(tier = tier, radiusPx = radiusPx, tint = tint, light = light)
+        return glassSurface(tier = tier, radiusPx = radiusPx, tint = tint, light = light, thickness = thickness)
+    }
+    // Reuse BitmapShader across frames for the same backdrop bitmap (zero per-frame allocation).
+    val cachedBmpShader = remember(backdrop) {
+        runCatching {
+            android.graphics.BitmapShader(
+                backdrop,
+                android.graphics.Shader.TileMode.CLAMP,
+                android.graphics.Shader.TileMode.CLAMP
+            )
+        }.getOrNull()
     }
     return this.then(
         Modifier.drawWithCache {
@@ -298,7 +309,7 @@ fun Modifier.backdropLens(
                 addRoundRect(RoundRect(0f, 0f, size.width, size.height, radiusPx, radiusPx))
             }
             onDrawBehind {
-                if (shader == null || brush == null) {
+                if (shader == null || brush == null || cachedBmpShader == null) {
                     drawGlassLayersCompat(tint, radiusPx, light)
                     return@onDrawBehind
                 }
@@ -315,19 +326,12 @@ fun Modifier.backdropLens(
                     shader.setFloatUniform("uTintR", tintR)
                     shader.setFloatUniform("uTintG", tintG)
                     shader.setFloatUniform("uTintB", tintB)
-                    shader.setFloatUniform("uTintA", tintA)
+                    shader.setFloatUniform("uTintA", maxOf(tintA, thickness.veilAlpha))
                     shader.setFloatUniform("uLightX", light.x)
                     shader.setFloatUniform("uLightY", light.y)
-                    shader.setFloatUniform("uSpec", 0.9f)
+                    shader.setFloatUniform("uSpec", thickness.specStrength)
                     shader.setFloatUniform("uTime", (System.nanoTime() / 1_000_000_000f) % 60f)
-                    // AGSL samples bitmaps through an input shader; BitmapShader (a Shader subclass)
-                    // wraps the backdrop, CLAMP so the lens can never pull transparent edges.
-                    val bmpShader = android.graphics.BitmapShader(
-                        backdrop,
-                        android.graphics.Shader.TileMode.CLAMP,
-                        android.graphics.Shader.TileMode.CLAMP
-                    )
-                    shader.setInputShader("uBackdrop", bmpShader)
+                    shader.setInputShader("uBackdrop", cachedBmpShader)
                     true
                 }.getOrDefault(false)
                 if (ok) {

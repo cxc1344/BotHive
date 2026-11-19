@@ -22,7 +22,13 @@ NESTED_SHELL = re.compile(r'\b(sh|bash|ash|dash)\s+-c\b')
 def bad_path(raw, allow):
     if not allow and not os.path.isabs(raw): return False
     base = os.path.realpath(allow) if allow else None
-    candidate = raw if os.path.isabs(raw) else os.path.join(base, raw) if base else raw
+    mapped = raw
+    if base:
+        if raw == "/workspace":
+            mapped = base
+        elif raw.startswith("/workspace/"):
+            mapped = os.path.join(base, raw[len("/workspace/"):])
+    candidate = mapped if os.path.isabs(mapped) else os.path.join(base, mapped) if base else mapped
     p = os.path.realpath(candidate).rstrip("/") or "/"
     if base:
         try:
@@ -46,7 +52,13 @@ def check(cmd, allow=None):
         while toks and toks[0] in WRAP: toks.pop(0)
         if not toks: continue
         c = toks[0].split("/")[-1]
-        if c in ("cd", "pushd", "popd"): return "cwd"
+        if c in ("pushd", "popd"): return "cwd"
+        if c == "cd":
+            cd_targets = [a.strip("\"'") for a in toks[1:] if not a.startswith("-")]
+            if not allow or not cd_targets: return "cwd"
+            for t in cd_targets:
+                if t == "-" or t.startswith("~") or ".." in t.split("/"): return "cwd"
+                if bad_path(t, allow): return "cwd"
         if c in ("reboot","shutdown","poweroff","halt"): return "power"
         args = toks[1:]
         flags = [a for a in args if a.startswith("-")]

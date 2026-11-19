@@ -41,4 +41,17 @@ class GuardTest {
         assertNotNull(Guard.check("rm -rf linked", workspace.canonicalPath))
         root.deleteRecursively()
     }
+
+    @Test
+    fun allowsGuestWorkspacePathAndRelativeCd() {
+        val root = Files.createTempDirectory("og-guard-").toFile()
+        val workspace = File(root, "sandbox/bot").apply { mkdirs() }
+        File(workspace, "sub").mkdirs()
+        assertNull(Guard.check("rm -rf /workspace/tmp", workspace.canonicalPath))
+        assertNull(Guard.check("cd sub && ls", workspace.canonicalPath))
+        assertNull(Guard.check("cd /workspace/sub && ls", workspace.canonicalPath))
+        assertNotNull(Guard.check("cd .. && ls", workspace.canonicalPath))
+        assertNotNull(Guard.check("cd /etc && ls", workspace.canonicalPath))
+        root.deleteRecursively()
+    }
 }

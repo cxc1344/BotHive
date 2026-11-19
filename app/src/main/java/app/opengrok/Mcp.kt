@@ -4,8 +4,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import java.security.MessageDigest
+import java.util.concurrent.atomic.AtomicInteger
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
@@ -39,9 +42,19 @@ object Mcp {
 
     private val sessions = ConcurrentHashMap<String, Session>()
     private val locks = ConcurrentHashMap<String, Mutex>()
-    @Volatile private var idSeq = 100
+    private val idSeq = AtomicInteger(100)
 
     private fun sanitize(s: String) = s.replace(Regex("[^A-Za-z0-9_-]"), "_").take(48)
+
+    /** Ensures OpenAI-compatible function names never exceed the 64-char API limit. */
+    internal fun exposedToolName(serverId: String, realName: String): String {
+        val raw = "mcp_${sanitize(serverId)}_${sanitize(realName)}"
+        if (raw.length <= 64) return raw
+        val hash = MessageDigest.getInstance("SHA-256")
+            .digest("$serverId:$realName".toByteArray(Charsets.UTF_8))
+            .take(3).joinToString("") { "%02x".format(it) }
+        return raw.take(57) + "_" + hash
+    }
 
     private fun parseHeaders(raw: String): List<Pair<String, String>> =
         raw.lineSequence().mapNotNull { line ->
@@ -53,10 +66,15 @@ object Mcp {
         val payload = JSONObject()
             .put("jsonrpc", "2.0")
             .put("method", method)
-        if (!notification) payload.put("id", ++idSeq)
+        if (!notification) payload.put("id", idSeq.incrementAndGet())
         if (params != null) payload.put("params", params)
+        val parsedUrl = server.url.trim().toHttpUrlOrNull()
+            ?: throw IllegalArgumentException("MCP 服务地址格式无效:${server.url}")
+        if (parsedUrl.username.isNotEmpty() || parsedUrl.password.isNotEmpty()) {
+            throw IllegalArgumentException("MCP 服务地址不允许包含账号密码")
+        }
         val builder = Request.Builder()
-            .url(server.url)
+            .url(parsedUrl)
             .header("Content-Type", "application/json")
             .header("Accept", "application/json, text/event-stream")
             .post(payload.toString().toRequestBody(JSON_MT))
@@ -93,7 +111,7 @@ object Mcp {
             val initParams = JSONObject()
                 .put("protocolVersion", "2024-11-05")
                 .put("capabilities", JSONObject())
-                .put("clientInfo", JSONObject().put("name", "BotHive").put("version", "0.5.8"))
+                .put("clientInfo", JSONObject().put("name", "BotHive").put("version", "0.6.2"))
             val resp = rpc(server, session, "initialize", initParams)
             if (resp != null && resp.has("error")) {
                 throw Exception("MCP initialize 被拒:${resp.getJSONObject("error").optString("message")}")
@@ -106,7 +124,7 @@ object Mcp {
                 val t = arr.getJSONObject(i)
                 val real = t.optString("name")
                 McpTool(
-                    exposed = "mcp_${sanitize(server.id)}_${sanitize(real)}",
+                    exposed = exposedToolName(server.id, real),
                     serverId = server.id,
                     realName = real,
                     description = t.optString("description"),

@@ -48,6 +48,8 @@ uniform float uLightX;       // light direction, normalized
 uniform float uLightY;
 uniform float uSpec;         // specular intensity
 uniform float uTime;         // seconds; slow drift of the sheen so glass feels alive
+uniform float uVeil;         // thickness veil alpha (HarmonyOS ULTRA_THIN..ULTRA_THICK)
+uniform float uRim;          // Fresnel rim intensity
 
 const float SMOOTH = 1.5;
 
@@ -76,32 +78,34 @@ half4 main(float2 xy) {
     float sdf = sdfRounded(p, c, r);
     float minHalf = min(c.x, c.y);
 
-    // Base glass body: sheen from the light side + honey tint. All math in float3; convert once
-    // at the end (AGSL/SkSL will not implicitly mix half and float vectors).
+    // Base glass body: HarmonyOS Immersive Light diffused optical veil + tint.
     float2 L = normalize(float2(uLightX, uLightY));
     float facing = 0.5 + 0.5 * dot(normalize(-p + float2(0.0, 0.0001)), L);
-    float3 body = mix(float3(0.10, 0.075, 0.03), float3(0.24, 0.19, 0.08), facing);
-    body = mix(body, float3(uTint.rgb), uTintA * 0.6);
+    float topGrad = clamp(1.0 - (xy.y / max(uSize.y, 1.0)), 0.0, 1.0);
+    float3 body = mix(float3(0.09, 0.075, 0.045), float3(0.22, 0.18, 0.10), facing * 0.7 + topGrad * 0.3);
+    body = mix(body, float3(uTint.rgb), clamp(uTintA * 0.65 + uVeil * 0.55, 0.0, 0.82));
 
-    // Interior depth shading: brightens toward the rim like a convex lens.
-    float depth = clamp(-sdf / max(minHalf * 0.35, 1.0), 0.0, 1.0);
+    // Interior depth shading: subtle convex Fresnel brightening toward edges.
+    float depth = clamp(-sdf / max(minHalf * 0.38, 1.0), 0.0, 1.0);
     float curvature = 1.0 - depth;
-    body += curvature * curvature * 0.10;
+    body += curvature * curvature * (0.09 * uRim);
 
-    // Prismatic rim: per-channel weights give the edge a subtle rainbow fringe.
+    // Dual-layer Fresnel rim: crisp 1.5px inner edge glow + directional prismatic highlight.
     float2 n = sdfNormal(p, c, r);
-    float rimBand = smoothstep(-4.0, -0.5, sdf);
-    float3 L3 = float3(L, 0.6);
-    float rimBase = pow(max(dot(float3(n, 0.0), L3), 0.0), 3.0) * rimBand;
-    float3 rim = float3(rimBase * 1.15, rimBase, rimBase * 0.70);
+    float rimBand = smoothstep(-4.5, -0.4, sdf);
+    float innerEdge = smoothstep(-2.0, -0.3, sdf);
+    float3 L3 = float3(L, 0.65);
+    float rimBase = pow(max(dot(float3(n, 0.0), L3), 0.0), 2.6) * rimBand;
+    float3 rim = float3(rimBase * 1.12, rimBase * 1.02, rimBase * 0.82) * uRim
+        + float3(0.18, 0.17, 0.15) * innerEdge * (0.45 * uRim);
 
-    // Specular: rim glint + drifting focal pool.
-    float drift = sin(uTime * 0.7) * 0.06;
-    float2 focal = L * minHalf * (0.22 + drift);
-    float pool = 1.0 - smoothstep(0.0, minHalf * 0.5, length(p - focal));
-    float spec = rimBase * uSpec + pool * pool * uSpec * 0.5;
+    // Specular: rim glint + gentle drifting ambient light pool.
+    float drift = sin(uTime * 0.65) * 0.055;
+    float2 focal = L * minHalf * (0.24 + drift);
+    float pool = 1.0 - smoothstep(0.0, minHalf * 0.55, length(p - focal));
+    float spec = rimBase * uSpec + pool * pool * uSpec * 0.42;
 
-    float3 col = body + rim * (uSpec * 0.8) + spec * 0.55;
+    float3 col = body + rim * (uSpec * 0.78) + spec * 0.48;
 
     // Soft edge anti-aliasing.
     float alpha = 1.0 - smoothstep(0.0, SMOOTH, sdf);
@@ -130,25 +134,23 @@ fun Modifier.glassSurface(
     tier: GlassTier = GlassStyle.tier.value,
     radiusPx: Float,
     tint: Color = Honey.copy(alpha = 0.10f),
-    light: Offset = Offset(-0.55f, -0.85f)
+    light: Offset = Offset(-0.55f, -0.85f),
+    thickness: ImmersiveThickness = ImmersiveThickness.REGULAR,
+    lightEffect: Boolean = true
 ): Modifier {
     if (!tier.glassLayers) return this
 
     val useShader = tier.shader && GlassShader.supported()
 
-    // drawWithCache keeps the compiled RuntimeShader and the clip path across frames; only the
-    // uniforms are refreshed per draw. ShaderBrush is the documented way to draw an AGSL shader
-    // in Compose (Brush.glRuntimeShader does not exist in the current BOM).
+    // drawWithCache keeps the compiled RuntimeShader across frames; only uniforms refresh per draw.
     if (useShader) {
-        // The glass draws BEHIND the content (onDrawBehind): text stays crisp, the material lives
-        // under it. Uniforms refresh per frame; the shader itself is cached by drawWithCache.
         return this.then(
             Modifier.drawWithCache {
                 val shader = runCatching { GlassShader.newShader() }.getOrNull()
                 val brush = shader?.let { ShaderBrush(it) }
                 onDrawBehind {
                     if (shader == null || brush == null) {
-                        drawGlassLayers(tint, radiusPx, light)
+                        drawGlassLayers(tint, radiusPx, light, thickness)
                         return@onDrawBehind
                     }
                     shader.setFloatUniform("uSize", size.width, size.height, 0f, 0f)
@@ -157,8 +159,10 @@ fun Modifier.glassSurface(
                     shader.setFloatUniform("uTint", tint.red, tint.green, tint.blue, 1f)
                     shader.setFloatUniform("uLightX", light.x)
                     shader.setFloatUniform("uLightY", light.y)
-                    shader.setFloatUniform("uSpec", 0.9f)
+                    shader.setFloatUniform("uSpec", if (lightEffect) thickness.specStrength else 0.25f)
                     shader.setFloatUniform("uTime", (System.nanoTime() / 1_000_000_000f) % 60f)
+                    shader.setFloatUniform("uVeil", thickness.veilAlpha)
+                    shader.setFloatUniform("uRim", if (lightEffect) thickness.rimStrength else 0.4f)
                     drawRect(brush, topLeft = Offset.Zero, size = size)
                 }
             }
@@ -168,29 +172,33 @@ fun Modifier.glassSurface(
     return this.then(
         Modifier.drawWithContent {
             drawContent()
-            drawGlassLayers(tint, radiusPx, light)
+            drawGlassLayers(tint, radiusPx, light, thickness)
         }
     )
 }
 
-/** Gradient-only glass (tier Medium, or non-33 devices at Highest tier). */
-private fun DrawScope.drawGlassLayers(tint: Color, radiusPx: Float, light: Offset) {
+/** Gradient-only glass (tier Medium, or non-33 devices at Highest tier), scaled by [ImmersiveThickness]. */
+private fun DrawScope.drawGlassLayers(
+    tint: Color,
+    radiusPx: Float,
+    light: Offset,
+    thickness: ImmersiveThickness = ImmersiveThickness.REGULAR
+) {
     val w = size.width
     val h = size.height
-    // Vertical sheen: brighter at the light side, dimmer toward the opposite edge.
+    val topAlpha = (0.08f + thickness.veilAlpha * 0.25f).coerceAtMost(0.18f)
+    val botAlpha = (0.04f + thickness.veilAlpha * 0.28f).coerceAtMost(0.16f)
     drawRect(
         Brush.verticalGradient(
-            0f to Color.White.copy(alpha = 0.10f),
-            0.55f to Color.White.copy(alpha = 0.03f),
-            1f to Color.Black.copy(alpha = 0.06f)
+            0f to Color.White.copy(alpha = topAlpha),
+            0.52f to Color.White.copy(alpha = 0.025f),
+            1f to Color.Black.copy(alpha = botAlpha)
         )
     )
-    // Tint wash.
     drawRect(Brush.radialGradient(listOf(tint, Color.Transparent), center = Offset(w * 0.5f, h * 0.1f), radius = maxOf(w, h)))
-    // Rim light on the light-facing edges.
-    val rim = Color.White.copy(alpha = 0.16f)
-    drawRect(Brush.linearGradient(
-        0f to rim,
-        0.25f to Color.Transparent
-    ), size = Size(w, 2.5f))
+    val rim = Color.White.copy(alpha = (0.14f + 0.10f * thickness.rimStrength).coerceAtMost(0.26f))
+    drawRect(
+        Brush.linearGradient(0f to rim, 0.35f to Color.Transparent),
+        size = Size(w, 2.0f)
+    )
 }

@@ -19,6 +19,29 @@ import androidx.compose.runtime.mutableStateOf
  *               only platform gate is API 33 for RuntimeShader — below that the shader surfaces
  *               render the Medium-style material instead, and everything else stays at full spec.
  */
+/**
+ * Five-level Immersive Light material thickness model aligned with HarmonyOS NEXT design spec:
+ *  - [ULTRA_THIN]  top floating bars / icon buttons (airy, minimal frost, crisp rim)
+ *  - [THIN]        bottom floating capsules / TabBar / segmented pills (balanced frost + refraction)
+ *  - [REGULAR]     general floating cards (default)
+ *  - [THICK]       transient overlays, menus, toasts (higher legibility, subdued refraction)
+ *  - [ULTRA_THICK] bottom sheets & dialogs (maximum readability over busy content)
+ */
+enum class ImmersiveThickness(
+    val blurRadius: Float,
+    val edgePx: Float,
+    val dispersionPx: Float,
+    val veilAlpha: Float,
+    val rimStrength: Float,
+    val specStrength: Float
+) {
+    ULTRA_THIN(blurRadius = 2.5f, edgePx = 11.0f, dispersionPx = 1.6f, veilAlpha = 0.06f, rimStrength = 0.95f, specStrength = 0.92f),
+    THIN(blurRadius = 4.0f, edgePx = 10.0f, dispersionPx = 1.8f, veilAlpha = 0.09f, rimStrength = 1.00f, specStrength = 0.95f),
+    REGULAR(blurRadius = 6.0f, edgePx = 7.5f, dispersionPx = 1.1f, veilAlpha = 0.14f, rimStrength = 0.85f, specStrength = 0.82f),
+    THICK(blurRadius = 9.0f, edgePx = 4.5f, dispersionPx = 0.5f, veilAlpha = 0.22f, rimStrength = 0.72f, specStrength = 0.65f),
+    ULTRA_THICK(blurRadius = 12.0f, edgePx = 2.5f, dispersionPx = 0.0f, veilAlpha = 0.30f, rimStrength = 0.60f, specStrength = 0.50f)
+}
+
 enum class GlassTier {
     Off, Medium, Highest;
 

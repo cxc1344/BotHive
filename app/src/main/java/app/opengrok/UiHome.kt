@@ -370,7 +370,7 @@ private fun HomeComposer(
         Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp).navigationBarsPadding()
             .clip(RoundedCornerShape(28.dp))
             .background(if (tier.glassLayers) Card.copy(alpha = 0.88f) else Card)
-            .glassSurface(tier = tier, radiusPx = radiusPx, tint = SheetGlassTint)
+            .glassSurface(tier = tier, radiusPx = radiusPx, tint = SheetGlassTint, thickness = ImmersiveThickness.REGULAR)
             .padding(horizontal = 6.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

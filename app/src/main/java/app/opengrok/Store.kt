@@ -47,11 +47,11 @@ class Store(private val ctx: Context) {
         save()
     }
 
-    /** Called by the agent loop when a Bot with shellApproval wants to run a command. */
-    fun requestApproval(chatId: String, botId: String, command: String) {
-        if (pendingApprovals.any { it.chatId == chatId && it.botId == botId && it.command == command }) return
+    /** Called by the agent loop when a Bot with shellApproval wants to run a gated tool (shell / shizuku_shell / fs_delete). */
+    fun requestApproval(chatId: String, botId: String, command: String, toolName: String = "shell") {
+        if (pendingApprovals.any { it.chatId == chatId && it.botId == botId && it.toolName == toolName && it.command == command }) return
         pendingApprovals.add(
-            Approval(java.util.UUID.randomUUID().toString().take(8), chatId, botId, command, System.currentTimeMillis())
+            Approval(java.util.UUID.randomUUID().toString().take(8), chatId, botId, command, System.currentTimeMillis(), toolName)
         )
         save()
     }
@@ -72,18 +72,40 @@ class Store(private val ctx: Context) {
         save()
         val job = scope.launch {
             val out = try {
-                val sb = sandbox(ap.botId)
-                val why = Guard.check(ap.command, sb.dir.absolutePath)
-                if (why != null) {
-                    logGuard(ap.botId, ap.command, why)
-                    "【安全策略已拦截】$why"
-                } else withContext(Dispatchers.IO) {
-                    withSandboxLock(ap.botId) { sb.exec(ap.command) }
+                when (ap.toolName) {
+                    "shizuku_shell" -> {
+                        val why = Guard.check(ap.command, "/")
+                        if (why != null) {
+                            logGuard(ap.botId, ap.command, why)
+                            "【安全策略已拦截】$why"
+                        } else ShizukuTools.shell(ap.command)
+                    }
+                    "fs_delete" -> {
+                        val parts = ap.command.split("|", limit = 2)
+                        val ch = if (parts.size == 2) parts[0] else "auto"
+                        val target = if (parts.size == 2) parts[1] else ap.command
+                        withContext(Dispatchers.IO) { FsTools.delete(appContext(), target, ch) }
+                    }
+                    else -> {
+                        val sb = sandbox(ap.botId)
+                        val why = Guard.check(ap.command, sb.dir.absolutePath)
+                        if (why != null) {
+                            logGuard(ap.botId, ap.command, why)
+                            "【安全策略已拦截】$why"
+                        } else withContext(Dispatchers.IO) {
+                            withSandboxLock(ap.botId) { sb.exec(ap.command) }
+                        }
+                    }
                 }
             } catch (e: Exception) {
                 "执行出错:${e.message}"
             }
-            chat(ap.chatId).add(Msg(role = "bot", from = ap.botId, text = "【已批准执行的命令】${ap.command}\n$out"))
+            val label = when (ap.toolName) {
+                "shizuku_shell" -> "已批准执行的 Shizuku 命令"
+                "fs_delete" -> "已批准执行的文件删除"
+                else -> "已批准执行的命令"
+            }
+            chat(ap.chatId).add(Msg(role = "bot", from = ap.botId, text = "【$label】${ap.command}\n$out"))
             save()
             nudgeBot(ap.chatId, ap.botId)
         }
@@ -190,14 +212,23 @@ class Store(private val ctx: Context) {
         save()
     }
 
-    fun remember(botId: String, text: String) {
+    fun remember(botId: String, text: String, category: String = "") {
         val list = memories.getOrPut(botId) { mutableListOf() }
-        list.add(text.take(500))
-        while (list.size > 100) list.removeAt(0)
+        val cleanCat = category.trim().take(24)
+        val entry = if (cleanCat.isNotEmpty() && !text.startsWith("[")) "[$cleanCat] $text" else text
+        val trimmed = entry.take(500)
+        if (list.lastOrNull() == trimmed) return
+        list.add(trimmed)
+        while (list.size > 150) list.removeAt(0)
         save()
     }
 
-    fun recall(botId: String): List<String> = memories[botId]?.toList() ?: emptyList()
+    fun recall(botId: String, query: String = ""): List<String> {
+        val all = memories[botId]?.toList() ?: emptyList()
+        val q = query.trim()
+        if (q.isEmpty()) return all
+        return all.filter { it.contains(q, ignoreCase = true) }
+    }
     /** The on-device Agent (Agent mode), kept apart from the cloud Bot list. Null until configured. */
     val agent = mutableStateOf<Bot?>(null)
     /** SAF tree URI string of the folder the user granted the Agent access to. */
@@ -457,11 +488,10 @@ class Store(private val ctx: Context) {
         save()
     }
 
-    /** Copy a Bot (prompt/model/provider/skills) under a new id and name suffix; no chat history copied. */
+    /** Copy a Bot (prompt/model/provider/skills) under a new id and unique name suffix; no chat history copied. */
     fun duplicateBot(id: String): Bot? {
         val src = bot(id) ?: return null
-        var name = src.name
-        while (bots.any { it.name == name }) name = name.removeSuffix(" 副本") + " 副本"
+        val name = nextDuplicateName(src.name, bots.map { it.name }.toSet())
         val copy = src.copy(id = java.util.UUID.randomUUID().toString().take(8), name = name, isManager = false)
         return if (saveBot(copy)) copy else null
     }
@@ -622,14 +652,20 @@ class Store(private val ctx: Context) {
 
     private fun downscaleToJpeg(bytes: ByteArray): ByteArray? {
         val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return null
-        val maxDim = 1568
-        val scale = minOf(1f, maxDim.toFloat() / maxOf(bmp.width, bmp.height))
-        val out = if (scale < 1f) android.graphics.Bitmap.createScaledBitmap(
-            bmp, (bmp.width * scale).toInt().coerceAtLeast(1), (bmp.height * scale).toInt().coerceAtLeast(1), true
-        ) else bmp
-        val baos = java.io.ByteArrayOutputStream()
-        out.compress(android.graphics.Bitmap.CompressFormat.JPEG, 82, baos)
-        return baos.toByteArray()
+        var out: android.graphics.Bitmap? = null
+        return try {
+            val maxDim = 1568
+            val scale = minOf(1f, maxDim.toFloat() / maxOf(bmp.width, bmp.height))
+            val target = if (scale < 1f) android.graphics.Bitmap.createScaledBitmap(
+                bmp, (bmp.width * scale).toInt().coerceAtLeast(1), (bmp.height * scale).toInt().coerceAtLeast(1), true
+            ).also { out = it } else bmp
+            val baos = java.io.ByteArrayOutputStream()
+            target.compress(android.graphics.Bitmap.CompressFormat.JPEG, 82, baos)
+            baos.toByteArray()
+        } finally {
+            out?.takeIf { !it.isRecycled }?.recycle()
+            if (!bmp.isRecycled) bmp.recycle()
+        }
     }
 
     fun send(
@@ -768,7 +804,7 @@ class Store(private val ctx: Context) {
         o.put("skillsSeeded", skillsSeeded)
         o.put("approvals", JSONArray(pendingApprovals.map {
             JSONObject().put("id", it.id).put("chatId", it.chatId).put("botId", it.botId)
-                .put("command", it.command).put("createdMs", it.createdMs)
+                .put("command", it.command).put("createdMs", it.createdMs).put("toolName", it.toolName)
         }))
         o.put("groups", JSONArray(groups.map {
             JSONObject().put("id", it.id).put("name", it.name).put("members", JSONArray(it.memberIds))
@@ -876,7 +912,7 @@ class Store(private val ctx: Context) {
             o.optJSONArray("approvals")?.let { a ->
                 for (i in 0 until a.length()) a.getJSONObject(i).let {
                     pendingApprovals.add(Approval(it.getString("id"), it.optString("chatId"), it.optString("botId"),
-                        it.optString("command"), it.optLong("createdMs", 0)))
+                        it.optString("command"), it.optLong("createdMs", 0), it.optString("toolName", "shell").ifBlank { "shell" }))
                 }
             }
             o.optJSONArray("groups")?.let { a ->
@@ -935,4 +971,14 @@ class Store(private val ctx: Context) {
             }
         }
     }
+}
+
+/** Computes a unique duplicate Bot name without looping: "X 副本", "X 副本 2", "X 副本 3", ... */
+internal fun nextDuplicateName(sourceName: String, existingNames: Set<String>): String {
+    val base = sourceName.replace(Regex("""\s+副本(?:\s+\d+)?$"""), "").ifBlank { sourceName }
+    val first = "$base 副本"
+    if (first !in existingNames) return first
+    var n = 2
+    while ("$base 副本 $n" in existingNames) n++
+    return "$base 副本 $n"
 }

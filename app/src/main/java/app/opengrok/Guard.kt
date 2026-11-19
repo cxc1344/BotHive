@@ -47,7 +47,15 @@ object Guard {
             while (toks.isNotEmpty() && toks[0] in WRAPPERS) toks.removeAt(0)
             if (toks.isEmpty()) continue
             val c = toks[0].substringAfterLast('/')
-            if (c in setOf("cd", "pushd", "popd")) return "不允许切换工作目录"
+            if (c in setOf("pushd", "popd")) return "不允许切换工作目录"
+            if (c == "cd") {
+                val cdTargets = toks.drop(1).filter { !it.startsWith("-") }.map { it.trim('"', '\'') }
+                if (allowDir == null || cdTargets.isEmpty()) return "不允许切换工作目录"
+                for (t in cdTargets) {
+                    if (t == "-" || t.startsWith("~") || t.split('/').contains("..")) return "不允许切换工作目录到上级或外部路径:$t"
+                    if (badPath(t, allowDir)) return "不允许切换工作目录到工作区外:$t"
+                }
+            }
             if (c in setOf("reboot", "shutdown", "poweroff", "halt")) return "关机/重启命令"
             val args = toks.drop(1)
             val flags = args.filter { it.startsWith("-") }
@@ -73,10 +81,16 @@ object Guard {
     private fun badPath(raw: String, allowDir: String?): Boolean {
         if (allowDir == null && !File(raw).isAbsolute) return false
         return try {
-            val candidate = if (allowDir == null || File(raw).isAbsolute) {
-                File(raw)
+            val mapped = when {
+                allowDir == null -> raw
+                raw == "/workspace" -> allowDir
+                raw.startsWith("/workspace/") -> File(allowDir, raw.removePrefix("/workspace/")).path
+                else -> raw
+            }
+            val candidate = if (allowDir == null || File(mapped).isAbsolute) {
+                File(mapped)
             } else {
-                File(File(allowDir).canonicalFile, raw)
+                File(File(allowDir).canonicalFile, mapped)
             }
             val target = candidate.canonicalFile.toPath()
 
