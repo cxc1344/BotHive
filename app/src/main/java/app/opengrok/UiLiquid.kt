@@ -48,11 +48,17 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -125,62 +131,99 @@ private fun RowScope.TabItems(
 }
 
 private fun DrawScope.drawLiquidDrop(
-    l: Float, r: Float, alpha: Float, press: Float, baseW: Float, liquid: Boolean, layered: Boolean, accent: Color
+    l: Float,
+    r: Float,
+    alpha: Float,
+    press: Float,
+    baseW: Float,
+    liquid: Boolean,
+    layered: Boolean,
+    accent: Color,
+    trackTopLeft: Offset,
+    dropShader: android.graphics.RuntimeShader?,
+    dropBrush: ShaderBrush?
 ) {
-    if (alpha <= 0.01f || r <= l) return
+    if (AppBackdrop.isCapturing || alpha <= 0.01f || r <= l) return
     val stretch = if (baseW > 1f) ((r - l) / baseW - 1f).coerceIn(0f, 0.9f) else 0f
     val squash = if (liquid) 1f - 0.12f * stretch else 1f
-    val swell = press * 2.4.dp.toPx()
+    val swell = press * 2.6.dp.toPx()
     val h = size.height * squash + swell
     val top = (size.height - h) / 2f
     val x = l - swell * 0.85f
     val w = (r - l) + swell * 1.7f
     val cr = CornerRadius(h / 2f, h / 2f)
-    if (layered) {
-        drawRoundRect(
-            color = Color.Black.copy(alpha = 0.26f * alpha), topLeft = Offset(x + 0.5.dp.toPx(), top + 2.dp.toPx()),
-            size = Size(w, h), cornerRadius = cr
-        )
+
+    var drewRealLens = false
+    if (liquid && dropShader != null && dropBrush != null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+        @Suppress("UNUSED_VARIABLE")
+        val tick = AppBackdrop.frameTick.intValue
+        val frame = AppBackdrop.currentFrame()
+        if (frame != null && !frame.bitmap.isRecycled) {
+            val padPx = 3.dp.toPx()
+            val dropTopLeft = trackTopLeft + Offset(padPx + x, padPx + top)
+            val ok = runCatching {
+                val radiusPx = h * 0.5f
+                val t = ImmersiveThickness.THIN
+                dropShader.setFloatUniform("uSize", w, h)
+                dropShader.setFloatUniform("uRadius", radiusPx)
+                dropShader.setFloatUniform("uBackdropSize", frame.bitmap.width.toFloat(), frame.bitmap.height.toFloat())
+                dropShader.setFloatUniform("uBackdropScale", frame.scaleX, frame.scaleY)
+                dropShader.setFloatUniform("uSurfaceTopLeft", dropTopLeft.x, dropTopLeft.y)
+                dropShader.setFloatUniform("uZoom", 1.24f + press * 0.08f)
+                dropShader.setFloatUniform("uEdgePx", t.edgePx)
+                dropShader.setFloatUniform("uRefractPx", t.edgePx * 1.65f)
+                dropShader.setFloatUniform("uDispersionPx", t.dispersionPx * (1.15f + press * 0.35f))
+                dropShader.setFloatUniform("uBlurRadius", 0.5f)
+                dropShader.setFloatUniform("uVeil", 0.015f)
+                dropShader.setFloatUniform("uTintR", 255f)
+                dropShader.setFloatUniform("uTintG", 255f)
+                dropShader.setFloatUniform("uTintB", 255f)
+                dropShader.setFloatUniform("uTintA", 0.03f)
+                dropShader.setFloatUniform("uLightX", -0.55f)
+                dropShader.setFloatUniform("uLightY", -0.85f)
+                dropShader.setFloatUniform("uSpec", t.specStrength * (1.05f + press * 0.65f))
+                dropShader.setFloatUniform("uGlowBoost", press)
+                dropShader.setFloatUniform("uTime", (System.nanoTime() / 1_000_000_000f) % 60f)
+                dropShader.setInputShader("uBackdrop", frame.shader)
+                true
+            }.onFailure { BackdropLens.logShaderFailureOnce("drop-uniforms", it) }.getOrDefault(false)
+            if (ok) {
+                val path = Path().apply { addRoundRect(RoundRect(0f, 0f, w, h, h * 0.5f, h * 0.5f)) }
+                translate(left = x, top = top) {
+                    clipPath(path) {
+                        drawRect(dropBrush, topLeft = Offset.Zero, size = Size(w, h), alpha = alpha)
+                    }
+                }
+                drewRealLens = true
+            }
+        }
     }
-    // HarmonyOS NEXT Immersive Light translucent crystal pill tinted subtly with active theme accent.
-    drawRoundRect(
-        brush = Brush.verticalGradient(
-            listOf(Color.White.copy(alpha = 0.20f), accent.copy(alpha = 0.22f), Color(0xFF282826).copy(alpha = 0.68f)),
-            startY = top, endY = top + h
-        ),
-        topLeft = Offset(x, top), size = Size(w, h), cornerRadius = cr, alpha = alpha
-    )
-    if (layered) {
-        // Inner Fresnel optical glow + interactive press light expansion.
-        val glowBoost = 1f + press * 0.45f
+
+    if (!drewRealLens) {
+        // Fallback (API < 33 or Medium/Off): ultra-clear translucent glass pill (no muddy opaque grey block).
         drawRoundRect(
             brush = Brush.verticalGradient(
-                listOf(Color.White.copy(alpha = (0.28f * glowBoost).coerceAtMost(0.45f)), Color.White.copy(alpha = 0.04f)),
+                listOf(Color.White.copy(alpha = 0.16f), Color.White.copy(alpha = 0.05f), Color.Black.copy(alpha = 0.14f)),
                 startY = top, endY = top + h
             ),
             topLeft = Offset(x, top), size = Size(w, h), cornerRadius = cr, alpha = alpha
         )
+    }
+
+    if (layered) {
+        // Crisp perimeter optical edge rim only (no fake solid fill or center white spot).
+        val boost = 1f + press * 0.45f
         drawRoundRect(
             brush = Brush.verticalGradient(
-                listOf(Color.White.copy(alpha = 0.42f * alpha), accent.copy(alpha = 0.30f * alpha), Color.White.copy(alpha = 0.12f * alpha)),
+                listOf(
+                    Color.White.copy(alpha = (0.52f * alpha * boost).coerceAtMost(0.85f)),
+                    Color(0xFFAAD8FF).copy(alpha = 0.18f * alpha),
+                    Color.White.copy(alpha = (0.34f * alpha * boost).coerceAtMost(0.65f))
+                ),
                 startY = top, endY = top + h
             ),
             topLeft = Offset(x, top), size = Size(w, h),
-            cornerRadius = cr, style = Stroke(1.1.dp.toPx())
-        )
-        drawRoundRect(
-            brush = Brush.horizontalGradient(
-                listOf(Color.Transparent, Color.White.copy(alpha = (0.68f * alpha * glowBoost).coerceAtMost(0.9f)), Color.Transparent),
-                startX = x, endX = x + w
-            ),
-            topLeft = Offset(x + h * 0.26f, top + 1.4.dp.toPx()), size = Size(max(1f, w - h * 0.52f), 1.3.dp.toPx()),
-            cornerRadius = CornerRadius(1f, 1f)
-        )
-    }
-    if (liquid) {
-        drawOval(
-            color = Color.White.copy(alpha = (0.20f + press * 0.12f) * alpha),
-            topLeft = Offset(x + h * 0.38f, top + h * 0.14f), size = Size(h * 0.62f, h * 0.22f)
+            cornerRadius = cr, style = Stroke(1.0.dp.toPx())
         )
     }
 }
@@ -349,8 +392,18 @@ fun LiquidSegmented(
     }
 
     val accent = ThemeAccent
+    var trackTopLeft by remember { mutableStateOf(Offset.Zero) }
+    val dropShader = remember(tier.shader) {
+        if (tier.shader && BackdropLens.supported()) {
+            runCatching { BackdropLens.newShader() }
+                .onFailure { BackdropLens.logShaderFailureOnce("drop-compile", it) }
+                .getOrNull()
+        } else null
+    }
+    val dropBrush = remember(dropShader) { dropShader?.let { ShaderBrush(it) } }
     val trackMod = modifier.height(height)
-        .harmonyGlass(thickness = ImmersiveThickness.THIN, radius = 999.dp, fallbackBg = Card, glowBoost = press.value)
+        .onGloballyPositioned { trackTopLeft = it.localToRoot(Offset.Zero) }
+        .harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = Card, glowBoost = press.value)
     val innerH = height - 6.dp
     val sizeMod = if (scrollable) Modifier.height(innerH) else Modifier.fillMaxSize()
 
@@ -372,7 +425,7 @@ fun LiquidSegmented(
                     if (!dc.isNaN()) {
                         l = dc - baseW / 2f; r = dc + baseW / 2f
                     }
-                    drawLiquidDrop(l, r, shown.value, press.value, baseW, liquid, layered, accent)
+                    drawLiquidDrop(l, r, shown.value, press.value, baseW, liquid, layered, accent, trackTopLeft, dropShader, dropBrush)
                 }
         ) {
             Row(sizeMod) { TabItems(options, Sub, scrollable, fontSize, itemPadding, bounds) }

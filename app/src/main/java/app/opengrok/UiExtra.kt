@@ -16,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
@@ -97,15 +98,14 @@ fun SettingsScreen(store: Store, go: (Screen) -> Unit) {
     val results = remember { mutableStateMapOf<String, List<Pair<Boolean, String>>>() }
     val running = remember { mutableStateListOf<String>() }
     val fmt = remember { SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()) }
-    Column(Modifier.fillMaxSize()) {
-        // Top bar: back left, serif centred title (STUDY §2.8).
-        Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { go(Screen.Home) }) { Icon(Ic.Back, null, tint = Fg) }
-            Text("设置", style = HiveSerif.SheetTitle(), modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
-            Spacer(Modifier.width(48.dp))
-        }
+    val scrollState = rememberScrollState()
+    val headerBlurFraction by remember(scrollState) {
+        derivedStateOf { ((scrollState.value - 8f) / 48f).coerceIn(0f, 1f) }
+    }
+    Box(Modifier.fillMaxSize()) {
         Column(
-            Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp),
+            Modifier.fillMaxSize().verticalScroll(scrollState)
+                .padding(start = 20.dp, end = 20.dp, top = 68.dp, bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             store.persistenceError.value?.let {
@@ -261,6 +261,29 @@ fun SettingsScreen(store: Store, go: (Screen) -> Unit) {
             Spacer(Modifier.height(8.dp))
             Text("BotHive 0.6.2", color = Sub, fontSize = 12.sp)
             Spacer(Modifier.height(16.dp))
+        }
+        Row(
+            Modifier.align(Alignment.TopCenter).fillMaxWidth()
+                .drawWithContent {
+                    if (!AppBackdrop.isCapturing && headerBlurFraction > 0.01f) {
+                        drawRect(
+                            Brush.verticalGradient(
+                                0f to Bg.copy(alpha = 0.70f * headerBlurFraction),
+                                0.72f to Bg.copy(alpha = 0.24f * headerBlurFraction),
+                                1f to Color.Transparent
+                            )
+                        )
+                    }
+                    drawContent()
+                }
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(Modifier.size(40.dp).harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = Card)) {
+                IconButton(onClick = { go(Screen.Home) }, modifier = Modifier.fillMaxSize()) { Icon(Ic.Back, null, tint = Fg, modifier = Modifier.size(20.dp)) }
+            }
+            Text("设置", style = HiveSerif.SheetTitle(), modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
+            Spacer(Modifier.width(40.dp))
         }
     }
 }

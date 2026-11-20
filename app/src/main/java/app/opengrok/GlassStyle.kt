@@ -34,11 +34,11 @@ enum class ImmersiveThickness(
     val veilAlpha: Float,
     val specStrength: Float
 ) {
-    ULTRA_THIN(blurRadius = 1.0f, edgePx = 12.0f, dispersionPx = 2.0f, veilAlpha = 0.04f, specStrength = 0.85f),
-    THIN(blurRadius = 2.2f, edgePx = 16.0f, dispersionPx = 3.2f, veilAlpha = 0.08f, specStrength = 1.00f),
-    REGULAR(blurRadius = 6.0f, edgePx = 20.0f, dispersionPx = 4.5f, veilAlpha = 0.26f, specStrength = 1.08f),
-    THICK(blurRadius = 16.0f, edgePx = 24.0f, dispersionPx = 5.8f, veilAlpha = 0.56f, specStrength = 1.18f),
-    ULTRA_THICK(blurRadius = 28.0f, edgePx = 30.0f, dispersionPx = 7.0f, veilAlpha = 0.80f, specStrength = 1.30f)
+    ULTRA_THIN(blurRadius = 0.4f, edgePx = 14.0f, dispersionPx = 3.6f, veilAlpha = 0.02f, specStrength = 0.65f),
+    THIN(blurRadius = 1.2f, edgePx = 18.0f, dispersionPx = 5.2f, veilAlpha = 0.04f, specStrength = 0.78f),
+    REGULAR(blurRadius = 5.5f, edgePx = 22.0f, dispersionPx = 6.4f, veilAlpha = 0.24f, specStrength = 0.90f),
+    THICK(blurRadius = 16.0f, edgePx = 26.0f, dispersionPx = 7.6f, veilAlpha = 0.56f, specStrength = 1.02f),
+    ULTRA_THICK(blurRadius = 28.0f, edgePx = 30.0f, dispersionPx = 8.8f, veilAlpha = 0.80f, specStrength = 1.15f)
 }
 
 enum class GlassTier {

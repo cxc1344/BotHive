@@ -20,6 +20,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -153,51 +155,98 @@ fun AgentChatScreen(store: Store, go: (Screen) -> Unit) {
         }
         return
     }
-    Column(Modifier.fillMaxSize()) {
-        AppTopBar(store, "agent", go)
-        ChatSubHeader(AGENT_ID, false, store.title(AGENT_ID), store.subtitle(AGENT_ID)) {
-            ExportButton(store, AGENT_ID)
-            HeaderPill("新对话", Ic.Add, enabled = !busy && msgs.isNotEmpty()) { store.newAgentSession() }
-            IconButton(onClick = { go(Screen.AgentSettings) }) { Icon(Ic.Tune, null, tint = Fg) }
+    // HarmonyOS Immersive Light STACK architecture: Agent chat content scrolls underneath
+    // the floating top bar / mode capsule and bottom composer for real-time glass refraction.
+    val headerBlurFraction by remember(listState) {
+        derivedStateOf {
+            when {
+                listState.firstVisibleItemIndex > 0 -> 1f
+                else -> ((listState.firstVisibleItemScrollOffset - 8f) / 48f).coerceIn(0f, 1f)
+            }
         }
-        HorizontalDivider(color = Line)
-        ApprovalCards(store, AGENT_ID)
-        Box(Modifier.weight(1f)) {
-            LazyColumn(
-                state = listState, modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                items(msgs, key = { it.id }) { m ->
-                    if (GlassStyle.tier.value.motion) {
-                        var appeared by remember(m.id) { mutableStateOf(false) }
-                        LaunchedEffect(m.id) { appeared = true }
-                        androidx.compose.animation.AnimatedVisibility(
-                            visible = appeared,
-                            enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(GlassMotion.itemEnter())) +
-                                androidx.compose.animation.slideInVertically(androidx.compose.animation.core.tween(GlassMotion.itemEnter())) { it / 6 }
-                        ) {
-                            MsgView(store, m, showName = false, thinking = busy && m.id == msgs.last().id, go = go, chatId = AGENT_ID)
-                        }
-                    } else {
+    }
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 118.dp, bottom = 96.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            items(msgs, key = { it.id }) { m ->
+                if (GlassStyle.tier.value.motion) {
+                    var appeared by remember(m.id) { mutableStateOf(false) }
+                    LaunchedEffect(m.id) { appeared = true }
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = appeared,
+                        enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(GlassMotion.itemEnter())) +
+                            androidx.compose.animation.slideInVertically(androidx.compose.animation.core.tween(GlassMotion.itemEnter())) { it / 6 }
+                    ) {
                         MsgView(store, m, showName = false, thinking = busy && m.id == msgs.last().id, go = go, chatId = AGENT_ID)
                     }
+                } else {
+                    MsgView(store, m, showName = false, thinking = busy && m.id == msgs.last().id, go = go, chatId = AGENT_ID)
                 }
             }
-            if (msgs.isEmpty()) EmptyChatHint("新对话已就绪", "让 Agent 帮你整理手机文件、查看状态与通知、操作屏幕，或把活派给云端 Bot。")
         }
-        AttachChips(staged) { staged.remove(it) }
-        ChatComposer(
-            value = input, onValueChange = { input = it },
-            hint = "吩咐 Agent 做点什么…", busy = busy,
-            canSend = (input.isNotBlank() || staged.isNotEmpty()) && agent != null,
-            onPickFiles = pickFiles,
-            onSend = {
-                store.sendAgent(input.trim(), staged.toList())
-                input = ""
-                staged.clear()
-            },
-            onStop = { store.stopChat(AGENT_ID) }
-        )
+        if (msgs.isEmpty()) EmptyChatHint("新对话已就绪", "让 Agent 帮你整理手机文件、查看状态与通知、操作屏幕，或把活派给云端 Bot。")
+
+        Column(
+            Modifier.align(Alignment.TopCenter).fillMaxWidth()
+                .drawWithContent {
+                    if (!AppBackdrop.isCapturing && headerBlurFraction > 0.01f) {
+                        drawRect(
+                            Brush.verticalGradient(
+                                0f to Bg.copy(alpha = 0.64f * headerBlurFraction),
+                                0.72f to Bg.copy(alpha = 0.22f * headerBlurFraction),
+                                1f to Color.Transparent
+                            )
+                        )
+                    }
+                    drawContent()
+                }
+        ) {
+            AppTopBar(store, "agent", go)
+            ChatSubHeader(AGENT_ID, false, store.title(AGENT_ID), store.subtitle(AGENT_ID)) {
+                ExportButton(store, AGENT_ID)
+                Spacer(Modifier.width(6.dp))
+                HeaderPill("新对话", Ic.Add, enabled = !busy && msgs.isNotEmpty()) { store.newAgentSession() }
+                Spacer(Modifier.width(6.dp))
+                Box(Modifier.size(36.dp).harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = Card)) {
+                    IconButton(onClick = { go(Screen.AgentSettings) }, modifier = Modifier.fillMaxSize()) { Icon(Ic.Tune, null, tint = Fg, modifier = Modifier.size(18.dp)) }
+                }
+            }
+            ApprovalCards(store, AGENT_ID)
+        }
+
+        Column(
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                .drawWithContent {
+                    if (!AppBackdrop.isCapturing) {
+                        drawRect(
+                            Brush.verticalGradient(
+                                0f to Color.Transparent,
+                                0.35f to Bg.copy(alpha = 0.25f),
+                                1f to Bg.copy(alpha = 0.72f)
+                            )
+                        )
+                    }
+                    drawContent()
+                }
+        ) {
+            AttachChips(staged) { staged.remove(it) }
+            ChatComposer(
+                value = input, onValueChange = { input = it },
+                hint = "吩咐 Agent 做点什么…", busy = busy,
+                canSend = (input.isNotBlank() || staged.isNotEmpty()) && agent != null,
+                onPickFiles = pickFiles,
+                onSend = {
+                    store.sendAgent(input.trim(), staged.toList())
+                    input = ""
+                    staged.clear()
+                },
+                onStop = { store.stopChat(AGENT_ID) }
+            )
+        }
     }
 }
 

@@ -176,51 +176,52 @@ half4 main(float2 xy) {
     float push = meniscus * uRefractPx;
     float2 sampleLocal = fromCenter + c - n * push;
 
-    // ---- 3. Blur & prism RGB chromatic dispersion along the wet meniscus ----
-    // Thick tiers keep full blur across the interior so drawer/sheet text is never readable through it.
-    float blurHere = uBlurRadius * mix(1.0, (uVeil > 0.45 ? 0.92 : 0.45), depth);
+    // ---- 3. Blur & strong real RGB chromatic dispersion in the refractive bevel ----
+    // Thin tiers stay crystal-clear inside; thick tiers keep full blur to prevent text bleed.
+    float blurHere = uBlurRadius * mix(1.0, (uVeil > 0.45 ? 0.94 : 0.20), depth);
     half4 g = sampleBackdropBlurred(sampleLocal, blurHere);
     half4 outC = g;
+    half3 dispersionDelta = half3(0.0);
     if (uDispersionPx > 0.0) {
-        float2 shift = n * uDispersionPx * (0.20 + 0.80 * band * band);
-        half4 rr = sampleBackdropBlurred(sampleLocal - shift, blurHere * 0.85);
-        half4 bb = sampleBackdropBlurred(sampleLocal + shift, blurHere * 0.85);
+        // Real chromatic aberration: R and B split opposite ways along the normal in the bevel band.
+        float dispWeight = 0.12 + 0.88 * band * band;
+        float2 shift = n * uDispersionPx * dispWeight;
+        half4 rr = sampleBackdropBlurred(sampleLocal - shift * 1.25, blurHere * 0.75);
+        half4 bb = sampleBackdropBlurred(sampleLocal + shift * 1.25, blurHere * 0.75);
         outC = half4(rr.r, g.g, bb.b, g.a);
+        // Measure real spectral separation at high-contrast edges to accentuate true optical prism fringe.
+        dispersionDelta = half3(abs(rr.r - g.g), 0.0, abs(bb.b - g.g)) * half(band * 0.85);
     }
 
-    // ---- 4. Pure lens clarity on thin tiers vs opaque-frosted dark veil on thick tiers ----
-    float clarityFactor = 1.0 - smoothstep(0.20, 0.75, uVeil);
-    outC.rgb = applyVibrancy(outC.rgb, 1.18 + clarityFactor * 0.14 + uGlowBoost * 0.12, 0.015 * clarityFactor);
+    // ---- 4. Crystal-clear interior on thin tiers vs opaque-frosted dark veil on thick tiers ----
+    float clarityFactor = 1.0 - smoothstep(0.18, 0.72, uVeil);
+    outC.rgb = applyVibrancy(outC.rgb, 1.16 + clarityFactor * 0.18 + uGlowBoost * 0.12, 0.010 * clarityFactor);
+    outC.rgb += dispersionDelta;
     half3 tintCol = half3(uTintR / 255.0, uTintG / 255.0, uTintB / 255.0);
-    // Neutral dark frosted veil scales cleanly up to 0.84 on ULTRA_THICK so Drawer/Sheet never bleed text.
-    float veilMix = clamp(uVeil * 0.96 + uTintA * 0.20, 0.0, 0.86);
+    // Thin tiers apply almost zero veil so underlying content stays crystal-clear; ULTRA_THICK reaches 0.84.
+    float veilMix = clamp(uVeil * 0.96 + uTintA * (0.06 + 0.24 * (1.0 - clarityFactor)), 0.0, 0.86);
     outC.rgb = mix(outC.rgb, tintCol, half(veilMix));
 
-    // ---- 5. Wet water-droplet optics: crisp meniscus specular + bottom caustic glow ----
+    // ---- 5. True optical Fresnel edge light (perimeter-only, NO fake flat center white blob) ----
     float2 L = normalize(float2(uLightX, uLightY));
     float2 L2 = -L;
-    float rimWide = smoothstep(-6.0, -0.35, sdf);
-    float rimHair = smoothstep(-2.0, -0.20, sdf);
-    // Crisp high-exponent specular for glossy "wet water" surface tension
-    float wetTop = pow(max(dot(n, L), 0.0), 6.0) * rimWide;
-    float wetTopSharp = pow(max(dot(n, L), 0.0), 14.0) * rimHair;
-    // Bottom caustic: light refracting through the water body concentrates at the opposite rim
-    float bottomCaustic = pow(max(dot(n, L2), 0.0), 3.2) * rimWide;
+    float rimBevel = smoothstep(-5.5, -0.35, sdf);
+    float rimHair = smoothstep(-1.6, -0.15, sdf);
+    float primaryRim = pow(max(dot(n, L), 0.0), 4.5) * rimBevel;
+    float oppositeRim = pow(max(dot(n, L2), 0.0), 3.0) * rimBevel;
+    float tangentRim = pow(1.0 - abs(dot(n, L)), 3.0) * rimHair;
 
-    // Gentle liquid shimmer flowing around the rim
+    // Optical edge light with subtle spectral dispersion tint along the physical bevel
     float flowAngle = atan(p.y, p.x);
-    float shimmer = 0.55 + 0.45 * sin(flowAngle * 2.0 - uTime * 1.1);
-    float topGlint = (wetTop * (0.75 + 0.35 * shimmer) + wetTopSharp * 0.95) * uSpec;
+    float shimmer = 0.65 + 0.35 * sin(flowAngle * 2.0 - uTime * 1.15);
+    float boost = 1.0 + uGlowBoost * 0.65;
 
-    // Glossy top-left water sheen arc inside the dome
-    float drift = sin(uTime * 0.6) * 0.06 + uGlowBoost * 0.15;
-    float2 sheenCenter = L * minHalf * (0.34 + drift);
-    float sheenSpot = 1.0 - smoothstep(0.0, minHalf * (0.46 + uGlowBoost * 0.28), length(p - sheenCenter));
-    float wetPool = pow(sheenSpot, 2.4) * uSpec * (0.24 + clarityFactor * 0.14 + uGlowBoost * 0.42);
-
-    outC.rgb += half3(0.97, 0.99, 1.00) * half(topGlint * 0.58 + wetPool * 0.42);
-    outC.rgb += half3(0.84, 0.93, 1.00) * half(bottomCaustic * uSpec * (0.26 + clarityFactor * 0.14));
-    outC.rgb += half3(1.00, 1.00, 1.00) * half(rimHair * (0.16 + uGlowBoost * 0.24));
+    // Warm-to-cool prismatic edge light around the curved glass rim
+    outC.rgb += half3(1.00, 0.96, 0.92) * half(primaryRim * uSpec * shimmer * 0.62 * boost);
+    outC.rgb += half3(0.74, 0.90, 1.00) * half(oppositeRim * uSpec * (0.34 + clarityFactor * 0.18) * boost);
+    // Subtle spectral edge refraction sheen on the grazing rim
+    outC.rgb += half3(0.95, 0.86, 1.00) * half(tangentRim * uSpec * 0.22 * boost);
+    outC.rgb += half3(1.00, 1.00, 1.00) * half(rimHair * (0.20 + uGlowBoost * 0.26));
 
     return half4(clamp(outC.rgb, half3(0.0), half3(1.0)), half(1.0));
 }
@@ -349,7 +350,7 @@ fun Modifier.backdropLens(
                     shader.setFloatUniform("uSurfaceTopLeft", surfaceTopLeft.x, surfaceTopLeft.y)
                     shader.setFloatUniform("uZoom", zoom)
                     shader.setFloatUniform("uEdgePx", thickness.edgePx)
-                    shader.setFloatUniform("uRefractPx", thickness.edgePx * 1.35f)
+                    shader.setFloatUniform("uRefractPx", thickness.edgePx * 1.55f)
                     shader.setFloatUniform("uDispersionPx", thickness.dispersionPx)
                     shader.setFloatUniform("uBlurRadius", thickness.blurRadius)
                     shader.setFloatUniform("uVeil", thickness.veilAlpha)

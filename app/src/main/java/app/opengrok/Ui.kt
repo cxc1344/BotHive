@@ -40,6 +40,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -348,73 +349,123 @@ fun ChatScreen(store: Store, id: String, go: (Screen) -> Unit) {
     LaunchedEffect(msgs.size, last?.tools?.size, last?.text) {
         if (msgs.isNotEmpty() && atBottom) listState.animateScrollToItem(msgs.lastIndex)
     }
-    Column(Modifier.fillMaxSize()) {
-        AppTopBar(store, "bot", go)
-        ChatSubHeader(id, !isBot, store.title(id), store.subtitle(id)) {
-            ExportButton(store, id)
-            if (isBot) {
-                IconButton(onClick = { confirm = true }) { Icon(Ic.Refresh, null, tint = Fg) }
-                IconButton(onClick = { go(Screen.EditBot(id.removePrefix("bot:"))) }) { Icon(Ic.Edit, null, tint = Fg) }
+    // HarmonyOS Immersive Light STACK architecture: chat list scrolls cleanly underneath
+    // the floating ULTRA_THIN top bar / mode capsule and THIN bottom composer so live text
+    // and bubbles refract with true RGB edge dispersion as they pass behind the glass.
+    val headerBlurFraction by remember(listState) {
+        derivedStateOf {
+            when {
+                listState.firstVisibleItemIndex > 0 -> 1f
+                else -> ((listState.firstVisibleItemScrollOffset - 8f) / 48f).coerceIn(0f, 1f)
             }
         }
-        HorizontalDivider(color = Line)
-        ApprovalCards(store, id)
-        Box(Modifier.weight(1f)) {
-            LazyColumn(
-                state = listState, modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                items(msgs, key = { it.id }) { m ->
-                    // Each message eases in once; existing rows are untouched when new ones arrive.
-                    // Off tier: render flat, no entrance animation.
-                    if (GlassStyle.tier.value.motion) {
-                        var appeared by remember(m.id) { mutableStateOf(false) }
-                        LaunchedEffect(m.id) { appeared = true }
-                        RowEnter(appeared) {
-                            MsgView(store, m, showName = !isBot, thinking = busy && m.id == msgs.last().id, go = go, chatId = id)
-                        }
-                    } else {
+    }
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                start = 16.dp, end = 16.dp,
+                top = 118.dp,
+                bottom = if (readOnly) 24.dp else 96.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            items(msgs, key = { it.id }) { m ->
+                if (GlassStyle.tier.value.motion) {
+                    var appeared by remember(m.id) { mutableStateOf(false) }
+                    LaunchedEffect(m.id) { appeared = true }
+                    RowEnter(appeared) {
                         MsgView(store, m, showName = !isBot, thinking = busy && m.id == msgs.last().id, go = go, chatId = id)
+                    }
+                } else {
+                    MsgView(store, m, showName = !isBot, thinking = busy && m.id == msgs.last().id, go = go, chatId = id)
+                }
+            }
+        }
+        if (msgs.isEmpty()) EmptyChatHint("开始对话", "在下方输入消息，Bot 会在自己的沙盒里干活；点工具调用可查看每一步。")
+
+        // Floating top bar: GRADUAL_BLUR-style scrim fades in smoothly as content scrolls under (8..56px).
+        Column(
+            Modifier.align(Alignment.TopCenter).fillMaxWidth()
+                .drawWithContent {
+                    if (!AppBackdrop.isCapturing && headerBlurFraction > 0.01f) {
+                        drawRect(
+                            Brush.verticalGradient(
+                                0f to Bg.copy(alpha = 0.64f * headerBlurFraction),
+                                0.72f to Bg.copy(alpha = 0.22f * headerBlurFraction),
+                                1f to Color.Transparent
+                            )
+                        )
+                    }
+                    drawContent()
+                }
+        ) {
+            AppTopBar(store, "bot", go)
+            ChatSubHeader(id, !isBot, store.title(id), store.subtitle(id)) {
+                ExportButton(store, id)
+                if (isBot) {
+                    Spacer(Modifier.width(6.dp))
+                    Box(Modifier.size(36.dp).harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = Card)) {
+                        IconButton(onClick = { confirm = true }, modifier = Modifier.fillMaxSize()) { Icon(Ic.Refresh, null, tint = Fg, modifier = Modifier.size(18.dp)) }
+                    }
+                    Spacer(Modifier.width(6.dp))
+                    Box(Modifier.size(36.dp).harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = Card)) {
+                        IconButton(onClick = { go(Screen.EditBot(id.removePrefix("bot:"))) }, modifier = Modifier.fillMaxSize()) { Icon(Ic.Edit, null, tint = Fg, modifier = Modifier.size(18.dp)) }
                     }
                 }
             }
-            if (msgs.isEmpty()) EmptyChatHint("开始对话", "在下方输入消息，Bot 会在自己的沙盒里干活；点工具调用可查看每一步。")
+            ApprovalCards(store, id)
         }
+
         if (!readOnly) {
-            AttachChips(staged) { staged.remove(it) }
-            // Claude-style composer: capsule at rest, two-row card while the keyboard is up.
-            ChatComposer(
-                value = input,
-                onValueChange = { input = it },
-                hint = if (isManager && projectMode) "下达任务,总经理先出分工方案…" else "发消息…",
-                busy = busy,
-                canSend = input.isNotBlank() || staged.isNotEmpty(),
-                onPickFiles = pickFiles,
-                extraChip = {
-                    // Mode chip lives in the composer's second row (only shown when the manager
-                    // chat can actually start projects — honest copy, real toggle).
-                    if (isManager) {
-                        Box(
-                            Modifier.clip(RoundedCornerShape(UiTokens.RadiusChip))
-                                .background(if (projectMode) ThemeAccent.copy(alpha = 0.18f) else PILL)
-                                .clickable { projectMode = !projectMode }
-                                .padding(horizontal = 10.dp, vertical = 6.dp)
-                        ) {
-                            Text(
-                                if (projectMode) "立项模式" else "普通对话",
-                                color = if (projectMode) ThemeAccent else Sub, fontSize = 12.sp
+            Column(
+                Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                    .drawWithContent {
+                        if (!AppBackdrop.isCapturing) {
+                            drawRect(
+                                Brush.verticalGradient(
+                                    0f to Color.Transparent,
+                                    0.35f to Bg.copy(alpha = 0.25f),
+                                    1f to Bg.copy(alpha = 0.72f)
+                                )
                             )
                         }
+                        drawContent()
                     }
-                },
-                onSend = {
-                    if (isManager && projectMode && staged.isEmpty()) store.startProject(id, input.trim())
-                    else store.send(id, input.trim(), staged.toList())
-                    input = ""
-                    staged.clear()
-                },
-                onStop = { store.stopChat(id) }
-            )
+            ) {
+                AttachChips(staged) { staged.remove(it) }
+                ChatComposer(
+                    value = input,
+                    onValueChange = { input = it },
+                    hint = if (isManager && projectMode) "下达任务,总经理先出分工方案…" else "发消息…",
+                    busy = busy,
+                    canSend = input.isNotBlank() || staged.isNotEmpty(),
+                    onPickFiles = pickFiles,
+                    extraChip = {
+                        if (isManager) {
+                            Box(
+                                Modifier.clip(RoundedCornerShape(UiTokens.RadiusChip))
+                                    .background(if (projectMode) ThemeAccent.copy(alpha = 0.18f) else PILL)
+                                    .clickable { projectMode = !projectMode }
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
+                            ) {
+                                Text(
+                                    if (projectMode) "立项模式" else "普通对话",
+                                    color = if (projectMode) ThemeAccent else Sub, fontSize = 12.sp
+                                )
+                            }
+                        }
+                    },
+                    onSend = {
+                        if (isManager && projectMode && staged.isEmpty()) store.startProject(id, input.trim())
+                        else store.send(id, input.trim(), staged.toList())
+                        input = ""
+                        staged.clear()
+                    },
+                    onStop = { store.stopChat(id) }
+                )
+            }
         }
     }
     if (confirm) {
