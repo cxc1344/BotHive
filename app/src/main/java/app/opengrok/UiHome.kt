@@ -336,7 +336,8 @@ private fun HomeStatusPill(store: Store, onPickBot: (Bot?) -> Unit) {
     val working = store.busy.size + store.projects.count { it.stage in ACTIVE_STAGES }
     val defaultBot = store.bots.firstOrNull { "bot:${it.id}" == UiState.lastBotChat } ?: store.bots.firstOrNull()
     Row(
-        Modifier.pressBounce { onPickBot(defaultBot) }.clip(RoundedCornerShape(UiTokens.RadiusChip)).background(PILL)
+        Modifier.pressBounce { onPickBot(defaultBot) }
+            .harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = UiTokens.RadiusChip, fallbackBg = PILL)
             .padding(horizontal = 14.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -371,9 +372,7 @@ private fun HomeComposer(
     val keyboard = WindowInsets.ime.getBottom(density) > 0
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp).navigationBarsPadding()
-            .clip(RoundedCornerShape(28.dp))
-            .background(if (tier.glassLayers) Card.copy(alpha = 0.88f) else Card)
-            .glassSurface(tier = tier, radiusPx = radiusPx, tint = SheetGlassTint, thickness = ImmersiveThickness.REGULAR)
+            .harmonyGlass(thickness = ImmersiveThickness.THIN, radius = 28.dp, tint = SheetGlassTint, fallbackBg = Card)
             .padding(horizontal = 6.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {

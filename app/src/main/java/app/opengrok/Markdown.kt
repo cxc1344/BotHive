@@ -357,7 +357,7 @@ private fun MdTable(header: List<String>, rows: List<List<String>>, color: Color
     // Row measures independently and the columns drift out of line (the whole point of a table).
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
-            .background(BeePanelRaised).border(1.dp, Line, RoundedCornerShape(10.dp))
+            .harmonyGlass(thickness = ImmersiveThickness.REGULAR, radius = 12.dp, fallbackBg = BeePanelRaised)
     ) {
         Box(Modifier.horizontalScroll(rememberScrollState())) {
             Column {

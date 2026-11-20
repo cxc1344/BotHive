@@ -79,15 +79,16 @@ uniform float uEdgePx;
 uniform float uRefractPx;
 uniform float uDispersionPx;
 uniform float uTintA;
-uniform half4 uTint;
+uniform float uVeil;            // thickness veil alpha from ImmersiveThickness.veilAlpha
 uniform float uLightX;
 uniform float uLightY;
-uniform float uSpec;
+uniform float uSpec;            // specular intensity from ImmersiveThickness.specStrength
+uniform float uGlowBoost;       // live interactive boost (0..1) on press/drag
 uniform float uTime;
-uniform float uBlurRadius;      // Gaussian blur radius for frosted interior (0 = no blur)
-uniform float uTintR;           // warm tint R (0-255)
-uniform float uTintG;           // warm tint G (0-255)
-uniform float uTintB;           // warm tint B (0-255)
+uniform float uBlurRadius;      // Gaussian blur radius from ImmersiveThickness.blurRadius
+uniform float uTintR;           // tint R (0-255)
+uniform float uTintG;           // tint G (0-255)
+uniform float uTintB;           // tint B (0-255)
 uniform shader uBackdrop;
 
 const float SMOOTH = 1.5;
@@ -181,18 +182,20 @@ half4 main(float2 xy) {
     float depthForCurv = clamp(-sdf / max(minHalf * 0.35, 1.0), 0.0, 1.0);
     float curvature = 1.0 - depthForCurv;
     outC.rgb += half(curvature * curvature * 0.05);
-    // warm tint (slightly saturated, warmer than plain honey)
+    // optical veil + tint driven directly by ImmersiveThickness.veilAlpha
     half3 warmTint = half3(uTintR / 255.0, uTintG / 255.0, uTintB / 255.0);
-    outC.rgb = mix(outC.rgb, warmTint, half(uTintA * 0.35));
-    // specular rim + drifting pool
-    float rimBand = smoothstep(-4.0, -0.5, sdf);
+    outC.rgb = mix(outC.rgb, warmTint, half(clamp(uVeil + uTintA * 0.35, 0.0, 0.65)));
+    // specular rim + interactive light pool responding to uGlowBoost (press/drag)
+    float rimBand = smoothstep(-4.5, -0.4, sdf);
+    float innerEdge = smoothstep(-2.0, -0.3, sdf);
     float3 L3 = float3(L, 0.6);
-    float rimBase = pow(max(dot(float3(n, 0.0), L3), 0.0), 3.0) * rimBand;
-    float drift = sin(uTime * 0.7) * 0.06;
+    float rimBase = pow(max(dot(float3(n, 0.0), L3), 0.0), 2.6) * rimBand;
+    float drift = sin(uTime * 0.7) * 0.06 + uGlowBoost * 0.14;
     float2 focal = L * minHalf * (0.22 + drift);
-    float pool = 1.0 - smoothstep(0.0, minHalf * 0.5, length(p - focal));
-    float spec = rimBase * uSpec + pool * pool * uSpec * 0.35;
-    outC.rgb += half(spec * 0.45);
+    float pool = 1.0 - smoothstep(0.0, minHalf * (0.50 + uGlowBoost * 0.25), length(p - focal));
+    float spec = (rimBase * uSpec + pool * pool * uSpec * (0.35 + uGlowBoost * 0.45))
+        + innerEdge * (0.12 + uGlowBoost * 0.18);
+    outC.rgb += half(spec * 0.48);
 
     // soft AA edge
     float alpha = 1.0 - smoothstep(0.0, SMOOTH, sdf);
@@ -275,21 +278,15 @@ fun Modifier.backdropLens(
     backdrop: Bitmap?,
     surfaceTopLeft: Offset,
     radiusPx: Float,
+    thickness: ImmersiveThickness = ImmersiveThickness.THIN,
     zoom: Float = 1.12f,
-    edgePx: Float = 10f,
-    dispersionPx: Float = 1.8f,
-    blurRadius: Float = 4f,
-    tintR: Float = 255f,
-    tintG: Float = 232f,
-    tintB: Float = 196f,
-    tintA: Float = 0.08f,
+    glowBoost: Float = 0f,
     tint: Color = Honey.copy(alpha = 0.10f),
-    light: Offset = Offset(-0.55f, -0.85f),
-    thickness: ImmersiveThickness = ImmersiveThickness.THIN
+    light: Offset = Offset(-0.55f, -0.85f)
 ): Modifier {
     val tier = GlassStyle.tier.value
     if (!tier.shader || !BackdropLens.supported() || backdrop == null) {
-        return glassSurface(tier = tier, radiusPx = radiusPx, tint = tint, light = light, thickness = thickness)
+        return glassSurface(tier = tier, radiusPx = radiusPx, tint = tint, light = light, thickness = thickness, glowBoost = glowBoost)
     }
     // Reuse BitmapShader across frames for the same backdrop bitmap (zero per-frame allocation).
     val cachedBmpShader = remember(backdrop) {
@@ -310,26 +307,29 @@ fun Modifier.backdropLens(
             }
             onDrawBehind {
                 if (shader == null || brush == null || cachedBmpShader == null) {
-                    drawGlassLayersCompat(tint, radiusPx, light)
+                    drawGlassLayersCompat(tint, thickness, glowBoost)
                     return@onDrawBehind
                 }
                 val ok = runCatching {
+                    val effectiveSpec = thickness.specStrength * (1f + glowBoost * 0.75f)
                     shader.setFloatUniform("uSize", size.width, size.height, 0f, 0f)
                     shader.setFloatUniform("uRadius", radiusPx)
                     shader.setFloatUniform("uBackdropSize", backdrop.width.toFloat(), backdrop.height.toFloat(), 0f, 0f)
                     shader.setFloatUniform("uSurfaceTopLeft", surfaceTopLeft.x, surfaceTopLeft.y, 0f, 0f)
                     shader.setFloatUniform("uZoom", zoom)
-                    shader.setFloatUniform("uEdgePx", edgePx)
-                    shader.setFloatUniform("uRefractPx", edgePx * 0.9f)
-                    shader.setFloatUniform("uDispersionPx", dispersionPx)
-                    shader.setFloatUniform("uBlurRadius", blurRadius)
-                    shader.setFloatUniform("uTintR", tintR)
-                    shader.setFloatUniform("uTintG", tintG)
-                    shader.setFloatUniform("uTintB", tintB)
-                    shader.setFloatUniform("uTintA", maxOf(tintA, thickness.veilAlpha))
+                    shader.setFloatUniform("uEdgePx", thickness.edgePx)
+                    shader.setFloatUniform("uRefractPx", thickness.edgePx * 0.9f)
+                    shader.setFloatUniform("uDispersionPx", thickness.dispersionPx)
+                    shader.setFloatUniform("uBlurRadius", thickness.blurRadius)
+                    shader.setFloatUniform("uVeil", thickness.veilAlpha)
+                    shader.setFloatUniform("uTintR", tint.red * 255f)
+                    shader.setFloatUniform("uTintG", tint.green * 255f)
+                    shader.setFloatUniform("uTintB", tint.blue * 255f)
+                    shader.setFloatUniform("uTintA", tint.alpha)
                     shader.setFloatUniform("uLightX", light.x)
                     shader.setFloatUniform("uLightY", light.y)
-                    shader.setFloatUniform("uSpec", thickness.specStrength)
+                    shader.setFloatUniform("uSpec", effectiveSpec)
+                    shader.setFloatUniform("uGlowBoost", glowBoost)
                     shader.setFloatUniform("uTime", (System.nanoTime() / 1_000_000_000f) % 60f)
                     shader.setInputShader("uBackdrop", cachedBmpShader)
                     true
@@ -339,32 +339,38 @@ fun Modifier.backdropLens(
                         drawRect(brush, topLeft = Offset.Zero, size = size)
                     }
                 } else {
-                    drawGlassLayersCompat(tint, radiusPx, light)
+                    drawGlassLayersCompat(tint, thickness, glowBoost)
                 }
             }
         }
     )
 }
 
-/** Compat material drawn inside a DrawScope when the lens cannot run (fallback of the fallback). */
+/** Compat material drawn inside a DrawScope when the lens shader fails — preserves 5-tier veil/spec differences. */
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawGlassLayersCompat(
-    tint: Color, radiusPx: Float, light: Offset
+    tint: Color, thickness: ImmersiveThickness, glowBoost: Float
 ) {
     val w = size.width
     val h = size.height
+    val veil = (thickness.veilAlpha * 1.15f).coerceIn(0.06f, 0.45f)
+    val hi = (0.07f + thickness.specStrength * (0.08f + glowBoost * 0.08f)).coerceAtMost(0.30f)
     drawRect(
         Brush.verticalGradient(
-            0f to Color.White.copy(alpha = 0.10f),
-            0.55f to Color.White.copy(alpha = 0.03f),
-            1f to Color.Black.copy(alpha = 0.06f)
+            0f to Color.White.copy(alpha = hi),
+            0.52f to Color.White.copy(alpha = veil * 0.18f),
+            1f to Color.Black.copy(alpha = veil * 0.55f)
         )
     )
     drawRect(
         Brush.radialGradient(
-            listOf(tint, Color.Transparent),
-            center = Offset(w * 0.5f, h * 0.1f),
+            listOf(tint.copy(alpha = (tint.alpha + veil * 0.35f).coerceAtMost(0.45f)), Color.Transparent),
+            center = Offset(w * 0.5f, h * 0.12f),
             radius = maxOf(w, h)
         )
+    )
+    drawRect(
+        Brush.linearGradient(0f to Color.White.copy(alpha = (hi * 1.35f).coerceAtMost(0.38f)), 0.35f to Color.Transparent),
+        size = Size(w, 2.0f)
     )
 }
 
@@ -390,6 +396,13 @@ object AppBackdrop {
     @Volatile
     var version: Int = 0
         private set
+
+    /** Returns the cached rasterized backdrop bitmap for true-lens sampling (zero re-rasterization per frame). */
+    fun bitmap(): Bitmap? {
+        val p = picture ?: return null
+        if (width <= 0 || height <= 0) return null
+        return BackdropLens.rasterize(p, width, height)
+    }
 
     /** Re-records the backdrop. Cheap (display-list only). Call from composition on key change. */
     fun record(widthPx: Int, heightPx: Int, honeyAlpha: Float) {

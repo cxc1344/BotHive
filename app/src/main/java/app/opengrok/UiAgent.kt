@@ -393,7 +393,7 @@ fun AgentForm(store: Store, onSaved: () -> Unit) {
 fun AgentPermissions(store: Store) {
     val context = LocalContext.current
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Card).padding(14.dp),
+        Modifier.fillMaxWidth().harmonyGlass(thickness = ImmersiveThickness.REGULAR, radius = 16.dp, fallbackBg = Card).padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text("全部文件访问(普通通道)", color = Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
@@ -422,7 +422,7 @@ fun AgentPermissions(store: Store) {
     }
     Spacer(Modifier.height(14.dp))
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Card).padding(14.dp),
+        Modifier.fillMaxWidth().harmonyGlass(thickness = ImmersiveThickness.REGULAR, radius = 16.dp, fallbackBg = Card).padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text("应用使用时长", color = Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
@@ -436,7 +436,7 @@ fun AgentPermissions(store: Store) {
     }
     Spacer(Modifier.height(14.dp))
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Card).padding(14.dp),
+        Modifier.fillMaxWidth().harmonyGlass(thickness = ImmersiveThickness.REGULAR, radius = 16.dp, fallbackBg = Card).padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text("通知读取", color = Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
@@ -456,7 +456,7 @@ fun AgentPermissions(store: Store) {
     }
     Spacer(Modifier.height(14.dp))
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Card).padding(14.dp),
+        Modifier.fillMaxWidth().harmonyGlass(thickness = ImmersiveThickness.REGULAR, radius = 16.dp, fallbackBg = Card).padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text("无障碍(屏幕操作)", color = Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
@@ -498,7 +498,7 @@ fun AgentPermissions(store: Store) {
     }
     Spacer(Modifier.height(14.dp))
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Card).padding(14.dp),
+        Modifier.fillMaxWidth().harmonyGlass(thickness = ImmersiveThickness.REGULAR, radius = 16.dp, fallbackBg = Card).padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text("Shizuku 特权通道", color = Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
@@ -615,7 +615,7 @@ fun ScreenModeCard(store: Store) {
     var refreshTick by remember { mutableStateOf(0) }
     val blockers = remember(current, refreshTick) { AgentMode.blockers(context) }
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Card).padding(14.dp),
+        Modifier.fillMaxWidth().harmonyGlass(thickness = ImmersiveThickness.REGULAR, radius = 16.dp, fallbackBg = Card).padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text(
@@ -695,7 +695,7 @@ fun PhoneModelCard() {
     var msg by remember { mutableStateOf<String?>(null) }
 
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Card).padding(14.dp),
+        Modifier.fillMaxWidth().harmonyGlass(thickness = ImmersiveThickness.REGULAR, radius = 16.dp, fallbackBg = Card).padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {

@@ -49,7 +49,7 @@ fun ProjectCard(store: Store, pid: String, go: (Screen) -> Unit) {
         return
     }
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Card).padding(16.dp),
+        Modifier.fillMaxWidth().harmonyGlass(thickness = ImmersiveThickness.REGULAR, radius = 18.dp, fallbackBg = Card).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -162,7 +162,7 @@ fun SettingsScreen(store: Store, go: (Screen) -> Unit) {
             Text("Bot 与 Agent 用 schedule_task 工具给自己派的定时任务会出现在这里。注意:任务在 App 进程活着时触发,App 被系统杀掉期间到点的任务会顺延到下次打开。", color = Sub, fontSize = 12.sp)
             if (store.routines.isEmpty()) Text("暂无例行任务", color = Sub)
             store.routines.sortedBy { it.nextRunMs }.forEach { r ->
-                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Card).padding(12.dp)) {
+                Column(Modifier.fillMaxWidth().harmonyGlass(thickness = ImmersiveThickness.REGULAR, radius = 12.dp, fallbackBg = Card).padding(12.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("${store.botName(r.ownerId)} · ${fmt.format(Date(r.nextRunMs))}${if (r.repeatDaily) " · 每天" else ""} · 由 ${r.createdBy} 创建",
                             color = Sub, fontSize = 12.sp, modifier = Modifier.weight(1f))
@@ -217,7 +217,7 @@ fun SettingsScreen(store: Store, go: (Screen) -> Unit) {
             if (checkTargets.isEmpty()) Text("还没有 Bot", color = Sub)
             checkTargets.forEach { b ->
                 Column(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Card).padding(14.dp),
+                    Modifier.fillMaxWidth().harmonyGlass(thickness = ImmersiveThickness.REGULAR, radius = 16.dp, fallbackBg = Card).padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -253,7 +253,7 @@ fun SettingsScreen(store: Store, go: (Screen) -> Unit) {
             }
             if (store.guardLog.isEmpty()) Text("暂无。Bot 的 shell 命令执行前会被检查,危险命令会被拦下并记录在这里。", color = Sub, fontSize = 12.sp)
             store.guardLog.reversed().take(50).forEach { e ->
-                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Card).padding(12.dp)) {
+                Column(Modifier.fillMaxWidth().harmonyGlass(thickness = ImmersiveThickness.REGULAR, radius = 12.dp, fallbackBg = Card).padding(12.dp)) {
                     Text("${fmt.format(Date(e.time))} · ${store.botName(e.botId)} · ${e.reason}", color = Sub, fontSize = 12.sp)
                     Text(e.cmd, color = Fg, fontSize = 12.sp, fontFamily = HiveFonts.Mono, modifier = Modifier.padding(top = 4.dp))
                 }
@@ -278,7 +278,7 @@ private fun SettingsDivider() {
 @Composable
 private fun SettingsRow(onClick: () -> Unit, content: @Composable RowScope.() -> Unit) {
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(UiTokens.RadiusCard)).background(Card)
+        Modifier.fillMaxWidth().harmonyGlass(thickness = ImmersiveThickness.REGULAR, radius = UiTokens.RadiusCard, fallbackBg = Card)
             .clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         content = content
@@ -297,7 +297,7 @@ fun GlassTierCard() {
     val context = LocalContext.current
     val tier = GlassStyle.tier.value
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(UiTokens.RadiusCard)).background(Card).padding(16.dp),
+        Modifier.fillMaxWidth().harmonyGlass(thickness = ImmersiveThickness.REGULAR, radius = UiTokens.RadiusCard, fallbackBg = Card).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("视觉效果", color = Fg, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
@@ -338,7 +338,7 @@ fun GlassTierCard() {
 fun ThemeColorCard() {
     val context = LocalContext.current
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(UiTokens.RadiusCard)).background(Card).padding(16.dp),
+        Modifier.fillMaxWidth().harmonyGlass(thickness = ImmersiveThickness.REGULAR, radius = UiTokens.RadiusCard, fallbackBg = Card).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text("主题色", color = Fg, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)

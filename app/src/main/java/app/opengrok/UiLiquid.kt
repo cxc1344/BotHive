@@ -350,7 +350,7 @@ fun LiquidSegmented(
 
     val accent = ThemeAccent
     val trackMod = modifier.height(height)
-        .harmonyGlass(thickness = ImmersiveThickness.THIN, radius = 999.dp, fallbackBg = Card)
+        .harmonyGlass(thickness = ImmersiveThickness.THIN, radius = 999.dp, fallbackBg = Card, glowBoost = press.value)
     val innerH = height - 6.dp
     val sizeMod = if (scrollable) Modifier.height(innerH) else Modifier.fillMaxSize()
 

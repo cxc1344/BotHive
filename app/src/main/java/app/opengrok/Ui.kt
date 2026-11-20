@@ -261,8 +261,12 @@ private fun screenDepth(s: Screen): Int = when (s) {
 
 @Composable
 fun Avatar(seed: String, size: Dp, group: Boolean = false) {
-    // v0.5 replaces the generic face with a distinct hive companion for every Bot.
-    PixelBeeAvatar(seed = seed, size = size, group = group)
+    Box(
+        Modifier.size(size).harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = Card),
+        contentAlignment = Alignment.Center
+    ) {
+        PixelBeeAvatar(seed = seed, size = size, group = group)
+    }
 }
 
 @Composable
@@ -414,10 +418,9 @@ fun MsgView(store: Store, m: Msg, showName: Boolean, thinking: Boolean, go: (Scr
                     )
                     Spacer(Modifier.width(4.dp))
                 }
-                // Claude-style user bubble: right-aligned, flat dark-grey, fully rounded.
-                Surface(
-                    color = UserBubble, shape = RoundedCornerShape(20.dp),
+                Box(
                     modifier = Modifier.widthIn(max = 300.dp)
+                        .harmonyGlass(thickness = ImmersiveThickness.REGULAR, radius = 20.dp, fallbackBg = UserBubble)
                 ) {
                     Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
                         if (m.images.isNotEmpty()) {
@@ -574,8 +577,9 @@ fun ToolsPanel(
     val done = tools.count { it.output.isNotBlank() }
     Column(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
         Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-                .clickable { showSummary = true }.padding(horizontal = 4.dp, vertical = 6.dp),
+            Modifier.fillMaxWidth()
+                .harmonyGlass(thickness = ImmersiveThickness.THICK, radius = 14.dp, fallbackBg = Card)
+                .clickable { showSummary = true }.padding(horizontal = 10.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(Ic.Terminal, null, tint = Sub, modifier = Modifier.size(15.dp))

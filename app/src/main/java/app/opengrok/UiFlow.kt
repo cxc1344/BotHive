@@ -93,7 +93,10 @@ fun SkillsPicker(store: Store, selected: androidx.compose.runtime.snapshots.Snap
         store.skills.forEach { sk ->
             val sel = sk.id in selected
             Box(
-                Modifier.clip(RoundedCornerShape(16.dp)).background(if (sel) ThemeAccent else Card)
+                Modifier.then(
+                    if (sel) Modifier.clip(RoundedCornerShape(16.dp)).background(ThemeAccent)
+                    else Modifier.harmonyGlass(thickness = ImmersiveThickness.THIN, radius = 16.dp, fallbackBg = Card)
+                )
                     .clickable { if (sel) selected.remove(sk.id) else selected.add(sk.id) }
                     .padding(horizontal = 12.dp, vertical = 6.dp)
             ) { Text(sk.name, color = if (sel) Ink else Fg, fontSize = 12.sp) }
@@ -152,7 +155,7 @@ fun WorkflowsScreen(store: Store, go: (Screen) -> Unit) {
             if (store.workflows.isEmpty()) Text("还没有工作流,点右上角 + 新建", color = Sub)
             store.workflows.forEach { w ->
                 Column(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Card).padding(14.dp),
+                    Modifier.fillMaxWidth().harmonyGlass(thickness = ImmersiveThickness.REGULAR, radius = 16.dp, fallbackBg = Card).padding(14.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -198,7 +201,7 @@ fun EditWorkflowScreen(store: Store, wfId: String?, go: (Screen) -> Unit) {
             Field("名称", name, { name = it })
             steps.forEachIndexed { idx, step ->
                 Column(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Card).padding(12.dp),
+                    Modifier.fillMaxWidth().harmonyGlass(thickness = ImmersiveThickness.REGULAR, radius = 14.dp, fallbackBg = Card).padding(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -335,7 +338,7 @@ fun AttachChips(items: List<AttachItem>, onRemove: (AttachItem) -> Unit) {
     ) {
         items.forEach { item ->
             Row(
-                Modifier.clip(RoundedCornerShape(16.dp)).background(Card).padding(horizontal = 10.dp, vertical = 6.dp),
+                Modifier.harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 16.dp, fallbackBg = Card).padding(horizontal = 10.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(item.name, color = Fg, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 160.dp))
@@ -405,9 +408,7 @@ fun ChatComposer(
     Column(modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
         Row(
             Modifier.fillMaxWidth()
-                .clip(RoundedCornerShape(radius))
-                .background(if (tier.glassLayers) Card.copy(alpha = 0.88f) else Card)
-                .glassSurface(tier = tier, radiusPx = radiusPx, tint = SheetGlassTint, thickness = ImmersiveThickness.THIN)
+                .harmonyGlass(thickness = ImmersiveThickness.THIN, radius = radius, tint = SheetGlassTint, fallbackBg = Card)
                 .padding(horizontal = 6.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -492,7 +493,7 @@ fun ModelSheet(
     }
     ClaudeSheet(title = "选择模型", visible = visible, onDismiss = onDismiss) {
         Column(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(UiTokens.RadiusCard)).background(BeePanel)
+            Modifier.fillMaxWidth().harmonyGlass(thickness = ImmersiveThickness.REGULAR, radius = UiTokens.RadiusCard, fallbackBg = BeePanel)
                 .padding(vertical = 4.dp)
         ) {
             if (loading) {

@@ -17,8 +17,13 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -143,13 +148,13 @@ fun Modifier.glassSurface(
     tint: Color = Honey.copy(alpha = 0.10f),
     light: Offset = Offset(-0.55f, -0.85f),
     thickness: ImmersiveThickness = ImmersiveThickness.REGULAR,
-    lightEffect: Boolean = true
+    lightEffect: Boolean = true,
+    glowBoost: Float = 0f
 ): Modifier {
     if (!tier.glassLayers) return this
 
     val useShader = tier.shader && GlassShader.supported()
 
-    // drawWithCache keeps the compiled RuntimeShader across frames; only uniforms refresh per draw.
     if (useShader) {
         return this.then(
             Modifier.drawWithCache {
@@ -157,53 +162,53 @@ fun Modifier.glassSurface(
                 val brush = shader?.let { ShaderBrush(it) }
                 onDrawBehind {
                     if (shader == null || brush == null) {
-                        drawGlassLayers(tint, radiusPx, light, thickness)
+                        drawGlassLayers(tint, thickness, glowBoost)
                         return@onDrawBehind
                     }
+                    val spec = if (lightEffect) thickness.specStrength * (1f + glowBoost * 0.65f) else 0.25f
+                    val rim = if (lightEffect) (0.55f + thickness.specStrength * 0.45f) else 0.35f
                     shader.setFloatUniform("uSize", size.width, size.height, 0f, 0f)
                     shader.setFloatUniform("uRadius", radiusPx)
                     shader.setFloatUniform("uTintA", tint.alpha)
                     shader.setFloatUniform("uTint", tint.red, tint.green, tint.blue, 1f)
                     shader.setFloatUniform("uLightX", light.x)
                     shader.setFloatUniform("uLightY", light.y)
-                    shader.setFloatUniform("uSpec", if (lightEffect) thickness.specStrength else 0.25f)
+                    shader.setFloatUniform("uSpec", spec)
                     shader.setFloatUniform("uTime", (System.nanoTime() / 1_000_000_000f) % 60f)
                     shader.setFloatUniform("uVeil", thickness.veilAlpha)
-                    shader.setFloatUniform("uRim", if (lightEffect) thickness.rimStrength else 0.4f)
+                    shader.setFloatUniform("uRim", rim)
                     drawRect(brush, topLeft = Offset.Zero, size = size)
                 }
             }
         )
     }
-    // Gradient-only path (Medium tier, or Highest tier on pre-13 devices).
     return this.then(
         Modifier.drawWithContent {
             drawContent()
-            drawGlassLayers(tint, radiusPx, light, thickness)
+            drawGlassLayers(tint, thickness, glowBoost)
         }
     )
 }
 
-/** Gradient-only glass (tier Medium, or non-33 devices at Highest tier), scaled by [ImmersiveThickness]. */
+/** Gradient-only glass (tier Medium, or non-33 devices at Highest tier), distinctly scaled by [ImmersiveThickness]. */
 private fun DrawScope.drawGlassLayers(
     tint: Color,
-    radiusPx: Float,
-    light: Offset,
-    thickness: ImmersiveThickness = ImmersiveThickness.REGULAR
+    thickness: ImmersiveThickness = ImmersiveThickness.REGULAR,
+    glowBoost: Float = 0f
 ) {
     val w = size.width
     val h = size.height
-    val topAlpha = (0.08f + thickness.veilAlpha * 0.25f).coerceAtMost(0.18f)
-    val botAlpha = (0.04f + thickness.veilAlpha * 0.28f).coerceAtMost(0.16f)
+    val topAlpha = (0.05f + thickness.veilAlpha * 0.45f + glowBoost * 0.08f).coerceAtMost(0.32f)
+    val botAlpha = (0.04f + thickness.veilAlpha * 0.55f).coerceAtMost(0.28f)
     drawRect(
         Brush.verticalGradient(
             0f to Color.White.copy(alpha = topAlpha),
-            0.52f to Color.White.copy(alpha = 0.025f),
+            0.52f to Color.White.copy(alpha = thickness.veilAlpha * 0.14f),
             1f to Color.Black.copy(alpha = botAlpha)
         )
     )
     drawRect(Brush.radialGradient(listOf(tint, Color.Transparent), center = Offset(w * 0.5f, h * 0.1f), radius = maxOf(w, h)))
-    val rim = Color.White.copy(alpha = (0.14f + 0.10f * thickness.rimStrength).coerceAtMost(0.26f))
+    val rim = Color.White.copy(alpha = (0.10f + thickness.specStrength * 0.14f + glowBoost * 0.08f).coerceAtMost(0.38f))
     drawRect(
         Brush.linearGradient(0f to rim, 0.35f to Color.Transparent),
         size = Size(w, 2.0f)
@@ -227,6 +232,7 @@ fun Modifier.harmonyGlass(
     tint: Color = Color.Transparent,
     fallbackBg: Color = Card,
     lightEffect: Boolean = true,
+    glowBoost: Float = 0f,
     light: Offset = Offset(-0.55f, -0.85f)
 ): Modifier {
     val tier = GlassStyle.tier.value
@@ -236,27 +242,51 @@ fun Modifier.harmonyGlass(
     }
     val density = LocalDensity.current
     val radiusPx = with(density) { if (radius >= 900.dp) 48.dp.toPx() else radius.toPx() }
-    val resolvedTint = if (tint.alpha > 0.001f) tint else ThemeAccent.copy(alpha = (0.04f + thickness.veilAlpha * 0.25f).coerceAtMost(0.14f))
-    val baseAlpha = (0.30f + thickness.veilAlpha * 1.45f).coerceIn(0.32f, 0.84f)
-    val rimAlpha = (0.10f + 0.12f * thickness.rimStrength).coerceAtMost(0.24f)
-    return this
+    val resolvedTint = if (tint.alpha > 0.001f) tint else ThemeAccent.copy(alpha = (0.04f + thickness.veilAlpha * 0.30f).coerceAtMost(0.16f))
+    val rimAlpha = (0.12f + thickness.specStrength * 0.12f + glowBoost * 0.10f).coerceAtMost(0.36f)
+    val backdrop = remember(AppBackdrop.version) { AppBackdrop.bitmap() }
+    var surfaceTopLeft by remember { mutableStateOf(Offset.Zero) }
+    val useTrueLens = tier.shader && BackdropLens.supported() && backdrop != null
+
+    val base = this
+        .onGloballyPositioned { coords -> surfaceTopLeft = coords.localToRoot(Offset.Zero) }
         .clip(shape)
-        .background(fallbackBg.copy(alpha = baseAlpha))
-        .border(
-            width = 0.8.dp,
-            brush = Brush.verticalGradient(
-                0f to Color.White.copy(alpha = rimAlpha),
-                0.45f to Color.White.copy(alpha = rimAlpha * 0.35f),
-                1f to Color.White.copy(alpha = rimAlpha * 0.15f)
-            ),
-            shape = shape
-        )
-        .glassSurface(
-            tier = tier,
+
+    val surfaceMod = if (useTrueLens) {
+        // True AGSL backdrop-sampling lens driven directly by ImmersiveThickness + live glowBoost.
+        base.backdropLens(
+            backdrop = backdrop,
+            surfaceTopLeft = surfaceTopLeft,
             radiusPx = radiusPx,
-            tint = resolvedTint,
-            light = light,
             thickness = thickness,
-            lightEffect = lightEffect
+            zoom = 1.06f + thickness.veilAlpha * 0.30f,
+            glowBoost = if (lightEffect) glowBoost else 0f,
+            tint = resolvedTint,
+            light = light
         )
+    } else {
+        // API < 33 or Medium tier fallback: thickness-differentiated veil + gradient sheen.
+        val baseAlpha = (0.28f + thickness.veilAlpha * 1.50f).coerceIn(0.32f, 0.85f)
+        base
+            .background(fallbackBg.copy(alpha = baseAlpha))
+            .glassSurface(
+                tier = tier,
+                radiusPx = radiusPx,
+                tint = resolvedTint,
+                light = light,
+                thickness = thickness,
+                lightEffect = lightEffect,
+                glowBoost = glowBoost
+            )
+    }
+
+    return surfaceMod.border(
+        width = 0.85.dp,
+        brush = Brush.verticalGradient(
+            0f to Color.White.copy(alpha = rimAlpha),
+            0.45f to Color.White.copy(alpha = rimAlpha * 0.32f),
+            1f to Color.White.copy(alpha = rimAlpha * 0.14f)
+        ),
+        shape = shape
+    )
 }

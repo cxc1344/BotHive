@@ -167,10 +167,8 @@ fun ClaudeSheet(
         ) {
             Column(
                 Modifier.fillMaxSize()
-                    .clip(RoundedCornerShape(topStart = UiTokens.RadiusSheet, topEnd = UiTokens.RadiusSheet))
                     .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { }
-                    .background(if (tier.glassLayers) Brush.verticalGradient(listOf(Card.copy(alpha = 0.48f), Card.copy(alpha = 0.88f))) else Brush.verticalGradient(listOf(Card, Card)))
-                    .glassSurface(tier = tier, radiusPx = radiusPx, tint = SheetGlassTint, thickness = ImmersiveThickness.ULTRA_THICK)
+                    .harmonyGlass(thickness = ImmersiveThickness.ULTRA_THICK, radius = UiTokens.RadiusSheet, tint = SheetGlassTint, fallbackBg = Card)
                     .statusBarsPadding()
             ) {
                 // Drag handle.

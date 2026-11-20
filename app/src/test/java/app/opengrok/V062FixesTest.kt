@@ -56,7 +56,10 @@ class V062FixesTest {
         assertEquals(5, tiers.size)
         for (i in 0 until tiers.lastIndex) {
             assertTrue(tiers[i].blurRadius < tiers[i + 1].blurRadius)
+            assertTrue(tiers[i].edgePx < tiers[i + 1].edgePx)
+            assertTrue(tiers[i].dispersionPx < tiers[i + 1].dispersionPx)
             assertTrue(tiers[i].veilAlpha < tiers[i + 1].veilAlpha)
+            assertTrue(tiers[i].specStrength < tiers[i + 1].specStrength)
         }
     }
 }
