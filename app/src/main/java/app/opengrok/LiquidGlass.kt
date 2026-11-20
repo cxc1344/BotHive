@@ -247,8 +247,13 @@ fun Modifier.harmonyGlass(
     }
     val density = LocalDensity.current
     val radiusPx = with(density) { if (radius >= 900.dp) 48.dp.toPx() else radius.toPx() }
-    val resolvedTint = if (tint.alpha > 0.001f) tint else ThemeAccent.copy(alpha = (0.04f + thickness.veilAlpha * 0.30f).coerceAtMost(0.16f))
-    val rimAlpha = (0.12f + thickness.specStrength * 0.12f + glowBoost * 0.10f).coerceAtMost(0.36f)
+    // Pure optical lens uses neutral deep-charcoal veil (no muddy yellow cast); explicit tint still honoured.
+    val resolvedTint = if (tint.alpha > 0.001f && thickness.veilAlpha < 0.45f) {
+        tint.copy(alpha = tint.alpha.coerceAtMost(0.16f))
+    } else {
+        Color(0xFF141416).copy(alpha = (0.04f + thickness.veilAlpha * 0.15f).coerceAtMost(0.22f))
+    }
+    val rimAlpha = (0.16f + thickness.specStrength * 0.14f + glowBoost * 0.12f).coerceAtMost(0.42f)
     var surfaceTopLeft by remember { mutableStateOf(Offset.Zero) }
     val useTrueLens = tier.shader && BackdropLens.supported()
 
@@ -256,13 +261,15 @@ fun Modifier.harmonyGlass(
         .onGloballyPositioned { coords -> surfaceTopLeft = coords.localToRoot(Offset.Zero) }
         .clip(shape)
 
+    // Thin water-drop lenses get stronger convex dome zoom (1.16x); thick drawer/sheet stay calm (1.04x).
+    val domeZoom = (1.18f - thickness.veilAlpha * 0.18f).coerceIn(1.04f, 1.18f)
     val surfaceMod = if (useTrueLens) {
-        // True AGSL live-content lens driven directly by ImmersiveThickness + live glowBoost.
+        // True AGSL live-content pure water lens driven directly by ImmersiveThickness + live glowBoost.
         base.backdropLens(
             surfaceTopLeft = surfaceTopLeft,
             radiusPx = radiusPx,
             thickness = thickness,
-            zoom = 1.06f + thickness.veilAlpha * 0.30f,
+            zoom = domeZoom,
             glowBoost = if (lightEffect) glowBoost else 0f,
             tint = resolvedTint,
             light = light

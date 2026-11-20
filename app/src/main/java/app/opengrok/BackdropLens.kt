@@ -113,32 +113,38 @@ float2 sdfNormal(float2 p, float2 half, float r) {
     return d.x > d.y ? float2(s.x, 0.0) : float2(0.0, s.y);
 }
 
-// 9-tap dual-ring circular bokeh blur with explicit downsampling scale mapping (no cross ghosting)
+// 13-tap 3-ring circular bokeh blur: crystal-clear at low blur, thoroughly dissolves text at ULTRA_THICK
 half4 sampleBackdropBlurred(float2 localXY, float blurRadius) {
     float2 bmpXY = (uSurfaceTopLeft + localXY) * uBackdropScale;
     float2 lo = float2(0.5, 0.5);
     float2 hi = max(lo, uBackdropSize - float2(0.5, 0.5));
-    if (blurRadius <= 0.15) {
+    if (blurRadius <= 0.35) {
         return uBackdrop.eval(clamp(bmpXY, lo, hi));
     }
-    float2 r1 = uBackdropScale * (blurRadius * 0.52);
-    float2 r2 = uBackdropScale * (blurRadius * 0.92);
-    half4 sum = uBackdrop.eval(clamp(bmpXY, lo, hi)) * half(0.24);
-    // Inner orthogonal ring
-    sum += uBackdrop.eval(clamp(bmpXY + float2(r1.x, 0.0), lo, hi)) * half(0.11);
-    sum += uBackdrop.eval(clamp(bmpXY - float2(r1.x, 0.0), lo, hi)) * half(0.11);
-    sum += uBackdrop.eval(clamp(bmpXY + float2(0.0, r1.y), lo, hi)) * half(0.11);
-    sum += uBackdrop.eval(clamp(bmpXY - float2(0.0, r1.y), lo, hi)) * half(0.11);
-    // Outer diagonal ring (0.7071 = cos(45 deg))
+    float2 r1 = uBackdropScale * (blurRadius * 0.36);
+    float2 r2 = uBackdropScale * (blurRadius * 0.72);
+    float2 r3 = uBackdropScale * (blurRadius * 1.15);
+    half4 sum = uBackdrop.eval(clamp(bmpXY, lo, hi)) * half(0.16);
+    // Ring 1 (orthogonal)
+    sum += uBackdrop.eval(clamp(bmpXY + float2(r1.x, 0.0), lo, hi)) * half(0.09);
+    sum += uBackdrop.eval(clamp(bmpXY - float2(r1.x, 0.0), lo, hi)) * half(0.09);
+    sum += uBackdrop.eval(clamp(bmpXY + float2(0.0, r1.y), lo, hi)) * half(0.09);
+    sum += uBackdrop.eval(clamp(bmpXY - float2(0.0, r1.y), lo, hi)) * half(0.09);
+    // Ring 2 (diagonal)
     float2 d2 = r2 * 0.7071;
-    sum += uBackdrop.eval(clamp(bmpXY + float2(d2.x, d2.y), lo, hi)) * half(0.08);
-    sum += uBackdrop.eval(clamp(bmpXY + float2(-d2.x, d2.y), lo, hi)) * half(0.08);
-    sum += uBackdrop.eval(clamp(bmpXY + float2(d2.x, -d2.y), lo, hi)) * half(0.08);
-    sum += uBackdrop.eval(clamp(bmpXY + float2(-d2.x, -d2.y), lo, hi)) * half(0.08);
+    sum += uBackdrop.eval(clamp(bmpXY + float2(d2.x, d2.y), lo, hi)) * half(0.07);
+    sum += uBackdrop.eval(clamp(bmpXY + float2(-d2.x, d2.y), lo, hi)) * half(0.07);
+    sum += uBackdrop.eval(clamp(bmpXY + float2(d2.x, -d2.y), lo, hi)) * half(0.07);
+    sum += uBackdrop.eval(clamp(bmpXY + float2(-d2.x, -d2.y), lo, hi)) * half(0.07);
+    // Ring 3 (wide outer orthogonal to wipe out sharp text strokes on THICK/ULTRA_THICK)
+    sum += uBackdrop.eval(clamp(bmpXY + float2(r3.x, 0.0), lo, hi)) * half(0.05);
+    sum += uBackdrop.eval(clamp(bmpXY - float2(r3.x, 0.0), lo, hi)) * half(0.05);
+    sum += uBackdrop.eval(clamp(bmpXY + float2(0.0, r3.y), lo, hi)) * half(0.05);
+    sum += uBackdrop.eval(clamp(bmpXY - float2(0.0, r3.y), lo, hi)) * half(0.05);
     return sum;
 }
 
-// System-grade optical vibrancy: lifts color richness & translucency so dark-mode glass glows instead of muddying
+// Pure optical vibrancy: crisp wet clarity without muddy colour tinting
 half3 applyVibrancy(half3 rgb, float satBoost, float lumLift) {
     half luma = dot(rgb, half3(0.2126, 0.7152, 0.0722));
     half3 sat = mix(half3(luma), rgb, half(satBoost));
@@ -158,58 +164,63 @@ half4 main(float2 xy) {
 
     float2 n = sdfNormal(p, c, r);
 
-    // ---- 1. Optical center zoom (convex lens core: 1.0 at rim -> uZoom at center) ----
-    float depth = clamp(-sdf / max(minHalf * 0.42, 1.0), 0.0, 1.0);
-    float zoomHere = mix(1.0, uZoom, depth * depth);
+    // ---- 1. Convex water-droplet dome zoom (smooth spherical bulge in center) ----
+    float depth = clamp(-sdf / max(minHalf * 0.55, 1.0), 0.0, 1.0);
+    float dome = sqrt(max(0.0, 1.0 - (1.0 - depth) * (1.0 - depth)));
+    float zoomHere = mix(1.0, uZoom, dome);
     float2 fromCenter = p / zoomHere;
 
-    // ---- 2. Snell bevel edge refraction along SDF normal ----
+    // ---- 2. Liquid meniscus edge refraction: steep wet bend near perimeter ----
     float band = 1.0 - smoothstep(0.0, uEdgePx, -sdf);
-    float bevelCurve = band * band * (1.25 - 0.25 * band);
-    float push = bevelCurve * uRefractPx;
+    float meniscus = band * band * (1.45 - 0.45 * band);
+    float push = meniscus * uRefractPx;
     float2 sampleLocal = fromCenter + c - n * push;
 
-    // ---- 3. Full-interior frost + stronger bevel chromatic dispersion ----
-    float blurHere = uBlurRadius * mix(1.0, 0.62, depth);
+    // ---- 3. Blur & prism RGB chromatic dispersion along the wet meniscus ----
+    // Thick tiers keep full blur across the interior so drawer/sheet text is never readable through it.
+    float blurHere = uBlurRadius * mix(1.0, (uVeil > 0.45 ? 0.92 : 0.45), depth);
     half4 g = sampleBackdropBlurred(sampleLocal, blurHere);
     half4 outC = g;
     if (uDispersionPx > 0.0) {
-        float2 shift = n * uDispersionPx * (0.28 + 0.72 * band);
-        half4 rr = sampleBackdropBlurred(sampleLocal - shift, blurHere * 0.92);
-        half4 bb = sampleBackdropBlurred(sampleLocal + shift, blurHere * 0.92);
+        float2 shift = n * uDispersionPx * (0.20 + 0.80 * band * band);
+        half4 rr = sampleBackdropBlurred(sampleLocal - shift, blurHere * 0.85);
+        half4 bb = sampleBackdropBlurred(sampleLocal + shift, blurHere * 0.85);
         outC = half4(rr.r, g.g, bb.b, g.a);
     }
 
-    // ---- 4. HarmonyOS Immersive Light vibrancy + diffused optical veil ----
-    outC.rgb = applyVibrancy(outC.rgb, 1.24 + uGlowBoost * 0.12, 0.025 + uVeil * 0.08);
+    // ---- 4. Pure lens clarity on thin tiers vs opaque-frosted dark veil on thick tiers ----
+    float clarityFactor = 1.0 - smoothstep(0.20, 0.75, uVeil);
+    outC.rgb = applyVibrancy(outC.rgb, 1.18 + clarityFactor * 0.14 + uGlowBoost * 0.12, 0.015 * clarityFactor);
     half3 tintCol = half3(uTintR / 255.0, uTintG / 255.0, uTintB / 255.0);
-    outC.rgb = mix(outC.rgb, tintCol, half(clamp(uVeil * 0.78 + uTintA * 0.30, 0.0, 0.56)));
+    // Neutral dark frosted veil scales cleanly up to 0.84 on ULTRA_THICK so Drawer/Sheet never bleed text.
+    float veilMix = clamp(uVeil * 0.96 + uTintA * 0.20, 0.0, 0.86);
+    outC.rgb = mix(outC.rgb, tintCol, half(veilMix));
 
-    // ---- 5. Dual-light Fresnel bevel rim (top-left primary warm + bottom-right cool bounce) ----
+    // ---- 5. Wet water-droplet optics: crisp meniscus specular + bottom caustic glow ----
     float2 L = normalize(float2(uLightX, uLightY));
     float2 L2 = -L;
-    float rimOuter = smoothstep(-5.0, -0.35, sdf);
-    float rimCrisp = smoothstep(-1.8, -0.25, sdf);
-    float primaryRim = pow(max(dot(n, L), 0.0), 2.2) * rimOuter;
-    float secondaryRim = pow(max(dot(n, L2), 0.0), 2.8) * rimOuter;
+    float rimWide = smoothstep(-6.0, -0.35, sdf);
+    float rimHair = smoothstep(-2.0, -0.20, sdf);
+    // Crisp high-exponent specular for glossy "wet water" surface tension
+    float wetTop = pow(max(dot(n, L), 0.0), 6.0) * rimWide;
+    float wetTopSharp = pow(max(dot(n, L), 0.0), 14.0) * rimHair;
+    // Bottom caustic: light refracting through the water body concentrates at the opposite rim
+    float bottomCaustic = pow(max(dot(n, L2), 0.0), 3.2) * rimWide;
 
-    // Subtle flowing edge streamer animated along perimeter
+    // Gentle liquid shimmer flowing around the rim
     float flowAngle = atan(p.y, p.x);
-    float streamer = 0.5 + 0.5 * sin(flowAngle * 2.0 - uTime * 1.15);
-    float edgeGlow = (primaryRim * (0.85 + 0.35 * streamer) + secondaryRim * 0.32) * uSpec;
+    float shimmer = 0.55 + 0.45 * sin(flowAngle * 2.0 - uTime * 1.1);
+    float topGlint = (wetTop * (0.75 + 0.35 * shimmer) + wetTopSharp * 0.95) * uSpec;
 
-    // Interactive caustic light pool (expands & brightens smoothly on press/drag via uGlowBoost)
-    float drift = sin(uTime * 0.65) * 0.07 + uGlowBoost * 0.16;
-    float2 focal = L * minHalf * (0.24 + drift);
-    float pool = 1.0 - smoothstep(0.0, minHalf * (0.58 + uGlowBoost * 0.32), length(p - focal));
-    float caustic = pool * pool * uSpec * (0.22 + uGlowBoost * 0.42);
+    // Glossy top-left water sheen arc inside the dome
+    float drift = sin(uTime * 0.6) * 0.06 + uGlowBoost * 0.15;
+    float2 sheenCenter = L * minHalf * (0.34 + drift);
+    float sheenSpot = 1.0 - smoothstep(0.0, minHalf * (0.46 + uGlowBoost * 0.28), length(p - sheenCenter));
+    float wetPool = pow(sheenSpot, 2.4) * uSpec * (0.24 + clarityFactor * 0.14 + uGlowBoost * 0.42);
 
-    // Subtle convex depth sheen
-    float curvature = 1.0 - depth;
-    outC.rgb += half3(0.98, 0.96, 0.92) * half(edgeGlow * 0.46 + caustic * 0.40);
-    outC.rgb += half3(0.76, 0.88, 1.00) * half(secondaryRim * uSpec * 0.16);
-    outC.rgb += half3(1.00, 0.99, 0.97) * half(rimCrisp * (0.14 + uGlowBoost * 0.22));
-    outC.rgb += half(curvature * curvature * 0.045);
+    outC.rgb += half3(0.97, 0.99, 1.00) * half(topGlint * 0.58 + wetPool * 0.42);
+    outC.rgb += half3(0.84, 0.93, 1.00) * half(bottomCaustic * uSpec * (0.26 + clarityFactor * 0.14));
+    outC.rgb += half3(1.00, 1.00, 1.00) * half(rimHair * (0.16 + uGlowBoost * 0.24));
 
     return half4(clamp(outC.rgb, half3(0.0), half3(1.0)), half(1.0));
 }
@@ -338,7 +349,7 @@ fun Modifier.backdropLens(
                     shader.setFloatUniform("uSurfaceTopLeft", surfaceTopLeft.x, surfaceTopLeft.y)
                     shader.setFloatUniform("uZoom", zoom)
                     shader.setFloatUniform("uEdgePx", thickness.edgePx)
-                    shader.setFloatUniform("uRefractPx", thickness.edgePx * 0.9f)
+                    shader.setFloatUniform("uRefractPx", thickness.edgePx * 1.35f)
                     shader.setFloatUniform("uDispersionPx", thickness.dispersionPx)
                     shader.setFloatUniform("uBlurRadius", thickness.blurRadius)
                     shader.setFloatUniform("uVeil", thickness.veilAlpha)
