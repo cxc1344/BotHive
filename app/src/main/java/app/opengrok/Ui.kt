@@ -38,8 +38,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -47,10 +52,13 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.util.UUID
 import app.opengrok.ThemeAccent
@@ -146,21 +154,67 @@ fun App(store: Store) {
             androidx.compose.material3.LocalTextStyle provides
                 androidx.compose.material3.LocalTextStyle.current
         ) {
-            Box(Modifier.fillMaxSize().background(Bg).onGloballyPositioned { coords ->
-                // Keep the capturable backdrop in sync with the real background layer; the lens
-                // samples this exact picture. Recording is a display-list append (µs) and only
-                // runs when the size actually changes.
-                val w = coords.size.width
-                val h = coords.size.height
-                if (w > 0 && h > 0 && (AppBackdrop.width != w || AppBackdrop.height != h)) {
-                    AppBackdrop.record(w, h, 0.35f)
+            val glassTier = GlassStyle.tier.value
+            val enableLiveCapture = glassTier.shader && BackdropLens.supported()
+            val captureLayer = rememberGraphicsLayer()
+
+            // Async GPU readback loop: completely idle when static (dirtySeq unchanged);
+            // throttled to ~30fps during scrolling/transitions, never blocking UI draw on main thread.
+            LaunchedEffect(enableLiveCapture) {
+                if (!enableLiveCapture) {
+                    AppBackdrop.clearLiveFrame()
+                    return@LaunchedEffect
                 }
-            }) {
-                // One shared honeycomb wash behind every screen keeps the theme continuous while
-                // individual screens stay free to use their own surfaces on top of it.
-                HoneycombBackdrop(Modifier.fillMaxSize(), alpha = .35f)
-                Box(Modifier.fillMaxSize().systemBarsPadding().imePadding()) {
-                    ScreenHost(screen, store, nav)
+                var lastSeq = -1L
+                while (isActive) {
+                    val seq = AppBackdrop.dirtySeq
+                    val rw = AppBackdrop.width
+                    val rh = AppBackdrop.height
+                    if (seq != lastSeq && rw > 0 && rh > 0) {
+                        lastSeq = seq
+                        val bmp = runCatching { captureLayer.toImageBitmap().asAndroidBitmap() }.getOrNull()
+                        if (bmp != null) {
+                            AppBackdrop.publishLiveFrame(bmp, rw, rh)
+                        }
+                        delay(33L)
+                    } else {
+                        delay(48L)
+                    }
+                }
+            }
+
+            Box(Modifier.fillMaxSize().background(Bg)) {
+                // Real-content capture container: wraps Bg + HoneycombBackdrop + ScreenHost.
+                // AppDrawer sits outside as a sibling layer so overlays never enter the backdrop.
+                // During captureLayer.record(), AppBackdrop.isCapturing = true skips all glass
+                // surfaces and borders so glass only refracts real underlying UI content.
+                Box(
+                    Modifier.fillMaxSize().drawWithContent {
+                        val rootW = size.width.toInt()
+                        val rootH = size.height.toInt()
+                        if (enableLiveCapture && rootW > 0 && rootH > 0) {
+                            val s = AppBackdrop.CAPTURE_SCALE
+                            val capW = (rootW * s).toInt().coerceAtLeast(1)
+                            val capH = (rootH * s).toInt().coerceAtLeast(1)
+                            AppBackdrop.isCapturing = true
+                            try {
+                                captureLayer.record(size = IntSize(capW, capH)) {
+                                    scale(scaleX = s, scaleY = s, pivot = Offset.Zero) {
+                                        this@drawWithContent.drawContent()
+                                    }
+                                }
+                            } finally {
+                                AppBackdrop.isCapturing = false
+                            }
+                            AppBackdrop.markContentDirty(rootW, rootH)
+                        }
+                        this@drawWithContent.drawContent()
+                    }
+                ) {
+                    HoneycombBackdrop(Modifier.fillMaxSize(), alpha = .35f)
+                    Box(Modifier.fillMaxSize().systemBarsPadding().imePadding()) {
+                        ScreenHost(screen, store, nav)
+                    }
                 }
                 AppDrawer(store, drawer, screen, { drawer = false }, nav)
             }

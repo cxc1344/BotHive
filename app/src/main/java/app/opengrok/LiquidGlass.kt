@@ -22,7 +22,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
@@ -161,13 +163,14 @@ fun Modifier.glassSurface(
                 val shader = runCatching { GlassShader.newShader() }.getOrNull()
                 val brush = shader?.let { ShaderBrush(it) }
                 onDrawBehind {
+                    if (AppBackdrop.isCapturing) return@onDrawBehind
                     if (shader == null || brush == null) {
                         drawGlassLayers(tint, thickness, glowBoost)
                         return@onDrawBehind
                     }
                     val spec = if (lightEffect) thickness.specStrength * (1f + glowBoost * 0.65f) else 0.25f
                     val rim = if (lightEffect) (0.55f + thickness.specStrength * 0.45f) else 0.35f
-                    shader.setFloatUniform("uSize", size.width, size.height, 0f, 0f)
+                    shader.setFloatUniform("uSize", size.width, size.height)
                     shader.setFloatUniform("uRadius", radiusPx)
                     shader.setFloatUniform("uTintA", tint.alpha)
                     shader.setFloatUniform("uTint", tint.red, tint.green, tint.blue, 1f)
@@ -185,7 +188,9 @@ fun Modifier.glassSurface(
     return this.then(
         Modifier.drawWithContent {
             drawContent()
-            drawGlassLayers(tint, thickness, glowBoost)
+            if (!AppBackdrop.isCapturing) {
+                drawGlassLayers(tint, thickness, glowBoost)
+            }
         }
     )
 }
@@ -244,18 +249,16 @@ fun Modifier.harmonyGlass(
     val radiusPx = with(density) { if (radius >= 900.dp) 48.dp.toPx() else radius.toPx() }
     val resolvedTint = if (tint.alpha > 0.001f) tint else ThemeAccent.copy(alpha = (0.04f + thickness.veilAlpha * 0.30f).coerceAtMost(0.16f))
     val rimAlpha = (0.12f + thickness.specStrength * 0.12f + glowBoost * 0.10f).coerceAtMost(0.36f)
-    val backdrop = remember(AppBackdrop.version) { AppBackdrop.bitmap() }
     var surfaceTopLeft by remember { mutableStateOf(Offset.Zero) }
-    val useTrueLens = tier.shader && BackdropLens.supported() && backdrop != null
+    val useTrueLens = tier.shader && BackdropLens.supported()
 
     val base = this
         .onGloballyPositioned { coords -> surfaceTopLeft = coords.localToRoot(Offset.Zero) }
         .clip(shape)
 
     val surfaceMod = if (useTrueLens) {
-        // True AGSL backdrop-sampling lens driven directly by ImmersiveThickness + live glowBoost.
+        // True AGSL live-content lens driven directly by ImmersiveThickness + live glowBoost.
         base.backdropLens(
-            backdrop = backdrop,
             surfaceTopLeft = surfaceTopLeft,
             radiusPx = radiusPx,
             thickness = thickness,
@@ -280,13 +283,20 @@ fun Modifier.harmonyGlass(
             )
     }
 
-    return surfaceMod.border(
-        width = 0.85.dp,
-        brush = Brush.verticalGradient(
-            0f to Color.White.copy(alpha = rimAlpha),
-            0.45f to Color.White.copy(alpha = rimAlpha * 0.32f),
-            1f to Color.White.copy(alpha = rimAlpha * 0.14f)
-        ),
-        shape = shape
-    )
+    // During backdrop capture passes, skip the glass surface, its Fresnel rim, AND its own
+    // foreground labels so glass only refracts real underlying content with zero self-ghosting.
+    return surfaceMod.drawWithContent {
+        if (AppBackdrop.isCapturing) return@drawWithContent
+        drawContent()
+        val cr = minOf(radiusPx, minOf(size.width, size.height) * 0.5f)
+        drawRoundRect(
+            brush = Brush.verticalGradient(
+                0f to Color.White.copy(alpha = rimAlpha),
+                0.45f to Color.White.copy(alpha = rimAlpha * 0.32f),
+                1f to Color.White.copy(alpha = rimAlpha * 0.14f)
+            ),
+            cornerRadius = CornerRadius(cr, cr),
+            style = Stroke(width = 0.85.dp.toPx())
+        )
+    }
 }
