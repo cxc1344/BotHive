@@ -120,14 +120,12 @@ fun AgentChatScreen(store: Store, go: (Screen) -> Unit) {
     val pickFiles = AttachPickerLauncher { staged.addAll(it) }
     val listState = rememberLazyListState()
     val last = msgs.lastOrNull()
-    // Smart auto-scroll: follow new output only when the user is already near the bottom,
-    // so reading earlier messages is never yanked back down mid-read.
+    // Smart auto-scroll (v0.6.4 fix): continuously sync near-bottom on scroll & settle.
+    val scrollScope = rememberCoroutineScope()
     var atBottom by remember { mutableStateOf(true) }
     LaunchedEffect(listState) {
-        snapshotFlow { listState.isScrollInProgress }
-            .collect { scrolling ->
-                if (scrolling) atBottom = listState.isNearBottom()
-            }
+        snapshotFlow { listState.isScrollInProgress to listState.isNearBottom() }
+            .collect { (_, near) -> atBottom = near }
     }
     LaunchedEffect(msgs.size, last?.tools?.size, last?.text) {
         if (msgs.isNotEmpty() && atBottom) listState.animateScrollToItem(msgs.lastIndex)
@@ -188,7 +186,56 @@ fun AgentChatScreen(store: Store, go: (Screen) -> Unit) {
                 }
             }
         }
-        if (msgs.isEmpty()) EmptyChatHint("新对话已就绪", "让 Agent 帮你整理手机文件、查看状态与通知、操作屏幕，或把活派给云端 Bot。")
+        if (msgs.isEmpty()) {
+            Column(
+                Modifier.fillMaxSize().padding(horizontal = 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                InteractiveBixHero(isAgent = true)
+                Spacer(Modifier.height(10.dp))
+                Text("新对话已就绪", style = HiveSerif.Title(22.sp), textAlign = TextAlign.Center)
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "让 Agent 帮你整理手机文件、查看状态与通知、操作屏幕，或把活派给云端 Bot。",
+                    color = Sub, fontSize = 13.sp, textAlign = TextAlign.Center, lineHeight = 19.sp
+                )
+                Spacer(Modifier.height(18.dp))
+                val quickPrompts = listOf(
+                    "检查一下手机环境与存储",
+                    "统计今天各应用使用时长",
+                    "汇总最近的手机通知"
+                )
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    quickPrompts.forEach { q ->
+                        Box(
+                            Modifier.pressBounce { store.sendAgent(q, emptyList()) }
+                                .harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = Card)
+                                .padding(horizontal = 13.dp, vertical = 8.dp)
+                        ) { Text(q, color = Fg, fontSize = 12.sp) }
+                    }
+                }
+            }
+        }
+        androidx.compose.animation.AnimatedVisibility(
+            visible = !atBottom && msgs.isNotEmpty(),
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 94.dp),
+            enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(180)),
+            exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(150))
+        ) {
+            Box(
+                Modifier.size(40.dp)
+                    .pressBounce {
+                        atBottom = true
+                        scrollScope.launch { if (msgs.isNotEmpty()) listState.animateScrollToItem(msgs.lastIndex) }
+                    }
+                    .harmonyGlass(thickness = ImmersiveThickness.THIN, radius = 999.dp, fallbackBg = Card),
+                contentAlignment = Alignment.Center
+            ) { Icon(Ic.Down, "回到底部", tint = Fg, modifier = Modifier.size(20.dp)) }
+        }
 
         Column(
             Modifier.align(Alignment.TopCenter).fillMaxWidth()

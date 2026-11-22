@@ -124,7 +124,14 @@ fun SearchScreen(store: Store, go: (Screen) -> Unit) {
             )
         }
         if (q.isNotBlank() && hits.isEmpty()) {
-            Text("没有找到", color = Sub, fontSize = 13.sp, modifier = Modifier.padding(20.dp))
+            Column(
+                Modifier.fillMaxWidth().padding(top = 48.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                BixScene(action = BixAction.Searching, compact = false)
+                Text("Bix 翻遍了蜂巢也没找到", color = Sub, fontSize = 13.sp)
+            }
         }
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(hits) { h ->

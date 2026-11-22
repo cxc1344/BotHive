@@ -233,11 +233,12 @@ fun HeaderPill(text: String, icon: ImageVector, enabled: Boolean = true, onClick
     }
 }
 
-/** Shown in the middle of an empty conversation: bee mark, serif title, grey hint (STUDY §2.3). */
+/** Shown in the middle of an empty conversation: interactive Bix mascot, serif title, grey hint. */
 @Composable
 fun EmptyChatHint(title: String, hint: String) {
+    val isAgent = title.contains("Agent", ignoreCase = true) || hint.contains("Agent", ignoreCase = true)
     Column(Modifier.fillMaxSize().padding(horizontal = 40.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        BrandOrb(26.dp)
+        InteractiveBixHero(isAgent = isAgent)
         Spacer(Modifier.height(10.dp))
         Text(title, style = HiveSerif.Title(22.sp), textAlign = TextAlign.Center)
         Spacer(Modifier.height(6.dp))
@@ -289,8 +290,10 @@ fun HomeScreen(store: Store, go: (Screen) -> Unit) {
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Spacer(Modifier.weight(0.42f))
-                // Brand: the pixel bee (work order 品牌标记) in place of the Claude starburst.
-                AnimatedVisibility(shown, enter = fadeIn(tween(700))) { BrandOrb(40.dp) }
+                // Living Bix hero: reacts to active work / approvals, wears your 8-bit accessory, hops when poked.
+                AnimatedVisibility(shown, enter = fadeIn(tween(700))) {
+                    BixHomeHero(working = working, hasPendingApproval = store.pendingApprovals.isNotEmpty())
+                }
                 Spacer(Modifier.height(18.dp))
                 // Serif time-of-day greeting (the Claude signature moment).
                 AnimatedVisibility(shown, enter = fadeIn(tween(700)) + slideInVertically(tween(700)) { it / 10 }) {
@@ -471,8 +474,8 @@ private fun DrawerPanel(store: Store, current: Screen, onClose: () -> Unit, go: 
                             .padding(horizontal = 12.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Ic.Terminal, null, tint = ThemeAccent, modifier = Modifier.size(20.dp))
-                        Spacer(Modifier.width(12.dp))
+                        BixScene(action = BixAction.ApprovalGuard, compact = true)
+                        Spacer(Modifier.width(10.dp))
                         Text("${store.pendingApprovals.size} 条命令待批准", color = Fg, fontSize = 15.sp, modifier = Modifier.weight(1f))
                         Icon(Ic.Chevron, null, tint = Sub, modifier = Modifier.size(16.dp))
                     }
@@ -493,15 +496,28 @@ private fun DrawerPanel(store: Store, current: Screen, onClose: () -> Unit, go: 
             item { Spacer(Modifier.height(12.dp)) }
         }
         // Bottom row: settings entry on the left, white "+ 新建" pill on the right (STUDY §2.2).
+        val drawerWorking = store.busy.size + store.projects.count { it.stage in ACTIVE_STAGES }
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(Modifier.size(36.dp).clip(CircleShape).background(ThemeAccent), contentAlignment = Alignment.Center) {
-                Text("B", color = Ink, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            Row(
+                Modifier.weight(1f).clickable { go(Screen.Settings) },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                BixScene(
+                    action = if (drawerWorking > 0) BixAction.Coding else BixAction.Idle,
+                    compact = true
+                )
+                Spacer(Modifier.width(8.dp))
+                Column {
+                    Text("设置", color = Fg, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                    Text(
+                        if (drawerWorking > 0) "Bix 正盯着 $drawerWorking 项任务" else "Bix #001 · 待命中",
+                        color = Sub, fontSize = 11.sp
+                    )
+                }
             }
-            Spacer(Modifier.width(10.dp))
-            Text("设置", color = Fg, fontSize = 15.sp, modifier = Modifier.weight(1f).clickable { go(Screen.Settings) })
             NewChatPill("新建") {
                 onClose()
                 go(Screen.BotMode)

@@ -92,6 +92,27 @@ object Agent {
         put(fn("list_skills", "列出全部技能包,以及哪些已经挂在你身上。", JSONObject()))
         put(fn("create_skill", "把一套可复用的方法、规范或领域知识写成新技能包,并立刻挂到你自己身上(之后每次对话都生效)。内容要具体、可执行,不要空话。",
             JSONObject().put("name", str("技能名")).put("content", str("技能内容")), "name", "content"))
+        put(fn("browser_open", "在内置独立 AI 浏览器中打开网址(会实时展示浏览器任务条,用户可随时观看实况或一键接管操控)。返回页面摘要并附带实时截图。",
+            JSONObject().put("url", str("完整网址,如 https://example.com"))
+                .put("desktop_mode", JSONObject().put("type", "boolean").put("description", "是否使用桌面版 UA,默认 false")), "url"))
+        put(fn("browser_mouse", "在独立 AI 浏览器中执行桌面级鼠标/指针/滚轮操控(坐标 0-1000 归一化网格)。支持左键(left)/右键(right)/中键(middle)的 click/double_click/long_press/drag/wheel/move。",
+            JSONObject()
+                .put("action", str("click / double_click / long_press / drag / wheel / move"))
+                .put("button", str("left(默认) / right / middle"))
+                .put("x", JSONObject().put("type", "integer").put("description", "0-1000 横向坐标"))
+                .put("y", JSONObject().put("type", "integer").put("description", "0-1000 纵向坐标"))
+                .put("x2", JSONObject().put("type", "integer").put("description", "drag 终点 x(0-1000)"))
+                .put("y2", JSONObject().put("type", "integer").put("description", "drag 终点 y(0-1000)"))
+                .put("delta_x", JSONObject().put("type", "integer").put("description", "wheel 横向滚动像素"))
+                .put("delta_y", JSONObject().put("type", "integer").put("description", "wheel 纵向滚动像素(正向下,负向上)"))
+                .put("duration_ms", JSONObject().put("type", "integer").put("description", "long_press 或 drag 持续毫秒数,默认 500")),
+            "action", "x", "y"))
+        put(fn("browser_type", "向独立 AI 浏览器当前聚焦的输入框写入文字,可选 submit=true 回车提交。返回最新截图。",
+            JSONObject().put("text", str("要输入的文字"))
+                .put("submit", JSONObject().put("type", "boolean").put("description", "是否回车提交,默认 false")), "text"))
+        put(fn("browser_nav", "控制独立 AI 浏览器导航或查看当前最新画面:back(后退)/ forward(前进)/ reload(刷新)/ snapshot(仅截图查看)。",
+            JSONObject().put("action", str("back / forward / reload / snapshot")), "action"))
+        put(fn("browser_close", "关闭独立 AI 浏览器并结束浏览器任务。", JSONObject()))
         if (isAgent) {
             put(fn("fs_list", "列出任意目录的内容(绝对路径,如 /sdcard/Download)。channel 通道:auto(默认,普通优先、自动回退 Shizuku)/ standard(普通文件权限,需用户给了所有文件访问)/ shizuku(shell 身份,能到 /data/local/tmp 等)/ root(root 身份,能进其他应用的 /data 私有目录,需 Shizuku 以 root 运行或有 su)。",
                 JSONObject().put("path", str("绝对路径")).put("channel", str("通道,可选,默认 auto")), "path"))
@@ -453,6 +474,56 @@ object Agent {
                         "已创建技能「$sName」并挂到你身上,从下一轮对话起生效。"
                     }
                 }
+            }
+            "browser_open" -> {
+                val url = a.optString("url").trim()
+                if (url.isBlank()) "请提供要打开的 url。"
+                else {
+                    val (info, shot) = AiBrowser.openUrl(store.appContext(), store.appContext().cacheDir, url, a.optBoolean("desktop_mode", false))
+                    if (shot != null) pendingShots[bot.id] = shot
+                    "$info
+已附带当前浏览器画面截图,请结合 0-1000 坐标继续用 browser_mouse / browser_type 操作。"
+                }
+            }
+            "browser_mouse" -> {
+                val (info, shot) = AiBrowser.mouseAction(
+                    context = store.appContext(),
+                    cacheDir = store.appContext().cacheDir,
+                    action = a.optString("action", "click"),
+                    x = a.optInt("x", 500),
+                    y = a.optInt("y", 500),
+                    button = a.optString("button", "left"),
+                    x2 = a.optInt("x2", a.optInt("x", 500)),
+                    y2 = a.optInt("y2", a.optInt("y", 500)),
+                    deltaX = a.optInt("delta_x", 0),
+                    deltaY = a.optInt("delta_y", 0),
+                    durationMs = a.optLong("duration_ms", 500L)
+                )
+                if (shot != null) pendingShots[bot.id] = shot
+                info
+            }
+            "browser_type" -> {
+                val (info, shot) = AiBrowser.typeText(
+                    store.appContext(),
+                    store.appContext().cacheDir,
+                    a.optString("text"),
+                    a.optBoolean("submit", false)
+                )
+                if (shot != null) pendingShots[bot.id] = shot
+                info
+            }
+            "browser_nav" -> {
+                val (info, shot) = AiBrowser.navigate(
+                    store.appContext(),
+                    store.appContext().cacheDir,
+                    a.optString("action", "snapshot")
+                )
+                if (shot != null) pendingShots[bot.id] = shot
+                info
+            }
+            "browser_close" -> {
+                withContext(Dispatchers.Main) { AiBrowser.closeSession() }
+                "独立 AI 浏览器已关闭。"
             }
             "shizuku_shell" -> {
                 if (bot.id != AGENT_ID) return "该工具只有设备 Agent 可用。"

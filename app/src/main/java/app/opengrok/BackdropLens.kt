@@ -24,7 +24,7 @@ import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.nativeCanvas
 
 /**
- * Physical Optical Liquid Glass Lens Engine (v0.6.3 LiquidGlass Pro).
+ * Physical Optical Liquid Glass Lens Engine (v0.6.4 LiquidGlass Pro).
  *
  * Upgraded AGSL optical model inspired by Apple iOS 26 / iOS 27 Liquid Glass:
  *  1. 16-tap Golden-Angle Vogel Disk bokeh blur (eliminates cross-shaped ghosting on text).

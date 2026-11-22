@@ -187,8 +187,10 @@ fun SummaryStepRow(
     last: Boolean,
     onClick: () -> Unit
 ) {
-    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
-        Column(Modifier.width(44.dp).fillMaxSize().padding(vertical = 2.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    Row(
+        Modifier.fillMaxWidth().height(IntrinsicSize.Min).clickable(enabled = !running, onClick = onClick)
+    ) {
+        Column(Modifier.width(36.dp).fillMaxSize().padding(vertical = 2.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             if (running) {
                 Box(Modifier.size(26.dp).clip(CircleShape).background(ThemeAccent.copy(alpha = 0.22f)), contentAlignment = Alignment.Center) {
                     Box(Modifier.size(9.dp).clip(CircleShape).background(ThemeAccent))
@@ -196,24 +198,28 @@ fun SummaryStepRow(
             } else {
                 Box(
                     Modifier.size(28.dp)
-                        .harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 9.dp, fallbackBg = PILL)
-                        .clickable(onClick = onClick),
+                        .harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 9.dp, fallbackBg = PILL),
                     contentAlignment = Alignment.Center
                 ) { Icon(icon, null, tint = Fg, modifier = Modifier.size(15.dp)) }
             }
             if (!last) Box(Modifier.width(1.5.dp).weight(1f).background(HAIRLINE))
         }
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f).padding(bottom = 14.dp)) {
             if (running) {
                 Text(name, color = Fg, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                Text("思考中…", style = HiveSerif.Thinking(), modifier = Modifier.padding(top = 2.dp))
+                Text("执行中…", style = HiveSerif.Thinking(), modifier = Modifier.padding(top = 2.dp))
             } else {
-                Text(name, color = Fg, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(name, color = Fg, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 if (detail.isNotBlank()) Text(
                     detail, color = Sub, fontSize = 12.sp, lineHeight = 16.sp,
                     maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp)
                 )
+            }
+        }
+        if (!running) {
+            Box(Modifier.padding(top = 6.dp, start = 6.dp), contentAlignment = Alignment.TopCenter) {
+                Icon(Ic.Chevron, null, tint = Sub, modifier = Modifier.size(16.dp))
             }
         }
     }

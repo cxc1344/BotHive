@@ -54,6 +54,14 @@ fun ProjectCard(store: Store, pid: String, go: (Screen) -> Unit) {
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
+            val projBix = when (p.stage) {
+                Stage.PLANNING, Stage.EXECUTING, Stage.REVIEWING, Stage.REPORTING -> BixAction.DrillingSquad
+                Stage.AWAIT_CONFIRM -> BixAction.ApprovalGuard
+                Stage.DONE -> BixAction.Done
+                else -> BixAction.Idle
+            }
+            BixScene(action = projBix, compact = true)
+            Spacer(Modifier.width(8.dp))
             Text(p.title, color = Fg, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, modifier = Modifier.weight(1f))
             Box(Modifier.clip(RoundedCornerShape(10.dp)).background(Line).padding(horizontal = 10.dp, vertical = 4.dp)) {
                 Text(stageLabel(p.stage), color = Fg, fontSize = 12.sp)
@@ -114,6 +122,8 @@ fun SettingsScreen(store: Store, go: (Screen) -> Unit) {
             GlassTierCard()
             SettingsDivider()
             ThemeColorCard()
+            SettingsDivider()
+            BixBadgeCard()
             SettingsDivider()
             Text("Provider 预设", color = Fg, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
             Text("把常用服务商的 Base URL 与 Key 存成预设,建 Bot / Agent 时直接选用并从其模型列表点选,免去反复粘贴。Key 用设备 Keystore 加密保存。", color = Sub, fontSize = 12.sp)
@@ -259,7 +269,7 @@ fun SettingsScreen(store: Store, go: (Screen) -> Unit) {
                 }
             }
             Spacer(Modifier.height(8.dp))
-            Text("BotHive 0.6.3", color = Sub, fontSize = 12.sp)
+            Text("BotHive 0.6.4", color = Sub, fontSize = 12.sp)
             Spacer(Modifier.height(16.dp))
         }
         Row(
@@ -341,11 +351,21 @@ fun GlassTierCard() {
             GlassTier.Highest -> "物理级液态玻璃：16-tap Vogel 散景磨砂 + 全内反射暗槽(TIR) + 棚拍镜面高光 + 实时 RGB 色散折射(Android 13+,低版本自动优雅回退)。"
         }
         Text(tip, color = ThemeAccentPale, fontSize = 11.sp, lineHeight = 15.sp)
-        // A live LiquidSwitch so the user sees the effect immediately on this very card.
+        // A live LiquidSwitch so the user sees the effect immediately on this very card (plus Bix rapid-toggle easter egg!).
         var demo by remember { mutableStateOf(true) }
+        var toggleCount by remember { mutableIntStateOf(0) }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("开关效果预览", color = Sub, fontSize = 12.sp, modifier = Modifier.weight(1f))
-            LiquidSwitch(checked = demo, onCheckedChange = { demo = it })
+            if (toggleCount >= 6) {
+                BixScene(action = BixAction.Dizzy, compact = true)
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    BIX_SWITCH_QUIPS[(toggleCount - 6) % BIX_SWITCH_QUIPS.size],
+                    color = ThemeAccentPale, fontSize = 12.sp, modifier = Modifier.weight(1f)
+                )
+            } else {
+                Text("开关效果预览", color = Sub, fontSize = 12.sp, modifier = Modifier.weight(1f))
+            }
+            LiquidSwitch(checked = demo, onCheckedChange = { demo = it; toggleCount++ })
         }
     }
 }
@@ -382,7 +402,7 @@ fun ThemeColorCard() {
             contentAlignment = Alignment.CenterStart
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Box(Modifier.size(14.dp).clip(CircleShape).background(ThemeAccent))
+                BixThemePollenBadge()
                 Text("液态玻璃主题染色实时预览", color = Fg, fontSize = 13.sp, fontWeight = FontWeight.Medium)
             }
         }

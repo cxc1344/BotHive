@@ -57,8 +57,14 @@ private fun fmtTime(ms: Long): String =
 @Composable
 fun ApprovalCards(store: Store, chatId: String) {
     store.pendingApprovals.filter { it.chatId == chatId }.forEach { ap ->
+        Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
+            BixScene(
+                action = BixAction.ApprovalGuard,
+                compact = true,
+                modifier = Modifier.align(Alignment.TopEnd).padding(end = 14.dp).offset(y = (-18).dp)
+            )
         Column(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+            Modifier.fillMaxWidth().padding(top = 8.dp)
                 .harmonyGlass(thickness = ImmersiveThickness.THICK, radius = 16.dp, fallbackBg = BeePanelRaised)
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -78,6 +84,7 @@ fun ApprovalCards(store: Store, chatId: String) {
                 PillButton("执行", modifier = Modifier.weight(1f)) { store.executeApproval(ap) }
                 PillButton("拒绝", filled = false, modifier = Modifier.weight(1f)) { store.rejectApproval(ap) }
             }
+        }
         }
     }
 }

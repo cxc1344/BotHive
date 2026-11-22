@@ -114,7 +114,7 @@ sealed interface Screen {
 fun App(store: Store) {
     val ctx = LocalContext.current
     remember { UiState.init(ctx) }
-    remember { ThemeColor.init(ctx) }
+    remember { ThemeColor.init(ctx); BixPrefs.init(ctx) }
     var screen by remember { mutableStateOf<Screen>(Screen.Home) }
     var drawer by remember { mutableStateOf(false) }
     val nav: (Screen) -> Unit = { s ->
@@ -222,7 +222,9 @@ fun App(store: Store) {
                 Box(Modifier.fillMaxSize().systemBarsPadding().imePadding()) {
                     ScreenHost(screen, store, nav)
                 }
+                AiBrowserTaskPill(Modifier.align(Alignment.TopCenter))
                 AppDrawer(store, drawer, screen, { drawer = false }, nav)
+                AiBrowserSheetOverlay()
             }
         }
     }
@@ -343,13 +345,12 @@ fun ChatScreen(store: Store, id: String, go: (Screen) -> Unit) {
     val isManager = isBot && store.bot(id.removePrefix("bot:"))?.isManager == true
     val listState = rememberLazyListState()
     val last = msgs.lastOrNull()
-    // Smart auto-scroll (same policy as the Agent chat): only when already near the bottom.
+    // Smart auto-scroll (v0.6.4 fix): track near-bottom continuously while scrolling & after settle.
+    val scrollScope = rememberCoroutineScope()
     var atBottom by remember { mutableStateOf(true) }
     LaunchedEffect(listState) {
-        snapshotFlow { listState.isScrollInProgress }
-            .collect { scrolling ->
-                if (scrolling) atBottom = listState.isNearBottom()
-            }
+        snapshotFlow { listState.isScrollInProgress to listState.isNearBottom() }
+            .collect { (_, near) -> atBottom = near }
     }
     LaunchedEffect(msgs.size, last?.tools?.size, last?.text) {
         if (msgs.isNotEmpty() && atBottom) listState.animateScrollToItem(msgs.lastIndex)
@@ -389,6 +390,23 @@ fun ChatScreen(store: Store, id: String, go: (Screen) -> Unit) {
             }
         }
         if (msgs.isEmpty()) EmptyChatHint("开始对话", "在下方输入消息，Bot 会在自己的沙盒里干活；点工具调用可查看每一步。")
+        // v0.6.4: Floating Liquid Glass scroll-to-bottom button when scrolled up in a long chat.
+        androidx.compose.animation.AnimatedVisibility(
+            visible = !atBottom && msgs.isNotEmpty(),
+            modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = if (readOnly) 24.dp else 94.dp),
+            enter = fadeIn(tween(180)) + slideInVertically(tween(180)) { it / 2 },
+            exit = fadeOut(tween(150))
+        ) {
+            Box(
+                Modifier.size(40.dp)
+                    .pressBounce {
+                        atBottom = true
+                        scrollScope.launch { if (msgs.isNotEmpty()) listState.animateScrollToItem(msgs.lastIndex) }
+                    }
+                    .harmonyGlass(thickness = ImmersiveThickness.THIN, radius = 999.dp, fallbackBg = Card),
+                contentAlignment = Alignment.Center
+            ) { Icon(Ic.Down, "回到底部", tint = Fg, modifier = Modifier.size(20.dp)) }
+        }
 
         // Floating top bar: GRADUAL_BLUR-style scrim fades in smoothly as content scrolls under (8..56px).
         Column(
@@ -518,44 +536,126 @@ fun MsgView(store: Store, m: Msg, showName: Boolean, thinking: Boolean, go: (Scr
         m.role == "system" -> Text(m.text, color = Sub, fontSize = 12.sp,
             modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
         m.from == null -> Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
+            val ctx = LocalContext.current
+            val chatBusy = chatId in store.busy
             var askResend by remember { mutableStateOf(false) }
-            Row(horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                if (!thinking && canResend) {
-                    Text(
-                        "重发", color = Sub, fontSize = 11.sp,
-                        modifier = Modifier.clip(RoundedCornerShape(10.dp)).clickable { askResend = true }
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
-                    Spacer(Modifier.width(4.dp))
-                }
-                Box(
-                    modifier = Modifier.widthIn(max = 300.dp)
-                        .harmonyGlass(thickness = ImmersiveThickness.REGULAR, radius = 20.dp, fallbackBg = UserBubble)
-                ) {
-                    Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-                        if (m.images.isNotEmpty()) {
-                            val ctx = androidx.compose.ui.platform.LocalContext.current
-                            m.images.forEachIndexed { i, name ->
-                                val bmp = remember(name) {
-                                    runCatching {
-                                        android.graphics.BitmapFactory.decodeFile(
-                                            java.io.File(ctx.filesDir, "attachments/$name").absolutePath
-                                        )
-                                    }.getOrNull()
-                                }
-                                if (bmp != null) {
-                                    Image(
-                                        bmp.asImageBitmap(), null,
-                                        Modifier.fillMaxWidth().heightIn(max = 220.dp).clip(RoundedCornerShape(12.dp))
+            var showEdit by remember { mutableStateOf(false) }
+            var editDraft by remember(m.id, m.text) { mutableStateOf(m.text) }
+            Box(
+                modifier = Modifier.widthIn(max = 300.dp)
+                    .harmonyGlass(thickness = ImmersiveThickness.REGULAR, radius = 20.dp, fallbackBg = UserBubble)
+            ) {
+                Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                    if (m.images.isNotEmpty()) {
+                        m.images.forEachIndexed { i, name ->
+                            val bmp = remember(name) {
+                                runCatching {
+                                    android.graphics.BitmapFactory.decodeFile(
+                                        java.io.File(ctx.filesDir, "attachments/$name").absolutePath
                                     )
-                                    if (i < m.images.lastIndex || m.text.isNotBlank()) Spacer(Modifier.height(8.dp))
-                                }
+                                }.getOrNull()
+                            }
+                            if (bmp != null) {
+                                Image(
+                                    bmp.asImageBitmap(), null,
+                                    Modifier.fillMaxWidth().heightIn(max = 220.dp).clip(RoundedCornerShape(12.dp))
+                                )
+                                if (i < m.images.lastIndex || m.text.isNotBlank()) Spacer(Modifier.height(8.dp))
                             }
                         }
-                        // User input stays literal: typing **text** should not become bold.
-                        if (m.text.isNotBlank()) SelectionContainer { Text(m.text, color = Fg, fontSize = 16.sp, lineHeight = 23.sp) }
                     }
+                    // User input stays literal: typing **text** should not become bold.
+                    if (m.text.isNotBlank()) SelectionContainer { Text(m.text, color = Fg, fontSize = 16.sp, lineHeight = 23.sp) }
                 }
+            }
+            // v0.6.4: Compact user message actions — Edit, Copy, Resend (gated on !chatBusy).
+            if (!chatBusy && canResend) {
+                Row(
+                    Modifier.padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (m.time > 0) {
+                        Text(timeAgo(m.time), color = Sub.copy(alpha = 0.72f), fontSize = 10.sp)
+                        Spacer(Modifier.width(4.dp))
+                    }
+                    Box(
+                        Modifier.size(28.dp).pressBounce { editDraft = m.text; showEdit = true }
+                            .harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = PILL),
+                        contentAlignment = Alignment.Center
+                    ) { Icon(Ic.Edit, "修改消息", tint = Sub, modifier = Modifier.size(13.dp)) }
+                    if (m.text.isNotBlank()) {
+                        Box(
+                            Modifier.size(28.dp).pressBounce {
+                                val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                cm.setPrimaryClip(android.content.ClipData.newPlainText("message", m.text))
+                                android.widget.Toast.makeText(ctx, "已复制", android.widget.Toast.LENGTH_SHORT).show()
+                            }.harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = PILL),
+                            contentAlignment = Alignment.Center
+                        ) { Icon(Ic.Copy, "复制", tint = Sub, modifier = Modifier.size(13.dp)) }
+                    }
+                    Box(
+                        Modifier.size(28.dp).pressBounce { askResend = true }
+                            .harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = PILL),
+                        contentAlignment = Alignment.Center
+                    ) { Icon(Ic.Refresh, "重发", tint = Sub, modifier = Modifier.size(13.dp)) }
+                }
+            }
+            if (showEdit) {
+                AlertDialog(
+                    onDismissRequest = { showEdit = false },
+                    title = { Text("修改消息") },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Field("消息内容", editDraft, { editDraft = it }, singleLine = false, minLines = 3)
+                            Text(
+                                "「保存并重发」会清除这条消息之后的回复并重新发送；「仅修改」只原地修正文字。",
+                                color = Sub, fontSize = 11.sp, lineHeight = 16.sp
+                            )
+                        }
+                    },
+                    confirmButton = {
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            TextButton(
+                                enabled = editDraft.isNotBlank(),
+                                onClick = {
+                                    val list = store.chat(chatId)
+                                    val idx = list.indexOfFirst { it.id == m.id }
+                                    if (idx >= 0) {
+                                        list[idx] = list[idx].copy(text = editDraft.trim())
+                                        store.save()
+                                    }
+                                    showEdit = false
+                                }
+                            ) { Text("仅修改", color = Sub) }
+                            TextButton(
+                                enabled = editDraft.isNotBlank(),
+                                onClick = {
+                                    val list = store.chat(chatId)
+                                    val idx = list.indexOfFirst { it.id == m.id }
+                                    if (idx >= 0) {
+                                        list[idx] = list[idx].copy(text = editDraft.trim())
+                                        showEdit = false
+                                        store.resendFrom(chatId, m.id)
+                                    } else {
+                                        showEdit = false
+                                    }
+                                }
+                            ) { Text("保存并重发") }
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = {
+                            val list = store.chat(chatId)
+                            val idx = list.indexOfFirst { it.id == m.id }
+                            if (idx >= 0) {
+                                list.removeAt(idx)
+                                store.save()
+                            }
+                            showEdit = false
+                        }) { Text("删除", color = BeeDanger) }
+                    }
+                )
             }
             if (askResend) {
                 AlertDialog(
@@ -573,17 +673,29 @@ fun MsgView(store: Store, m: Msg, showName: Boolean, thinking: Boolean, go: (Scr
             }
         }
         else -> Column(Modifier.fillMaxWidth()) {
+            val (thoughtText, answerText) = remember(m.text) { splitThinkingContent(m.text) }
             if (showName) Text(store.botName(m.from), color = Sub, fontSize = 12.sp, modifier = Modifier.padding(bottom = 4.dp))
-            if (m.tools.isNotEmpty()) ToolsPanel(m.tools, m.id, thinking, store, chatId, m.from)
-            if (m.text.isNotBlank()) {
+            if (m.tools.isNotEmpty() || thoughtText.isNotBlank() || (thinking && answerText.isBlank())) {
+                ToolsPanel(
+                    tools = m.tools,
+                    scopeKey = m.id,
+                    live = thinking,
+                    store = store,
+                    chatId = chatId,
+                    botId = m.from,
+                    thoughtText = thoughtText,
+                    answerBlank = answerText.isBlank()
+                )
+            }
+            if (answerText.isNotBlank()) {
                 // Assistant replies are Markdown: headings, lists, code, tables all render as such.
                 // vNext: no bubble — plain text laid straight onto the page colour, generous
                 // paragraph spacing (the container padding below is the only chrome).
-                SelectionContainer { MarkdownText(m.text, fontSize = 16.sp, lineHeight = 23.sp) }
-            } else if (thinking) ThinkingDots()
+                SelectionContainer { MarkdownText(answerText, fontSize = 16.sp, lineHeight = 23.sp) }
+            }
             // Action row under the assistant message: only the capabilities that exist today —
             // copy and resend (read-out is a 0.5.10 feature and is NOT shown).
-            if (!thinking && m.text.isNotBlank() && chatId.isNotBlank() && canResendChat(chatId)) {
+            if (!thinking && answerText.isNotBlank() && chatId.isNotBlank() && canResendChat(chatId)) {
                 AssistantActions(store, chatId, m)
             }
         }
@@ -594,38 +706,87 @@ fun MsgView(store: Store, m: Msg, showName: Boolean, thinking: Boolean, go: (Scr
 private fun canResendChat(chatId: String): Boolean =
     chatId.startsWith("bot:") || chatId.startsWith("group:") || chatId == AGENT_ID
 
-/** Copy / resend icons under an assistant message, small and grey like the reference app. */
+/** Copy / regenerate / delete icons + timestamp under an assistant message (v0.6.4 bugfix). */
 @Composable
 private fun AssistantActions(store: Store, chatId: String, m: Msg) {
     val ctx = LocalContext.current
+    val chatBusy = chatId in store.busy
     var askResend by remember { mutableStateOf(false) }
-    Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+    var askDelete by remember { mutableStateOf(false) }
+    val cleanAnswer = remember(m.text) {
+        val (_, ans) = splitThinkingContent(m.text)
+        ans.ifBlank { m.text }
+    }
+    Row(
+        Modifier.padding(top = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         Box(
             Modifier.size(32.dp).pressBounce {
                 val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                cm.setPrimaryClip(android.content.ClipData.newPlainText("message", m.text))
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("message", cleanAnswer))
                 android.widget.Toast.makeText(ctx, "已复制", android.widget.Toast.LENGTH_SHORT).show()
             }.harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = PILL),
             contentAlignment = Alignment.Center
         ) { Icon(Ic.Copy, "复制", tint = Sub, modifier = Modifier.size(15.dp)) }
-        Box(
-            Modifier.size(32.dp).pressBounce { askResend = true }
-                .harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = PILL),
-            contentAlignment = Alignment.Center
-        ) { Icon(Ic.Refresh, "重发", tint = Sub, modifier = Modifier.size(15.dp)) }
+        if (!chatBusy) {
+            Box(
+                Modifier.size(32.dp).pressBounce { askResend = true }
+                    .harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = PILL),
+                contentAlignment = Alignment.Center
+            ) { Icon(Ic.Refresh, "重新生成", tint = Sub, modifier = Modifier.size(15.dp)) }
+            Box(
+                Modifier.size(32.dp).pressBounce { askDelete = true }
+                    .harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = PILL),
+                contentAlignment = Alignment.Center
+            ) { Icon(Ic.Close, "删除这条回复", tint = Sub, modifier = Modifier.size(14.dp)) }
+        }
+        if (m.time > 0) {
+            Spacer(Modifier.width(4.dp))
+            Text(timeAgo(m.time), color = Sub.copy(alpha = 0.72f), fontSize = 10.sp)
+        }
     }
     if (askResend) {
         AlertDialog(
             onDismissRequest = { askResend = false },
             title = { Text("从此处重新生成?") },
-            text = { Text("这条回复之后的内容会被清除,然后让 Bot 重新作答。") },
+            text = { Text("这条回复及之后的内容会被清除,然后让模型重新作答。") },
             confirmButton = {
                 TextButton(onClick = {
                     askResend = false
-                    store.resendFrom(chatId, m.id)
+                    // v0.6.4 fix: Store.resendFrom requires a user message id (m.from == null).
+                    // Locate the closest preceding user message before this assistant reply.
+                    val list = store.chat(chatId)
+                    val idx = list.indexOfFirst { it.id == m.id }
+                    val prevUser = if (idx > 0) list.subList(0, idx).lastOrNull { it.from == null } else null
+                    if (prevUser != null) {
+                        store.resendFrom(chatId, prevUser.id)
+                    } else {
+                        android.widget.Toast.makeText(ctx, "未找到对应的上一条提问", android.widget.Toast.LENGTH_SHORT).show()
+                    }
                 }) { Text("重新生成") }
             },
             dismissButton = { TextButton(onClick = { askResend = false }) { Text("取消") } }
+        )
+    }
+    if (askDelete) {
+        AlertDialog(
+            onDismissRequest = { askDelete = false },
+            title = { Text("删除这条回复?") },
+            text = { Text("仅删除这一条消息,不影响上下文其余对话。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    askDelete = false
+                    val list = store.chat(chatId)
+                    val idx = list.indexOfFirst { it.id == m.id }
+                    if (idx >= 0) {
+                        list.removeAt(idx)
+                        store.save()
+                    }
+                }) { Text("删除", color = BeeDanger) }
+            },
+            dismissButton = { TextButton(onClick = { askDelete = false }) { Text("取消") } }
         )
     }
 }
@@ -675,70 +836,150 @@ private fun toolBadge(t: ToolCall): Boolean {
     return m != null && m.groupValues[1] != "0"
 }
 
-/** Every tool call collapses to one grey step line: icon + one-line summary + chevron (STUDY §2.4). */
+/**
+ * Unified Bix Execution & Thinking Summary Box:
+ *  - Collapsed: ONE single Liquid Glass capsule with animated Bix on the left (typing on pixel laptop,
+ *    thinking, or drilling mini-Bix squad) and concise command summary or last-line "…thinking" on the right.
+ *  - Expanded: Half-height Liquid Glass bottom sheet ("摘要") so the upper screen stays visible; Bix gets
+ *    bounced up onto the top roof of the sheet with squash-and-stretch landing and continues its live action,
+ *    while individual rows inside the timeline stay clean without repeating Bix.
+ */
 @Composable
 fun ToolsPanel(
     tools: List<ToolCall>, scopeKey: String, live: Boolean,
-    store: Store? = null, chatId: String = "", botId: String? = null
+    store: Store? = null, chatId: String = "", botId: String? = null,
+    thoughtText: String = "", answerBlank: Boolean = false
 ) {
-    // vNext: the whole run collapses to ONE grey line ("N 步 · 摘要") that opens the Summary
-    // sheet (STUDY §2.5 timeline); the previous inline expandable rows move in there.
     var showSummary by remember { mutableStateOf(false) }
     val runningIdx = if (live) tools.indexOfFirst { it.output.isBlank() } else -1
     val done = tools.count { it.output.isNotBlank() }
+    val isLiveThinking = live && runningIdx < 0 && (thoughtText.isNotBlank() || answerBlank)
+
+    val currentBixAction = when {
+        runningIdx >= 0 -> classifyToolBixAction(tools[runningIdx].name)
+        isLiveThinking -> BixAction.Thinking
+        tools.any { toolBadge(it) } -> BixAction.Dizzy
+        tools.isNotEmpty() -> BixAction.Done
+        else -> BixAction.Done
+    }
+
+    val collapsedText = when {
+        runningIdx >= 0 -> humanToolSummary(tools[runningIdx])
+        isLiveThinking -> formatLastThinkingLine(thoughtText)
+        tools.size == 1 -> "${humanToolSummary(tools[0])} · 完成"
+        tools.size > 1 -> "已完成 $done 步 · ${humanToolSummary(tools.last())}"
+        thoughtText.isNotBlank() -> formatLastThinkingLine(thoughtText)
+        else -> "已完成"
+    }
+
     Column(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
         Row(
             Modifier.fillMaxWidth()
-                .harmonyGlass(thickness = ImmersiveThickness.THICK, radius = 14.dp, fallbackBg = Card)
-                .clickable { showSummary = true }.padding(horizontal = 10.dp, vertical = 8.dp),
+                .harmonyGlass(thickness = ImmersiveThickness.THICK, radius = 16.dp, fallbackBg = Card)
+                .clickable { showSummary = true }
+                .padding(horizontal = 10.dp, vertical = 7.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(Ic.Terminal, null, tint = Sub, modifier = Modifier.size(15.dp))
+            BixScene(action = currentBixAction, compact = true)
             Spacer(Modifier.width(8.dp))
             Text(
-                when {
-                    runningIdx >= 0 -> "执行工具中 · ${toolSummary(tools[runningIdx].args).ifBlank { tools[runningIdx].name }}"
-                    tools.size == 1 -> "${tools[0].name} · ${toolSummary(tools[0].args).ifBlank { "完成" }}"
-                    else -> "$done 项工具调用"
-                },
-                color = Sub, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                collapsedText,
+                color = if (runningIdx >= 0 || isLiveThinking) Fg else Sub,
+                fontSize = 13.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
             )
-            if (runningIdx >= 0) {
-                ThinkingDots(compact = true)
-                Spacer(Modifier.width(6.dp))
-            } else if (tools.any { toolBadge(it) }) {
+            if (tools.any { toolBadge(it) }) {
                 Box(Modifier.size(7.dp).clip(CircleShape).background(BeeDanger))
                 Spacer(Modifier.width(6.dp))
             }
             Icon(Ic.Chevron, null, tint = Sub, modifier = Modifier.size(16.dp))
         }
     }
+
     if (showSummary) {
-        // Hosted in a full-screen Dialog: inline inside a LazyColumn item the sheet's
-        // weighted content column collapses to zero height (unbounded item height),
-        // which left the summary sheet showing only its title. The Dialog window
-        // gives ClaudeSheet the bounded full-screen constraints it was designed for.
         Dialog(
             onDismissRequest = { showSummary = false },
             properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)
         ) {
-        ClaudeSheet(title = "执行摘要", visible = true, onDismiss = { showSummary = false }) {
-            tools.forEachIndexed { i, t ->
-                val running = live && i == runningIdx
-                SummaryStepRow(
-                    icon = Ic.Terminal,
-                    name = t.name,
-                    detail = toolSummary(t.args),
-                    running = running,
-                    last = i == tools.lastIndex,
-                    onClick = {}
-                )
-                // Expanded detail: args + output + actions (copy / re-run), same content the old
-                // inline rows had — now reached through the sheet instead of the list.
-                if (store != null && !running) ToolDetail(t, ToolActions(store, chatId, botId))
+            val stepBadge = when {
+                tools.isNotEmpty() -> "${tools.size} 步"
+                thoughtText.isNotBlank() -> "思考"
+                else -> ""
             }
-        }
+            BixSummaryHalfSheet(
+                title = "摘要",
+                subtitle = stepBadge,
+                bixAction = currentBixAction,
+                visible = true,
+                onDismiss = { showSummary = false }
+            ) {
+                var expandThought by remember { mutableStateOf(tools.isEmpty()) }
+                val expandedTools = remember(scopeKey) {
+                    mutableStateListOf<String>().apply {
+                        if (tools.size == 1) add(tools[0].id)
+                    }
+                }
+
+                // Thinking timeline entry (Claude-style subtle dot on rail, NO Bix beside it)
+                if (thoughtText.isNotBlank() || isLiveThinking) {
+                    val lastLine = formatLastThinkingLine(thoughtText)
+                    val isLastRow = tools.isEmpty()
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .height(IntrinsicSize.Min)
+                            .clickable { expandThought = !expandThought }
+                    ) {
+                        Column(
+                            Modifier.width(36.dp).fillMaxSize().padding(vertical = 4.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Box(
+                                Modifier
+                                    .size(if (isLiveThinking) 10.dp else 8.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isLiveThinking) ThemeAccent else Sub.copy(alpha = 0.55f))
+                            )
+                            if (!isLastRow) {
+                                Spacer(Modifier.height(4.dp))
+                                Box(Modifier.width(1.5.dp).weight(1f).background(HAIRLINE))
+                            }
+                        }
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f).padding(bottom = 14.dp)) {
+                            Text(
+                                if (expandThought && thoughtText.isNotBlank()) thoughtText else lastLine,
+                                style = HiveSerif.Thinking(),
+                                maxLines = if (expandThought) Int.MAX_VALUE else 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+
+                // Tool execution timeline entries (clean terminal rail icons, NO Bix beside rows)
+                tools.forEachIndexed { i, t ->
+                    val running = live && i == runningIdx
+                    val isOpen = t.id in expandedTools
+                    val summaryTitle = humanToolSummary(t)
+                    val argLine = toolSummary(t.args)
+                    SummaryStepRow(
+                        icon = Ic.Terminal,
+                        name = summaryTitle,
+                        detail = if (argLine.isNotBlank() && argLine != summaryTitle) "${t.name} · $argLine" else t.name,
+                        running = running,
+                        last = i == tools.lastIndex,
+                        onClick = {
+                            if (isOpen) expandedTools.remove(t.id) else expandedTools.add(t.id)
+                        }
+                    )
+                    if (store != null && !running && isOpen) {
+                        ToolDetail(t, ToolActions(store, chatId, botId))
+                    }
+                }
+            }
         }
     }
 }
