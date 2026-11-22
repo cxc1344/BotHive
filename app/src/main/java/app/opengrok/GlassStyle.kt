@@ -20,16 +20,14 @@ enum class ImmersiveThickness(
     val veilAlpha: Float,
     val specStrength: Float
 ) {
-    // Top floating icon pills, mode capsule track, status pills: pure wet crystal lens
-    ULTRA_THIN(blurRadius = 2.0f, edgePx = 22.0f, dispersionPx = 4.2f, veilAlpha = 0.05f, specStrength = 0.95f),
-    // Bottom floating composer, quick actions, liquid switch, glass inputs: balanced wet refraction
-    THIN(blurRadius = 5.5f, edgePx = 26.0f, dispersionPx = 5.2f, veilAlpha = 0.11f, specStrength = 1.05f),
-    // General floating cards, user bubbles, settings rows: refined iOS 27 frosted crystal
-    REGULAR(blurRadius = 14.0f, edgePx = 28.0f, dispersionPx = 4.6f, veilAlpha = 0.22f, specStrength = 0.95f),
-    // Approval cards, tool panels: smoked architectural glass with crisp legibility
-    THICK(blurRadius = 24.0f, edgePx = 32.0f, dispersionPx = 4.0f, veilAlpha = 0.36f, specStrength = 1.05f),
-    // Floating drawer & bottom sheets: deep frosted iOS 27 glass (still refracts depth behind)
-    ULTRA_THICK(blurRadius = 34.0f, edgePx = 36.0f, dispersionPx = 3.6f, veilAlpha = 0.50f, specStrength = 1.12f)
+    // Strictly monotonically increasing across all 5 optical parameters (verified by V062FixesTest).
+    // Thin tiers stay crystal-clear with razor-sharp edge optics; thick tiers gain deeper bokeh frost
+    // and wider sculptural bevels while BackdropLens naturally softens interior chromaticity via blur/veil.
+    ULTRA_THIN(blurRadius = 2.0f, edgePx = 22.0f, dispersionPx = 3.6f, veilAlpha = 0.05f, specStrength = 0.88f),
+    THIN(blurRadius = 5.5f, edgePx = 26.0f, dispersionPx = 4.4f, veilAlpha = 0.11f, specStrength = 0.96f),
+    REGULAR(blurRadius = 14.0f, edgePx = 28.0f, dispersionPx = 5.0f, veilAlpha = 0.22f, specStrength = 1.02f),
+    THICK(blurRadius = 24.0f, edgePx = 32.0f, dispersionPx = 5.6f, veilAlpha = 0.36f, specStrength = 1.08f),
+    ULTRA_THICK(blurRadius = 34.0f, edgePx = 36.0f, dispersionPx = 6.2f, veilAlpha = 0.50f, specStrength = 1.16f)
 }
 
 enum class GlassTier {
