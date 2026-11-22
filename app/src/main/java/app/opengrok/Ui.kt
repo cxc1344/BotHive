@@ -189,6 +189,9 @@ fun App(store: Store) {
                 // AppDrawer sits outside as a sibling layer so overlays never enter the backdrop.
                 // During captureLayer.record(), AppBackdrop.isCapturing = true skips all glass
                 // surfaces and borders so glass only refracts real underlying UI content.
+                // Dedicated optical backdrop layer captured for Liquid Glass refraction.
+                // Kept strictly separate from ScreenHost so animated transitions, capsules,
+                // and composers NEVER leak or ghost inside glass lenses.
                 Box(
                     Modifier.fillMaxSize().drawWithContent {
                         val rootW = size.width.toInt()
@@ -212,11 +215,12 @@ fun App(store: Store) {
                         this@drawWithContent.drawContent()
                     }
                 ) {
+                    Box(Modifier.fillMaxSize().background(Bg))
                     StudioOpticalBackdrop(Modifier.fillMaxSize())
-                    HoneycombBackdrop(Modifier.fillMaxSize(), alpha = .26f)
-                    Box(Modifier.fillMaxSize().systemBarsPadding().imePadding()) {
-                        ScreenHost(screen, store, nav)
-                    }
+                    HoneycombBackdrop(Modifier.fillMaxSize(), alpha = .28f)
+                }
+                Box(Modifier.fillMaxSize().systemBarsPadding().imePadding()) {
+                    ScreenHost(screen, store, nav)
                 }
                 AppDrawer(store, drawer, screen, { drawer = false }, nav)
             }

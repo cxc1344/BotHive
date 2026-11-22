@@ -24,7 +24,7 @@ import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.nativeCanvas
 
 /**
- * Physical Optical Liquid Glass Lens Engine (v0.6.2 LiquidGlass Pro).
+ * Physical Optical Liquid Glass Lens Engine (v0.6.3 LiquidGlass Pro).
  *
  * Upgraded AGSL optical model inspired by Apple iOS 26 / iOS 27 Liquid Glass:
  *  1. 16-tap Golden-Angle Vogel Disk bokeh blur (eliminates cross-shaped ghosting on text).
@@ -131,26 +131,27 @@ half4 main(float2 xy) {
     float zoomHere = mix(1.0, uZoom, dome);
     float2 fromCenter = p / zoomHere;
 
-    // 2. Sculptural meniscus bevel refraction along the curved perimeter
-    float band = 1.0 - smoothstep(0.0, max(uEdgePx, 1.0), -sdf);
-    float meniscus = band * band * (1.55 - 0.55 * band);
-    float push = meniscus * uRefractPx;
+    // 2. Proportional meniscus bevel refraction (clamped to minHalf so small 36-42dp pills stay jewel-clean)
+    float effEdge = min(max(uEdgePx, 1.0), max(minHalf * 0.36, 4.0));
+    float band = 1.0 - smoothstep(0.0, effEdge, -sdf);
+    float meniscus = band * band * (1.35 - 0.35 * band);
+    float effRefract = min(uRefractPx, minHalf * 0.42);
+    float push = meniscus * effRefract;
     float2 sampleLocal = fromCenter + c - n * push;
 
-    // 3. Adaptive optical frosting (clearer at curved refractive rim, silkier inside) + RGB dispersion
-    float blurHere = uBlurRadius * mix(0.28, 1.0, smoothstep(0.0, 0.65, depth));
+    // 3. Adaptive optical frosting + refined subtle RGB dispersion (Apple crystal, zero glitch fringe)
+    float blurHere = uBlurRadius * mix(0.32, 1.0, smoothstep(0.0, 0.65, depth));
     half4 g = sampleBackdropBlurred(sampleLocal, blurHere);
     half4 outC = g;
     half3 prismBoost = half3(0.0);
 
     if (uDispersionPx > 0.0) {
-        float dispW = 0.08 + 0.92 * band * band;
-        float2 shift = n * uDispersionPx * dispW;
-        half4 rr = sampleBackdropBlurred(sampleLocal - shift * 1.35, blurHere * 0.55);
-        half4 bb = sampleBackdropBlurred(sampleLocal + shift * 1.35, blurHere * 0.55);
+        float dispW = 0.05 + 0.95 * band * band;
+        float2 shift = n * (uDispersionPx * 0.42) * dispW;
+        half4 rr = sampleBackdropBlurred(sampleLocal - shift, blurHere * 0.65);
+        half4 bb = sampleBackdropBlurred(sampleLocal + shift, blurHere * 0.65);
         outC = half4(rr.r, g.g, bb.b, g.a);
-        // Subtle true optical prism edge boost where R/B actually separate on high-contrast features
-        prismBoost = half3(abs(rr.r - g.g), 0.0, abs(bb.b - g.g)) * half(band * 1.05);
+        prismBoost = half3(abs(rr.r - g.g), 0.0, abs(bb.b - g.g)) * half(band * 0.28);
     }
 
     // 4. Optical vibrancy & refined iOS 27 smoked crystal veil (never muddy opaque grey)
@@ -298,7 +299,7 @@ fun Modifier.backdropLens(
                     shader.setFloatUniform("uSurfaceTopLeft", surfaceTopLeft.x, surfaceTopLeft.y)
                     shader.setFloatUniform("uZoom", zoom)
                     shader.setFloatUniform("uEdgePx", thickness.edgePx)
-                    shader.setFloatUniform("uRefractPx", thickness.edgePx * 1.75f)
+                    shader.setFloatUniform("uRefractPx", thickness.edgePx * 1.05f)
                     shader.setFloatUniform("uDispersionPx", thickness.dispersionPx)
                     shader.setFloatUniform("uBlurRadius", thickness.blurRadius)
                     shader.setFloatUniform("uVeil", thickness.veilAlpha)
