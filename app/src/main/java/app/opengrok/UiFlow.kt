@@ -487,7 +487,7 @@ fun SearchableModelList(
         models.any { it.contains(":free", ignoreCase = true) || it.endsWith("/free", ignoreCase = true) }
     }
     val filtered = remember(models, query, freeOnly) {
-        val tokens = query.trim().lowercase().split(Regex("\s+")).filter { it.isNotBlank() }
+        val tokens = query.trim().lowercase().split(Regex("\\s+")).filter { it.isNotBlank() }
         models.filter { mid ->
             val lower = mid.lowercase()
             val freeOk = !freeOnly || lower.contains(":free") || lower.endsWith("/free")
