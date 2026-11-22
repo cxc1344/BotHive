@@ -481,8 +481,7 @@ object Agent {
                 else {
                     val (info, shot) = AiBrowser.openUrl(store.appContext(), store.appContext().cacheDir, url, a.optBoolean("desktop_mode", false))
                     if (shot != null) pendingShots[bot.id] = shot
-                    "$info
-已附带当前浏览器画面截图,请结合 0-1000 坐标继续用 browser_mouse / browser_type 操作。"
+                    "$info\n已附带当前浏览器画面截图,请结合 0-1000 坐标继续用 browser_mouse / browser_type 操作。"
                 }
             }
             "browser_mouse" -> {
