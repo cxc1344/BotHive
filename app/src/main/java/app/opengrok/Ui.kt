@@ -222,7 +222,7 @@ fun App(store: Store) {
                 Box(Modifier.fillMaxSize().systemBarsPadding().imePadding()) {
                     ScreenHost(screen, store, nav)
                 }
-                AiBrowserTaskPill(Modifier.align(Alignment.TopCenter))
+                AiBrowserTaskPill(Modifier.align(Alignment.TopEnd))
                 AppDrawer(store, drawer, screen, { drawer = false }, nav)
                 AiBrowserSheetOverlay()
             }
@@ -609,51 +609,54 @@ fun MsgView(store: Store, m: Msg, showName: Boolean, thinking: Boolean, go: (Scr
                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Field("消息内容", editDraft, { editDraft = it }, singleLine = false, minLines = 3)
                             Text(
-                                "「保存并重发」会清除这条消息之后的回复并重新发送；「仅修改」只原地修正文字。",
+                                "「保存并重发」会清除之后的回复并重新发送；也可仅原地修正文字或删除此条。",
                                 color = Sub, fontSize = 11.sp, lineHeight = 16.sp
                             )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                SmallChip("仅修改文字") {
+                                    if (editDraft.isNotBlank()) {
+                                        val list = store.chat(chatId)
+                                        val idx = list.indexOfFirst { it.id == m.id }
+                                        if (idx >= 0) {
+                                            list[idx] = list[idx].copy(text = editDraft.trim())
+                                            store.save()
+                                        }
+                                        showEdit = false
+                                    }
+                                }
+                                Box(
+                                    Modifier.pressBounce {
+                                        val list = store.chat(chatId)
+                                        val idx = list.indexOfFirst { it.id == m.id }
+                                        if (idx >= 0) {
+                                            list.removeAt(idx)
+                                            store.save()
+                                        }
+                                        showEdit = false
+                                    }.clip(RoundedCornerShape(14.dp)).background(BeeDanger.copy(alpha = 0.16f))
+                                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                                ) { Text("删除消息", color = BeeDanger, fontSize = 12.sp) }
+                            }
                         }
                     },
                     confirmButton = {
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            TextButton(
-                                enabled = editDraft.isNotBlank(),
-                                onClick = {
-                                    val list = store.chat(chatId)
-                                    val idx = list.indexOfFirst { it.id == m.id }
-                                    if (idx >= 0) {
-                                        list[idx] = list[idx].copy(text = editDraft.trim())
-                                        store.save()
-                                    }
+                        TextButton(
+                            enabled = editDraft.isNotBlank(),
+                            onClick = {
+                                val list = store.chat(chatId)
+                                val idx = list.indexOfFirst { it.id == m.id }
+                                if (idx >= 0) {
+                                    list[idx] = list[idx].copy(text = editDraft.trim())
+                                    showEdit = false
+                                    store.resendFrom(chatId, m.id)
+                                } else {
                                     showEdit = false
                                 }
-                            ) { Text("仅修改", color = Sub) }
-                            TextButton(
-                                enabled = editDraft.isNotBlank(),
-                                onClick = {
-                                    val list = store.chat(chatId)
-                                    val idx = list.indexOfFirst { it.id == m.id }
-                                    if (idx >= 0) {
-                                        list[idx] = list[idx].copy(text = editDraft.trim())
-                                        showEdit = false
-                                        store.resendFrom(chatId, m.id)
-                                    } else {
-                                        showEdit = false
-                                    }
-                                }
-                            ) { Text("保存并重发") }
-                        }
+                            }
+                        ) { Text("保存并重发") }
                     },
                     dismissButton = {
-                        TextButton(onClick = {
-                            val list = store.chat(chatId)
-                            val idx = list.indexOfFirst { it.id == m.id }
-                            if (idx >= 0) {
-                                list.removeAt(idx)
-                                store.save()
-                            }
-                            showEdit = false
-                        }) { Text("删除", color = BeeDanger) }
+                        TextButton(onClick = { showEdit = false }) { Text("取消") }
                     }
                 )
             }

@@ -40,6 +40,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import kotlinx.coroutines.delay
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.animateContentSize
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -58,58 +66,127 @@ import androidx.compose.ui.viewinterop.AndroidView
  * Floating Liquid Glass "Browser Task" pill displayed near the top of the app whenever the AI
  * has an active browser session. Tapping opens the live watch & human-takeover window.
  */
+/**
+ * Dynamic-Island-style Liquid Glass Browser Task Pill:
+ *  - Expands for 3.5s on start or new browser action, then auto-collapses into a compact
+ *    Bix-working orb docked below the sub-header on the right edge (never blocking Agent settings!).
+ *  - Tapping the compact Bix orb re-expands the full bar for 4s before auto-collapsing again.
+ */
 @Composable
 fun AiBrowserTaskPill(modifier: Modifier = Modifier) {
+    val active = AiBrowser.active
+    val sheetOpen = AiBrowser.sheetOpen
+    val actionKey = AiBrowser.lastActionLabel
+    var expanded by remember { mutableStateOf(true) }
+    var expandTick by remember { mutableIntStateOf(0) }
+
+    // Auto-expand briefly when a browser task starts or performs a new action, then collapse to compact Bix orb
+    LaunchedEffect(active, sheetOpen, actionKey, expandTick) {
+        if (!active || sheetOpen) return@LaunchedEffect
+        expanded = true
+        delay(if (expandTick > 0) 4000L else 3500L)
+        expanded = false
+    }
+
     AnimatedVisibility(
-        visible = AiBrowser.active && !AiBrowser.sheetOpen,
+        visible = active && !sheetOpen,
         modifier = modifier,
         enter = fadeIn(tween(200)) + slideInVertically(tween(220)) { -it },
         exit = fadeOut(tween(160)) + slideOutVertically(tween(180)) { -it }
     ) {
         val takeover = AiBrowser.userTakeover
-        Row(
+        Box(
             Modifier
                 .statusBarsPadding()
-                .padding(top = 56.dp, start = 16.dp, end = 16.dp)
-                .fillMaxWidth()
-                .pressBounce { AiBrowser.sheetOpen = true }
-                .harmonyGlass(
-                    thickness = ImmersiveThickness.THICK,
-                    radius = 18.dp,
-                    tint = if (takeover) ThemeAccent.copy(alpha = 0.20f) else SheetGlassTint,
-                    fallbackBg = Card
-                )
-                .padding(horizontal = 12.dp, vertical = 9.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .padding(top = 114.dp, start = 14.dp, end = 14.dp)
+                .animateContentSize(
+                    animationSpec = spring(
+                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                        stiffness = Spring.StiffnessMediumLow
+                    )
+                ),
+            contentAlignment = Alignment.CenterEnd
         ) {
-            BixScene(
-                action = if (takeover) BixAction.ApprovalGuard else BixAction.Coding,
-                compact = true
-            )
-            Spacer(Modifier.width(8.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    if (takeover) "浏览器任务 · 你正在接管" else "AI 浏览器任务 · ${AiBrowser.pageTitle}",
-                    color = Fg, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    AiBrowser.lastActionLabel,
-                    color = if (takeover) ThemeAccentPale else Sub,
-                    fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
-                )
-            }
-            Spacer(Modifier.width(8.dp))
-            Box(
-                Modifier
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(if (takeover) ThemeAccent else PillWhite)
-                    .padding(horizontal = 11.dp, vertical = 6.dp)
-            ) {
-                Text(
-                    if (takeover) "继续接管" else "观看 / 接管",
-                    color = Ink, fontSize = 11.sp, fontWeight = FontWeight.Bold
-                )
+            if (expanded) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .pressBounce { AiBrowser.sheetOpen = true }
+                        .harmonyGlass(
+                            thickness = ImmersiveThickness.THICK,
+                            radius = 20.dp,
+                            tint = if (takeover) ThemeAccent.copy(alpha = 0.22f) else SheetGlassTint,
+                            fallbackBg = Card
+                        )
+                        .padding(horizontal = 12.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    BixScene(
+                        action = if (takeover) BixAction.ApprovalGuard else BixAction.Coding,
+                        compact = true
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            if (takeover) "浏览器任务 · 你正在接管" else "AI 浏览器任务 · ${AiBrowser.pageTitle}",
+                            color = Fg, fontSize = 13.sp, fontWeight = FontWeight.SemiBold,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            AiBrowser.lastActionLabel,
+                            color = if (takeover) ThemeAccentPale else Sub,
+                            fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Box(
+                        Modifier
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(if (takeover) ThemeAccent else PillWhite)
+                            .padding(horizontal = 11.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            if (takeover) "继续接管" else "观看 / 接管",
+                            color = Ink, fontSize = 11.sp, fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Spacer(Modifier.width(6.dp))
+                    Box(
+                        Modifier
+                            .size(26.dp)
+                            .pressBounce { AiBrowser.closeSession() }
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.10f)),
+                        contentAlignment = Alignment.Center
+                    ) { Icon(Ic.Close, "关闭浏览器", tint = Sub, modifier = Modifier.size(13.dp)) }
+                }
+            } else {
+                // Compact floating Bix-working orb: zero obstruction to Agent settings & chat!
+                Box(
+                    Modifier
+                        .pressBounce { expandTick++ }
+                        .harmonyGlass(
+                            thickness = ImmersiveThickness.THICK,
+                            radius = 999.dp,
+                            tint = if (takeover) ThemeAccent.copy(alpha = 0.26f) else SheetGlassTint,
+                            fallbackBg = Card
+                        )
+                        .padding(horizontal = 10.dp, vertical = 7.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                        BixScene(
+                            action = if (takeover) BixAction.ApprovalGuard else BixAction.Coding,
+                            compact = true
+                        )
+                        Box(
+                            Modifier
+                                .size(6.dp)
+                                .clip(CircleShape)
+                                .background(if (takeover) ThemeAccent else BeeGreen)
+                        )
+                    }
+                }
             }
         }
     }
@@ -207,6 +284,7 @@ fun AiBrowserSheetOverlay() {
                 ) {
                     val wv = remember { AiBrowser.ensureWebView(ctx) }
                     SmallChip("后退") { if (wv.canGoBack()) wv.goBack() }
+                    SmallChip("前进") { if (wv.canGoForward()) wv.goForward() }
                     SmallChip("刷新") { wv.reload() }
                     SmallChip(if (AiBrowser.desktopMode) "桌面版 ✓" else "手机版") {
                         AiBrowser.toggleDesktopMode(ctx)

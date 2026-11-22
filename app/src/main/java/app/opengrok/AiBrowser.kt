@@ -2,6 +2,7 @@ package app.opengrok
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.MutableContextWrapper
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.view.View
@@ -58,6 +59,8 @@ object AiBrowser {
     @Volatile
     private var webView: WebView? = null
     @Volatile
+    private var ctxWrapper: MutableContextWrapper? = null
+    @Volatile
     private var takeoverGate: CompletableDeferred<Unit>? = null
 
     private const val DESKTOP_UA =
@@ -67,7 +70,11 @@ object AiBrowser {
     fun ensureWebView(context: Context): WebView {
         webView?.let { return it }
         val appCtx = context.applicationContext
-        val wv = WebView(appCtx).apply {
+        val wrapper = MutableContextWrapper(context)
+        ctxWrapper = wrapper
+        val wv = WebView(wrapper).apply {
+            isFocusable = true
+            isFocusableInTouchMode = true
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.databaseEnabled = true
@@ -115,6 +122,7 @@ object AiBrowser {
 
     fun attachTo(host: ViewGroup, context: Context): WebView {
         val wv = ensureWebView(context)
+        ctxWrapper?.baseContext = context
         (wv.parent as? ViewGroup)?.removeView(wv)
         host.removeAllViews()
         host.addView(
@@ -132,6 +140,7 @@ object AiBrowser {
         if (wv.parent === host) {
             host.removeView(wv)
         }
+        ctxWrapper?.let { it.baseContext = it.applicationContext }
     }
 
     fun setTakeover(enable: Boolean) {
@@ -168,6 +177,7 @@ object AiBrowser {
         takeoverGate = null
         val wv = webView
         webView = null
+        ctxWrapper = null
         if (wv != null) {
             (wv.parent as? ViewGroup)?.removeView(wv)
             runCatching {
@@ -177,12 +187,13 @@ object AiBrowser {
         }
     }
 
-    /** Suspends AI browser execution cleanly whenever the user has taken over manual control. */
-    private suspend fun awaitAiControl() {
-        while (userTakeover) {
+    /** Suspends AI browser execution cleanly whenever the user has taken over manual control. Returns false if session was closed. */
+    private suspend fun awaitAiControl(): Boolean {
+        while (userTakeover && active) {
             val gate = takeoverGate ?: CompletableDeferred<Unit>().also { takeoverGate = it }
             gate.await()
         }
+        return active
     }
 
     private suspend fun evalJs(wv: WebView, script: String): String = withContext(Dispatchers.Main) {
@@ -291,7 +302,7 @@ object AiBrowser {
         deltaY: Int = 0,
         durationMs: Long = 500L
     ): Pair<String, File?> {
-        awaitAiControl()
+        if (!awaitAiControl()) return "用户已结束独立浏览器任务。" to null
         val nx = x.coerceIn(0, 1000)
         val ny = y.coerceIn(0, 1000)
         val nx2 = x2.coerceIn(0, 1000)
@@ -471,7 +482,7 @@ object AiBrowser {
         text: String,
         submit: Boolean = false
     ): Pair<String, File?> {
-        awaitAiControl()
+        if (!awaitAiControl()) return "用户已结束独立浏览器任务。" to null
         val wv = withContext(Dispatchers.Main) {
             active = true
             lastActionLabel = "输入文字：${text.take(18)}"
@@ -518,7 +529,7 @@ object AiBrowser {
         cacheDir: File,
         navAction: String
     ): Pair<String, File?> {
-        awaitAiControl()
+        if (!awaitAiControl()) return "用户已结束独立浏览器任务。" to null
         val wv = withContext(Dispatchers.Main) {
             active = true
             val v = ensureWebView(context)
