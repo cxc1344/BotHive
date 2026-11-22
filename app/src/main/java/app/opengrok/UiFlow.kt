@@ -11,6 +11,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.graphics.graphicsLayer
@@ -467,6 +469,193 @@ private fun lerp(a: androidx.compose.ui.unit.Dp, b: androidx.compose.ui.unit.Dp,
  * provider preset (fetch via the existing [ModelsApi], no storage change); when nothing can be
  * listed, the sheet explains honestly instead of inventing entries.
  */
+/**
+ * Reusable searchable Liquid Glass model picker for huge provider catalogs (e.g. OpenRouter 300+ models).
+ * Includes real-time keyword search + a 1-tap ":free" filter chip whenever free models are present.
+ */
+@Composable
+fun SearchableModelList(
+    models: List<String>,
+    selectedModel: String,
+    onPick: (String) -> Unit,
+    providerLabel: String? = null,
+    inlineMaxHeight: androidx.compose.ui.unit.Dp? = 250.dp
+) {
+    var query by remember(models) { mutableStateOf("") }
+    var freeOnly by remember(models) { mutableStateOf(false) }
+    val hasFree = remember(models) {
+        models.any { it.contains(":free", ignoreCase = true) || it.endsWith("/free", ignoreCase = true) }
+    }
+    val filtered = remember(models, query, freeOnly) {
+        val tokens = query.trim().lowercase().split(Regex("\s+")).filter { it.isNotBlank() }
+        models.filter { mid ->
+            val lower = mid.lowercase()
+            val freeOk = !freeOnly || lower.contains(":free") || lower.endsWith("/free")
+            freeOk && tokens.all { tok -> lower.contains(tok) }
+        }
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Search bar capsule
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .harmonyGlass(thickness = ImmersiveThickness.THIN, radius = 16.dp, fallbackBg = Card)
+                .padding(horizontal = 12.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Ic.Search, null, tint = Sub, modifier = Modifier.size(17.dp))
+            Spacer(Modifier.width(8.dp))
+            BasicTextField(
+                value = query,
+                onValueChange = { query = it },
+                singleLine = true,
+                textStyle = androidx.compose.ui.text.TextStyle(color = Fg, fontSize = 14.sp),
+                cursorBrush = SolidColor(ThemeAccent),
+                modifier = Modifier.weight(1f).padding(vertical = 8.dp),
+                decorationBox = { inner ->
+                    Box {
+                        if (query.isEmpty()) Text("搜索模型（如 free / deepseek / gemini）", color = Sub, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        inner()
+                    }
+                }
+            )
+            if (query.isNotEmpty()) {
+                Box(
+                    Modifier.size(26.dp).clickable { query = "" },
+                    contentAlignment = Alignment.Center
+                ) { Icon(Ic.Close, "清空", tint = Sub, modifier = Modifier.size(15.dp)) }
+            }
+        }
+
+        // Quick filter row + match counter
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (hasFree) {
+                Box(
+                    Modifier
+                        .then(
+                            if (freeOnly) Modifier.clip(RoundedCornerShape(999.dp)).background(ThemeAccent)
+                            else Modifier.harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = PILL)
+                        )
+                        .clickable { freeOnly = !freeOnly }
+                        .padding(horizontal = 11.dp, vertical = 5.dp)
+                ) {
+                    Text(
+                        if (freeOnly) "只看免费 (:free) ✓" else "只看免费 (:free)",
+                        color = if (freeOnly) Ink else ThemeAccentPale,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+            Text(
+                "匹配 ${filtered.size} / ${models.size}",
+                color = Sub, fontSize = 11.sp, modifier = Modifier.weight(1f),
+                textAlign = TextAlign.End
+            )
+        }
+
+        // Filtered model list
+        if (filtered.isEmpty()) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .harmonyGlass(thickness = ImmersiveThickness.REGULAR, radius = UiTokens.RadiusCard, fallbackBg = Card)
+                    .padding(16.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("没有匹配的模型，换个关键词试试", color = Sub, fontSize = 13.sp)
+            }
+        } else if (inlineMaxHeight != null) {
+            LazyColumn(
+                Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = inlineMaxHeight)
+                    .harmonyGlass(thickness = ImmersiveThickness.REGULAR, radius = UiTokens.RadiusCard, fallbackBg = Card)
+                    .padding(vertical = 4.dp)
+            ) {
+                itemsIndexed(filtered, key = { _, mid -> mid }) { i, mid ->
+                    ModelListRow(mid, selected = selectedModel == mid, providerLabel = providerLabel, showDivider = i < filtered.lastIndex) {
+                        onPick(mid)
+                    }
+                }
+            }
+        } else {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .harmonyGlass(thickness = ImmersiveThickness.REGULAR, radius = UiTokens.RadiusCard, fallbackBg = BeePanel)
+                    .padding(vertical = 4.dp)
+            ) {
+                filtered.take(120).forEachIndexed { i, mid ->
+                    ModelListRow(mid, selected = selectedModel == mid, providerLabel = providerLabel, showDivider = i < filtered.take(120).lastIndex) {
+                        onPick(mid)
+                    }
+                }
+                if (filtered.size > 120) {
+                    Text(
+                        "仅展示前 120 项，请输入关键词进一步筛选（共 ${filtered.size} 项）",
+                        color = Sub, fontSize = 11.sp,
+                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ModelListRow(
+    mid: String,
+    selected: Boolean,
+    providerLabel: String?,
+    showDivider: Boolean,
+    onClick: () -> Unit
+) {
+    val isFree = mid.contains(":free", ignoreCase = true) || mid.endsWith("/free", ignoreCase = true)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                mid,
+                color = if (selected) ThemeAccentPale else Fg,
+                fontSize = 13.sp,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (!providerLabel.isNullOrBlank()) {
+                Text(providerLabel, color = Sub, fontSize = 11.sp, modifier = Modifier.padding(top = 1.dp))
+            }
+        }
+        if (isFree) {
+            Spacer(Modifier.width(6.dp))
+            Box(
+                Modifier.clip(RoundedCornerShape(999.dp))
+                    .background(ThemeAccent.copy(alpha = 0.18f))
+                    .padding(horizontal = 7.dp, vertical = 2.dp)
+            ) { Text("FREE", color = ThemeAccentPale, fontSize = 9.sp, fontWeight = FontWeight.Bold) }
+        }
+        if (selected) {
+            Spacer(Modifier.width(8.dp))
+            Icon(Ic.Check, "已选", tint = SelectBlue, modifier = Modifier.size(16.dp))
+        }
+    }
+    if (showDivider) {
+        Box(Modifier.fillMaxWidth().padding(horizontal = 14.dp).height(1.dp).background(HAIRLINE))
+    }
+}
+
 @Composable
 fun ModelSheet(
     bot: Bot?,
@@ -502,49 +691,33 @@ fun ModelSheet(
         }
     }
     ClaudeSheet(title = "选择模型", visible = visible, onDismiss = onDismiss) {
-        Column(
-            Modifier.fillMaxWidth().harmonyGlass(thickness = ImmersiveThickness.REGULAR, radius = UiTokens.RadiusCard, fallbackBg = BeePanel)
-                .padding(vertical = 4.dp)
-        ) {
-            if (loading) {
-                Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(Modifier.size(16.dp), color = Sub, strokeWidth = 2.dp)
-                    Spacer(Modifier.width(10.dp))
-                    Text("正在拉取模型列表…", color = Sub, fontSize = 13.sp)
-                }
-            } else if (models.isEmpty()) {
-                Text(
-                    msg.ifBlank { "暂无可选模型。" },
-                    color = Sub, fontSize = 13.sp, modifier = Modifier.padding(16.dp)
-                )
-            } else {
-                models.forEachIndexed { i, mid ->
-                    val sel = bot?.model == mid
-                    Row(
-                        Modifier.fillMaxWidth()
-                            .clickable { onPick(mid); onDismiss() }
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(mid, color = Fg, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(
-                                store.provider(bot?.providerId)?.name ?: "自定义接口",
-                                color = Sub, fontSize = 12.sp, modifier = Modifier.padding(top = 2.dp)
-                            )
-                        }
-                        Box(
-                            Modifier.clip(RoundedCornerShape(UiTokens.RadiusChip))
-                                .background(PILL).padding(horizontal = 8.dp, vertical = 3.dp)
-                        ) { Text("API", color = Sub, fontSize = 10.sp) }
-                        if (sel) {
-                            Spacer(Modifier.width(10.dp))
-                            Icon(Ic.Check, "已选", tint = SelectBlue, modifier = Modifier.size(18.dp))
-                        }
-                    }
-                    if (i < models.lastIndex) Box(Modifier.fillMaxWidth().height(1.dp).background(HAIRLINE).padding(horizontal = 16.dp))
-                }
+        if (loading) {
+            Row(
+                Modifier.fillMaxWidth()
+                    .harmonyGlass(thickness = ImmersiveThickness.REGULAR, radius = UiTokens.RadiusCard, fallbackBg = BeePanel)
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                CircularProgressIndicator(Modifier.size(16.dp), color = Sub, strokeWidth = 2.dp)
+                Spacer(Modifier.width(10.dp))
+                Text("正在拉取模型列表…", color = Sub, fontSize = 13.sp)
             }
+        } else if (models.isEmpty()) {
+            Box(
+                Modifier.fillMaxWidth()
+                    .harmonyGlass(thickness = ImmersiveThickness.REGULAR, radius = UiTokens.RadiusCard, fallbackBg = BeePanel)
+                    .padding(16.dp)
+            ) {
+                Text(msg.ifBlank { "暂无可选模型。" }, color = Sub, fontSize = 13.sp)
+            }
+        } else {
+            SearchableModelList(
+                models = models,
+                selectedModel = bot?.model ?: "",
+                onPick = { mid -> onPick(mid); onDismiss() },
+                providerLabel = store.provider(bot?.providerId)?.name ?: "自定义接口",
+                inlineMaxHeight = null
+            )
         }
         Spacer(Modifier.height(10.dp))
         Text(

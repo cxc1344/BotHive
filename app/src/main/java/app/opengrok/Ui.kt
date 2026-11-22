@@ -1240,9 +1240,11 @@ fun EditBotScreen(store: Store, botId: String?, go: (Screen) -> Unit) {
                 if (modelMsg.isNotBlank()) Text(modelMsg, color = Sub, fontSize = 12.sp, modifier = Modifier.weight(1f))
             }
             if (models.isNotEmpty()) {
-                LiquidChoice(
-                    options = models, selected = models.indexOf(model), onSelect = { i -> model = models[i] },
-                    height = 36.dp, fontSize = 12.sp
+                SearchableModelList(
+                    models = models,
+                    selectedModel = model,
+                    onPick = { model = it },
+                    inlineMaxHeight = 240.dp
                 )
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
