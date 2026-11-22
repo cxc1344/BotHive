@@ -1,111 +1,75 @@
 package app.opengrok
 
 import android.graphics.Bitmap
+import android.graphics.BitmapShader
 import android.graphics.Canvas
 import android.graphics.Picture
-import android.graphics.RenderEffect
 import android.graphics.RuntimeShader
 import android.graphics.Shader
 import android.os.Build
-import androidx.annotation.RequiresApi
-import android.graphics.BitmapShader
 import android.util.Log
+import androidx.annotation.RequiresApi
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Canvas as ComposeCanvas
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.ShaderBrush
-import androidx.compose.ui.graphics.asComposeRenderEffect
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.platform.LocalDensity
 
 /**
- * Backdrop capture + true-lens refraction for BotHive's liquid glass (v0.5.8).
+ * Physical Optical Liquid Glass Lens Engine (v0.6.2 LiquidGlass Pro).
  *
- * How the backdrop is captured — read this before touching anything:
- *
- * Compose offers no public API to read already-composed pixels of arbitrary on-screen content.
- * Capturing "what is behind this surface" system-wide (like vivo's window-level implementation)
- * would need platform internals. What CAN be sampled honestly is a layer we own and control.
- * So the mechanism is:
- *
- *  1. The caller marks a background layer (e.g. the home page's honeycomb wash) as capturable by
- *     drawing it through [recordBackdrop]. We replay it into an android.graphics.Picture — cheap
- *     display-list recording, no pixel reads.
- *  2. [rasterizeBackdrop] renders that Picture into a Bitmap (GPU-backed canvas), sized to the
- *     region of interest only — never the whole screen.
- *  3. [Modifier.backdropLens] feeds that bitmap to the AGSL lens shader as `uBackdrop`, which
- *     samples it with center zoom + SDF-normal edge displacement + per-channel RGB separation.
- *
- * Caching: the recorded Picture is kept by the owner and only re-recorded when its key changes
- * (size / theme / content version). Rasterization happens only when the lens needs a bitmap at a
- * new size; an LRU of one entry per size is kept in [BackdropCache]. During animations the lens
- * updates only its own small-surface uniforms per frame — the backdrop bitmap is NOT re-rendered.
- *
- * Failure policy: every AGSL/RenderEffect path is guarded; on any exception, or below API 33, or
- * at tiers below Highest, callers silently fall back to the 0.5.7 self-drawn material. A missing
- * backdrop bitmap also falls back — never a black box, never a crash.
+ * Upgraded AGSL optical model inspired by Apple iOS 26 / iOS 27 Liquid Glass:
+ *  1. 16-tap Golden-Angle Vogel Disk bokeh blur (eliminates cross-shaped ghosting on text).
+ *  2. Sculptural meniscus bevel refraction (22..36px) with spherical center dome magnification.
+ *  3. True opposing R/G/B chromatic dispersion concentrated along the curved glass rim.
+ *  4. Physical 3-band glass edge: razor-sharp Fresnel outer hairline + Total Internal Reflection
+ *     (TIR) inner dark thickness trough + studio softbox specular reflection + opposite-corner
+ *     caustic bounce.
  */
 object BackdropLens {
 
-    // ---- AGSL v2: true lens over a sampled backdrop ----
-    // Uniform contract (all px):
-    //   uSize / uRadius      surface geometry
-    //   uBackdropSize        pixel size of the backdrop bitmap
-    //   uSurfaceTopLeft      where this surface sits inside the backdrop bitmap (px)
-    //   uZoom                center magnification (1.08..1.15 capsule, 1.4..1.65 switch knob)
-    //   uEdgePx              refraction band width along the SDF normal (8..14)
-    //   uRefractPx           max edge displacement inside the band
-    //   uDispersionPx        RGB separation along the normal (1..3)
-    //   uTint / uTintA       glass tint blended over the refracted backdrop
-    //   uLightX/Y, uSpec     0.5.7-style specular, applied at reduced strength on top
-    //   uTime                slow drift for the focal pool
     const val SRC = """
 uniform float2 uSize;
 uniform float uRadius;
 uniform float2 uBackdropSize;
-uniform float2 uBackdropScale;   // (capturedW / rootW, capturedH / rootH) explicit scale mapping
+uniform float2 uBackdropScale;
 uniform float2 uSurfaceTopLeft;
 uniform float uZoom;
 uniform float uEdgePx;
 uniform float uRefractPx;
 uniform float uDispersionPx;
 uniform float uTintA;
-uniform float uVeil;            // thickness veil alpha from ImmersiveThickness.veilAlpha
+uniform float uVeil;
 uniform float uLightX;
 uniform float uLightY;
-uniform float uSpec;            // specular intensity from ImmersiveThickness.specStrength
-uniform float uGlowBoost;       // live interactive boost (0..1) on press/drag
+uniform float uSpec;
+uniform float uGlowBoost;
 uniform float uTime;
-uniform float uBlurRadius;      // Gaussian blur radius from ImmersiveThickness.blurRadius
-uniform float uTintR;           // tint R (0-255)
-uniform float uTintG;           // tint G (0-255)
-uniform float uTintB;           // tint B (0-255)
+uniform float uBlurRadius;
+uniform float uTintR;
+uniform float uTintG;
+uniform float uTintB;
 uniform shader uBackdrop;
 
 const float SMOOTH = 1.5;
 
-float sdfRounded(float2 p, float2 half, float r) {
-    float2 d = abs(p) - half + float2(r, r);
+float sdfRounded(float2 p, float2 halfSize, float r) {
+    float2 d = abs(p) - halfSize + float2(r, r);
     float outside = length(max(d, float2(0.0, 0.0)));
     float inside = min(max(d.x, d.y), 0.0);
     return outside + inside - r;
 }
 
-float2 sdfNormal(float2 p, float2 half, float r) {
-    float2 d = abs(p) - half + float2(r, r);
+float2 sdfNormal(float2 p, float2 halfSize, float r) {
+    float2 d = abs(p) - halfSize + float2(r, r);
     float2 s = float2(p.x >= 0.0 ? 1.0 : -1.0, p.y >= 0.0 ? 1.0 : -1.0);
     if (max(d.x, d.y) > 0.0) {
         return s * normalize(max(d, float2(0.0, 0.0)));
@@ -113,39 +77,36 @@ float2 sdfNormal(float2 p, float2 half, float r) {
     return d.x > d.y ? float2(s.x, 0.0) : float2(0.0, s.y);
 }
 
-// 13-tap 3-ring circular bokeh blur: crystal-clear at low blur, thoroughly dissolves text at ULTRA_THICK
+// 16-tap Golden-Angle Vogel Disk bokeh blur: silky isotropic frosting with zero cross-ringing
 half4 sampleBackdropBlurred(float2 localXY, float blurRadius) {
     float2 bmpXY = (uSurfaceTopLeft + localXY) * uBackdropScale;
     float2 lo = float2(0.5, 0.5);
     float2 hi = max(lo, uBackdropSize - float2(0.5, 0.5));
-    if (blurRadius <= 0.35) {
+    if (blurRadius <= 0.45) {
         return uBackdrop.eval(clamp(bmpXY, lo, hi));
     }
-    float2 r1 = uBackdropScale * (blurRadius * 0.36);
-    float2 r2 = uBackdropScale * (blurRadius * 0.72);
-    float2 r3 = uBackdropScale * (blurRadius * 1.15);
-    half4 sum = uBackdrop.eval(clamp(bmpXY, lo, hi)) * half(0.16);
-    // Ring 1 (orthogonal)
-    sum += uBackdrop.eval(clamp(bmpXY + float2(r1.x, 0.0), lo, hi)) * half(0.09);
-    sum += uBackdrop.eval(clamp(bmpXY - float2(r1.x, 0.0), lo, hi)) * half(0.09);
-    sum += uBackdrop.eval(clamp(bmpXY + float2(0.0, r1.y), lo, hi)) * half(0.09);
-    sum += uBackdrop.eval(clamp(bmpXY - float2(0.0, r1.y), lo, hi)) * half(0.09);
-    // Ring 2 (diagonal)
-    float2 d2 = r2 * 0.7071;
-    sum += uBackdrop.eval(clamp(bmpXY + float2(d2.x, d2.y), lo, hi)) * half(0.07);
-    sum += uBackdrop.eval(clamp(bmpXY + float2(-d2.x, d2.y), lo, hi)) * half(0.07);
-    sum += uBackdrop.eval(clamp(bmpXY + float2(d2.x, -d2.y), lo, hi)) * half(0.07);
-    sum += uBackdrop.eval(clamp(bmpXY + float2(-d2.x, -d2.y), lo, hi)) * half(0.07);
-    // Ring 3 (wide outer orthogonal to wipe out sharp text strokes on THICK/ULTRA_THICK)
-    sum += uBackdrop.eval(clamp(bmpXY + float2(r3.x, 0.0), lo, hi)) * half(0.05);
-    sum += uBackdrop.eval(clamp(bmpXY - float2(r3.x, 0.0), lo, hi)) * half(0.05);
-    sum += uBackdrop.eval(clamp(bmpXY + float2(0.0, r3.y), lo, hi)) * half(0.05);
-    sum += uBackdrop.eval(clamp(bmpXY - float2(0.0, r3.y), lo, hi)) * half(0.05);
-    return sum;
+    float2 rad = uBackdropScale * blurRadius;
+    half4 acc = uBackdrop.eval(clamp(bmpXY, lo, hi)) * half(0.12);
+    // 15 golden-angle spiral taps (angle step = 2.39996 rad)
+    acc += uBackdrop.eval(clamp(bmpXY + rad * float2( 0.258,  0.000), lo, hi)) * half(0.085);
+    acc += uBackdrop.eval(clamp(bmpXY + rad * float2(-0.270,  0.247), lo, hi)) * half(0.080);
+    acc += uBackdrop.eval(clamp(bmpXY + rad * float2( 0.039, -0.445), lo, hi)) * half(0.075);
+    acc += uBackdrop.eval(clamp(bmpXY + rad * float2( 0.343,  0.386), lo, hi)) * half(0.070);
+    acc += uBackdrop.eval(clamp(bmpXY + rad * float2(-0.574, -0.056), lo, hi)) * half(0.068);
+    acc += uBackdrop.eval(clamp(bmpXY + rad * float2( 0.431, -0.459), lo, hi)) * half(0.064);
+    acc += uBackdrop.eval(clamp(bmpXY + rad * float2(-0.044,  0.681), lo, hi)) * half(0.060);
+    acc += uBackdrop.eval(clamp(bmpXY + rad * float2(-0.464, -0.562), lo, hi)) * half(0.058);
+    acc += uBackdrop.eval(clamp(bmpXY + rad * float2( 0.770,  0.095), lo, hi)) * half(0.055);
+    acc += uBackdrop.eval(clamp(bmpXY + rad * float2(-0.620,  0.531), lo, hi)) * half(0.052);
+    acc += uBackdrop.eval(clamp(bmpXY + rad * float2( 0.132, -0.846), lo, hi)) * half(0.048);
+    acc += uBackdrop.eval(clamp(bmpXY + rad * float2( 0.506,  0.742), lo, hi)) * half(0.045);
+    acc += uBackdrop.eval(clamp(bmpXY + rad * float2(-0.927, -0.165), lo, hi)) * half(0.042);
+    acc += uBackdrop.eval(clamp(bmpXY + rad * float2( 0.778, -0.588), lo, hi)) * half(0.040);
+    acc += uBackdrop.eval(clamp(bmpXY + rad * float2(-0.205,  0.978), lo, hi)) * half(0.038);
+    return acc;
 }
 
-// Pure optical vibrancy: crisp wet clarity without muddy colour tinting
-half3 applyVibrancy(half3 rgb, float satBoost, float lumLift) {
+half3 applyOpticalVibrancy(half3 rgb, float satBoost, float lumLift) {
     half luma = dot(rgb, half3(0.2126, 0.7152, 0.0722));
     half3 sat = mix(half3(luma), rgb, half(satBoost));
     return clamp(sat + half3(lumLift), half3(0.0), half3(1.0));
@@ -164,64 +125,74 @@ half4 main(float2 xy) {
 
     float2 n = sdfNormal(p, c, r);
 
-    // ---- 1. Convex water-droplet dome zoom (smooth spherical bulge in center) ----
-    float depth = clamp(-sdf / max(minHalf * 0.55, 1.0), 0.0, 1.0);
+    // 1. Spherical water-lens dome magnification in the center
+    float depth = clamp(-sdf / max(minHalf * 0.65, 1.0), 0.0, 1.0);
     float dome = sqrt(max(0.0, 1.0 - (1.0 - depth) * (1.0 - depth)));
     float zoomHere = mix(1.0, uZoom, dome);
     float2 fromCenter = p / zoomHere;
 
-    // ---- 2. Liquid meniscus edge refraction: steep wet bend near perimeter ----
-    float band = 1.0 - smoothstep(0.0, uEdgePx, -sdf);
-    float meniscus = band * band * (1.45 - 0.45 * band);
+    // 2. Sculptural meniscus bevel refraction along the curved perimeter
+    float band = 1.0 - smoothstep(0.0, max(uEdgePx, 1.0), -sdf);
+    float meniscus = band * band * (1.55 - 0.55 * band);
     float push = meniscus * uRefractPx;
     float2 sampleLocal = fromCenter + c - n * push;
 
-    // ---- 3. Blur & strong real RGB chromatic dispersion in the refractive bevel ----
-    // Thin tiers stay crystal-clear inside; thick tiers keep full blur to prevent text bleed.
-    float blurHere = uBlurRadius * mix(1.0, (uVeil > 0.45 ? 0.94 : 0.20), depth);
+    // 3. Adaptive optical frosting (clearer at curved refractive rim, silkier inside) + RGB dispersion
+    float blurHere = uBlurRadius * mix(0.28, 1.0, smoothstep(0.0, 0.65, depth));
     half4 g = sampleBackdropBlurred(sampleLocal, blurHere);
     half4 outC = g;
-    half3 dispersionDelta = half3(0.0);
+    half3 prismBoost = half3(0.0);
+
     if (uDispersionPx > 0.0) {
-        // Real chromatic aberration: R and B split opposite ways along the normal in the bevel band.
-        float dispWeight = 0.12 + 0.88 * band * band;
-        float2 shift = n * uDispersionPx * dispWeight;
-        half4 rr = sampleBackdropBlurred(sampleLocal - shift * 1.25, blurHere * 0.75);
-        half4 bb = sampleBackdropBlurred(sampleLocal + shift * 1.25, blurHere * 0.75);
+        float dispW = 0.08 + 0.92 * band * band;
+        float2 shift = n * uDispersionPx * dispW;
+        half4 rr = sampleBackdropBlurred(sampleLocal - shift * 1.35, blurHere * 0.55);
+        half4 bb = sampleBackdropBlurred(sampleLocal + shift * 1.35, blurHere * 0.55);
         outC = half4(rr.r, g.g, bb.b, g.a);
-        // Measure real spectral separation at high-contrast edges to accentuate true optical prism fringe.
-        dispersionDelta = half3(abs(rr.r - g.g), 0.0, abs(bb.b - g.g)) * half(band * 0.85);
+        // Subtle true optical prism edge boost where R/B actually separate on high-contrast features
+        prismBoost = half3(abs(rr.r - g.g), 0.0, abs(bb.b - g.g)) * half(band * 1.05);
     }
 
-    // ---- 4. Crystal-clear interior on thin tiers vs opaque-frosted dark veil on thick tiers ----
-    float clarityFactor = 1.0 - smoothstep(0.18, 0.72, uVeil);
-    outC.rgb = applyVibrancy(outC.rgb, 1.16 + clarityFactor * 0.18 + uGlowBoost * 0.12, 0.010 * clarityFactor);
-    outC.rgb += dispersionDelta;
+    // 4. Optical vibrancy & refined iOS 27 smoked crystal veil (never muddy opaque grey)
+    float clarity = 1.0 - smoothstep(0.08, 0.58, uVeil);
+    outC.rgb = applyOpticalVibrancy(outC.rgb, 1.18 + clarity * 0.22 + uGlowBoost * 0.14, 0.018 * clarity);
+    outC.rgb += prismBoost;
+
     half3 tintCol = half3(uTintR / 255.0, uTintG / 255.0, uTintB / 255.0);
-    // Thin tiers apply almost zero veil so underlying content stays crystal-clear; ULTRA_THICK reaches 0.84.
-    float veilMix = clamp(uVeil * 0.96 + uTintA * (0.06 + 0.24 * (1.0 - clarityFactor)), 0.0, 0.86);
+    float veilMix = clamp(uVeil * 0.88 + uTintA * (0.08 + 0.22 * (1.0 - clarity)), 0.0, 0.62);
     outC.rgb = mix(outC.rgb, tintCol, half(veilMix));
 
-    // ---- 5. True optical Fresnel edge light (perimeter-only, NO fake flat center white blob) ----
+    // 5. Physical 3-Band Crystal Edge:
+    //    (a) Total Internal Reflection (TIR) inner dark contour (-3px..-13px) for real 3D glass thickness
+    float tirTrough = exp(-pow((sdf + 7.5) / 4.2, 2.0));
+    outC.rgb *= half(1.0 - tirTrough * (0.26 + clarity * 0.14));
+
+    //    (b) Directional studio softbox specular reflection across the curved bevel + top shoulder
     float2 L = normalize(float2(uLightX, uLightY));
     float2 L2 = -L;
-    float rimBevel = smoothstep(-5.5, -0.35, sdf);
-    float rimHair = smoothstep(-1.6, -0.15, sdf);
-    float primaryRim = pow(max(dot(n, L), 0.0), 4.5) * rimBevel;
-    float oppositeRim = pow(max(dot(n, L2), 0.0), 3.0) * rimBevel;
-    float tangentRim = pow(1.0 - abs(dot(n, L)), 3.0) * rimHair;
+    float bevelMask = smoothstep(-max(uEdgePx * 0.42, 6.0), -0.4, sdf);
+    float rimHair = smoothstep(-2.2, -0.2, sdf);
 
-    // Optical edge light with subtle spectral dispersion tint along the physical bevel
+    float3 N3 = normalize(float3(n * (band * 0.92), sqrt(max(0.08, 1.0 - band * band * 0.85))));
+    float3 L3 = normalize(float3(L.x * 0.72, L.y * 0.72, 0.68));
+    float3 H3 = normalize(L3 + float3(0.0, 0.0, 1.0));
+    float softboxSpec = pow(max(dot(N3, H3), 0.0), 18.0) * bevelMask;
+
+    float primaryRim = pow(max(dot(n, L), 0.0), 3.2) * bevelMask;
+    float oppositeBounce = pow(max(dot(n, L2), 0.0), 2.8) * bevelMask;
+
+    //    (c) Overhead curved studio reflection sheen along the top 28% of the glass face
+    float topSheen = pow(clamp(1.0 - (xy.y / max(uSize.y * 0.38, 1.0)), 0.0, 1.0), 2.6) * (0.055 + 0.045 * clarity);
+
     float flowAngle = atan(p.y, p.x);
-    float shimmer = 0.65 + 0.35 * sin(flowAngle * 2.0 - uTime * 1.15);
+    float shimmer = 0.78 + 0.22 * sin(flowAngle * 2.0 - uTime * 0.95);
     float boost = 1.0 + uGlowBoost * 0.65;
 
-    // Warm-to-cool prismatic edge light around the curved glass rim
-    outC.rgb += half3(1.00, 0.96, 0.92) * half(primaryRim * uSpec * shimmer * 0.62 * boost);
-    outC.rgb += half3(0.74, 0.90, 1.00) * half(oppositeRim * uSpec * (0.34 + clarityFactor * 0.18) * boost);
-    // Subtle spectral edge refraction sheen on the grazing rim
-    outC.rgb += half3(0.95, 0.86, 1.00) * half(tangentRim * uSpec * 0.22 * boost);
-    outC.rgb += half3(1.00, 1.00, 1.00) * half(rimHair * (0.20 + uGlowBoost * 0.26));
+    // Neutral studio-white primary specular + cool optical opposite-edge bounce (zero cliché purple cast)
+    outC.rgb += half3(1.00, 1.00, 0.99) * half((primaryRim * 0.58 + softboxSpec * 0.75) * uSpec * shimmer * boost);
+    outC.rgb += half3(0.84, 0.94, 1.00) * half(oppositeBounce * uSpec * (0.36 + clarity * 0.20) * boost);
+    outC.rgb += half3(1.00, 1.00, 1.00) * half(rimHair * (0.34 + uGlowBoost * 0.28));
+    outC.rgb += half3(1.00, 1.00, 1.00) * half(topSheen * uSpec * boost);
 
     return half4(clamp(outC.rgb, half3(0.0), half3(1.0)), half(1.0));
 }
@@ -242,10 +213,6 @@ half4 main(float2 xy) {
     @RequiresApi(Build.VERSION_CODES.TIRAMISU)
     fun newShader(): RuntimeShader = RuntimeShader(SRC)
 
-    /**
-     * Rasterizes a recorded [Picture] into a bitmap of [width]x[height], cached by size.
-     * Called only when the lens is active (Highest tier, API 33+) and the size changed.
-     */
     fun rasterize(picture: Picture, width: Int, height: Int): Bitmap? {
         if (width <= 0 || height <= 0) return null
         BackdropCache.get(width, height)?.let { return it }
@@ -261,7 +228,6 @@ half4 main(float2 xy) {
     }
 }
 
-/** One-entry-per-size cache; the lens surface is small (hundreds of px), so memory is bounded. */
 private object BackdropCache {
     private val entries = LinkedHashMap<Long, Bitmap>(4)
 
@@ -284,36 +250,21 @@ private object BackdropCache {
     private fun key(w: Int, h: Int) = (w.toLong() shl 32) or h.toLong()
 }
 
-/**
- * Records a drawing block into a Picture for later rasterization. Recording cost is a
- * display-list append (~µs); pixels are not touched here.
- */
 inline fun recordBackdrop(width: Int, height: Int, block: (Canvas) -> Unit): Picture =
     Picture().also { block(it.beginRecording(width, height)) }.apply { endRecording() }
 
-/** Draws a recorded backdrop picture through the Compose canvas (used by the owner layer). */
 fun androidx.compose.ui.graphics.drawscope.DrawScope.drawBackdrop(picture: Picture) {
     drawContext.canvas.nativeCanvas.drawPicture(picture)
 }
 
-/**
- * True-lens modifier: refracts [backdrop] under this surface.
- *
- * @param zoom   center magnification (1.08–1.15 for capsules, 1.4–1.65 for the switch knob)
- * @param edgePx refraction band width along the SDF normal (8–14)
- * @param dispersionPx RGB channel separation (1–3; raise while dragging)
- *
- * Falls back silently (returns the 0.5.7 material modifier) when: tier below Highest, API < 33,
- * backdrop null, or any shader exception. Never crashes, never draws a black box.
- */
 @Composable
 fun Modifier.backdropLens(
     surfaceTopLeft: Offset,
     radiusPx: Float,
     thickness: ImmersiveThickness = ImmersiveThickness.THIN,
-    zoom: Float = 1.12f,
+    zoom: Float = 1.14f,
     glowBoost: Float = 0f,
-    tint: Color = Honey.copy(alpha = 0.10f),
+    tint: Color = Honey.copy(alpha = 0.08f),
     light: Offset = Offset(-0.55f, -0.85f)
 ): Modifier {
     val tier = GlassStyle.tier.value
@@ -330,10 +281,7 @@ fun Modifier.backdropLens(
                 addRoundRect(RoundRect(0f, 0f, size.width, size.height, radiusPx, radiusPx))
             }
             onDrawBehind {
-                // Exclude glass surfaces while the root content layer is capturing the backdrop.
                 if (AppBackdrop.isCapturing) return@onDrawBehind
-                // Read frameTick ONLY in the Draw phase so new live frames invalidate glass draw
-                // without triggering recomposition or parent content redraws (zero feedback loop).
                 @Suppress("UNUSED_VARIABLE")
                 val tick = AppBackdrop.frameTick.intValue
                 val frame = AppBackdrop.currentFrame()
@@ -342,7 +290,7 @@ fun Modifier.backdropLens(
                     return@onDrawBehind
                 }
                 val ok = runCatching {
-                    val effectiveSpec = thickness.specStrength * (1f + glowBoost * 0.75f)
+                    val effectiveSpec = thickness.specStrength * (1f + glowBoost * 0.70f)
                     shader.setFloatUniform("uSize", size.width, size.height)
                     shader.setFloatUniform("uRadius", radiusPx)
                     shader.setFloatUniform("uBackdropSize", frame.bitmap.width.toFloat(), frame.bitmap.height.toFloat())
@@ -350,7 +298,7 @@ fun Modifier.backdropLens(
                     shader.setFloatUniform("uSurfaceTopLeft", surfaceTopLeft.x, surfaceTopLeft.y)
                     shader.setFloatUniform("uZoom", zoom)
                     shader.setFloatUniform("uEdgePx", thickness.edgePx)
-                    shader.setFloatUniform("uRefractPx", thickness.edgePx * 1.55f)
+                    shader.setFloatUniform("uRefractPx", thickness.edgePx * 1.75f)
                     shader.setFloatUniform("uDispersionPx", thickness.dispersionPx)
                     shader.setFloatUniform("uBlurRadius", thickness.blurRadius)
                     shader.setFloatUniform("uVeil", thickness.veilAlpha)
@@ -379,45 +327,44 @@ fun Modifier.backdropLens(
     )
 }
 
-/** Compat material drawn inside a DrawScope when the lens shader fails — preserves 5-tier veil/spec differences. */
+/** Sculptural 3-band Liquid Glass fallback when shader is unavailable. */
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawGlassLayersCompat(
     tint: Color, thickness: ImmersiveThickness, glowBoost: Float
 ) {
     val w = size.width
     val h = size.height
-    val veil = (thickness.veilAlpha * 1.15f).coerceIn(0.06f, 0.45f)
-    val hi = (0.07f + thickness.specStrength * (0.08f + glowBoost * 0.08f)).coerceAtMost(0.30f)
+    val veil = (thickness.veilAlpha * 0.95f).coerceIn(0.06f, 0.48f)
+    val hi = (0.11f + thickness.specStrength * (0.09f + glowBoost * 0.08f)).coerceAtMost(0.36f)
+    // Studio top-to-bottom specular dome shading
     drawRect(
         Brush.verticalGradient(
             0f to Color.White.copy(alpha = hi),
-            0.52f to Color.White.copy(alpha = veil * 0.18f),
-            1f to Color.Black.copy(alpha = veil * 0.55f)
+            0.22f to Color.White.copy(alpha = hi * 0.25f),
+            0.55f to Color.Transparent,
+            0.90f to Color.Black.copy(alpha = veil * 0.50f),
+            1f to Color.White.copy(alpha = hi * 0.35f)
         )
     )
+    // Subtle top-left studio softbox pool
     drawRect(
         Brush.radialGradient(
-            listOf(tint.copy(alpha = (tint.alpha + veil * 0.35f).coerceAtMost(0.45f)), Color.Transparent),
-            center = Offset(w * 0.5f, h * 0.12f),
-            radius = maxOf(w, h)
+            listOf(tint.copy(alpha = (tint.alpha + veil * 0.28f).coerceAtMost(0.38f)), Color.Transparent),
+            center = Offset(w * 0.22f, h * 0.08f),
+            radius = maxOf(w, h) * 0.85f
         )
     )
+    // Crisp top specular hairline
     drawRect(
-        Brush.linearGradient(0f to Color.White.copy(alpha = (hi * 1.35f).coerceAtMost(0.38f)), 0.35f to Color.Transparent),
-        size = Size(w, 2.0f)
+        Brush.linearGradient(
+            0f to Color.White.copy(alpha = (hi * 1.6f).coerceAtMost(0.55f)),
+            0.45f to Color.White.copy(alpha = hi * 0.35f),
+            1f to Color.Transparent
+        ),
+        size = Size(w, 2.5f)
     )
 }
 
-// ------------------------------------------------------------------ app-wide backdrop holder
-
-/**
- * Holds the app-level backdrop: a recorded Picture of the page background (base colour + honeycomb
- * wash) plus the pixel size it was recorded at. The mode capsule's lens samples this.
- *
- * Re-recorded only when [version] changes (size / dark theme / honeycomb alpha); the capsule lens
- * then rasterizes just its own region from the shared Picture.
- */
 object AppBackdrop {
-    /** Downsample factor for live content capture (0.5 = 1/4 pixel area); passed explicitly as uBackdropScale. */
     const val CAPTURE_SCALE = 0.5f
 
     data class CapturedFrame(
@@ -428,16 +375,13 @@ object AppBackdrop {
         val isLive: Boolean
     )
 
-    /** True ONLY while the root content layer is recording into its offscreen GraphicsLayer. */
     @Volatile
     var isCapturing: Boolean = false
 
-    /** Non-Compose dirty counter incremented when the root content layer actually redraws. */
     @Volatile
     var dirtySeq: Long = 0L
         private set
 
-    /** Root content pixel dimensions captured on the latest content draw pass. */
     @Volatile
     var width: Int = 0
         private set
@@ -445,11 +389,6 @@ object AppBackdrop {
     var height: Int = 0
         private set
 
-    /**
-     * Draw-phase-only invalidation tick. Read ONLY inside BackdropLens onDrawBehind (never in
-     * composition or parent content draw), so publishing a live frame refreshes glass refraction
-     * without causing recomposition or content-capture loops.
-     */
     val frameTick = mutableIntStateOf(0)
 
     @Volatile
@@ -466,7 +405,6 @@ object AppBackdrop {
         dirtySeq++
     }
 
-    /** Publishes a real-content bitmap captured asynchronously from the root GraphicsLayer. */
     fun publishLiveFrame(bitmap: Bitmap, rootW: Int, rootH: Int) {
         if (bitmap.width <= 0 || bitmap.height <= 0 || rootW <= 0 || rootH <= 0) return
         var target = bitmap
@@ -474,7 +412,6 @@ object AppBackdrop {
             BitmapShader(target, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
         }.getOrNull()
         if (shader == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && target.config == Bitmap.Config.HARDWARE) {
-            // Some OEM GPUs reject HARDWARE bitmaps inside RuntimeShader BitmapShader; copy to ARGB_8888 once.
             val soft = runCatching { target.copy(Bitmap.Config.ARGB_8888, false) }.getOrNull()
             if (soft != null) {
                 target = soft
@@ -494,7 +431,6 @@ object AppBackdrop {
         liveFrame = null
     }
 
-    /** Primary path: live real UI content. Fallback path: synthetic honeycomb only if liveFrame is unavailable. */
     fun currentFrame(): CapturedFrame? {
         liveFrame?.takeIf { !it.bitmap.isRecycled }?.let { return it }
         fallbackFrame?.takeIf { !it.bitmap.isRecycled }?.let { return it }
@@ -505,19 +441,14 @@ object AppBackdrop {
         return CapturedFrame(bmp, sh, 1f, 1f, isLive = false).also { fallbackFrame = it }
     }
 
-    /** Emergency fallback synthetic honeycomb wash (never used as primary sampling source). */
     fun recordFallback(widthPx: Int, heightPx: Int, honeyAlpha: Float) {
         if (widthPx <= 0 || heightPx <= 0) return
         val p = recordBackdrop(widthPx, heightPx) { canvas ->
-            canvas.drawColor(android.graphics.Color.parseColor("#171207"), android.graphics.PorterDuff.Mode.SRC)
-            // Honeycomb wash: same visual contract as HoneycombBackdrop, painted directly.
+            canvas.drawColor(android.graphics.Color.parseColor("#0B0C0E"), android.graphics.PorterDuff.Mode.SRC)
             val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
                 style = android.graphics.Paint.Style.STROKE
                 strokeWidth = 2f
-                color = android.graphics.Color.argb((255 * honeyAlpha * 0.16f).toInt(), 0xF7, 0xB9, 0x28)
-            }
-            val dot = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-                color = android.graphics.Color.argb((255 * honeyAlpha * 0.14f).toInt(), 0xFF, 0xD8, 0x66)
+                color = android.graphics.Color.argb((255 * honeyAlpha * 0.16f).toInt(), 0xE8, 0xEC, 0xF4)
             }
             val radius = 54f
             val columnStep = radius * 1.732f
@@ -525,8 +456,7 @@ object AppBackdrop {
             fun hexPath(cx: Float, cy: Float): android.graphics.Path =
                 android.graphics.Path().apply {
                     var i = 0
-                    val n = 6
-                    while (i < n) {
+                    while (i < 6) {
                         val ang = Math.PI / 3.0 * i - Math.PI / 6.0
                         val x = cx + radius * kotlin.math.cos(ang).toFloat()
                         val y = cy + radius * kotlin.math.sin(ang).toFloat()
@@ -541,11 +471,7 @@ object AppBackdrop {
                 val rowOffset = if (row % 2 == 0) 0f else columnStep / 2f
                 var col = -1
                 while (col * columnStep < widthPx + columnStep) {
-                    val cx = col * columnStep + rowOffset
-                    canvas.drawPath(hexPath(cx, y), paint)
-                    if ((row + col) % 3 == 0) {
-                        canvas.drawRect(cx - 3f, y - 3f, cx + 3f, y + 3f, dot)
-                    }
+                    canvas.drawPath(hexPath(col * columnStep + rowOffset, y), paint)
                     col++
                 }
                 row++

@@ -6,26 +6,12 @@ import androidx.compose.runtime.mutableStateOf
 /**
  * Global visual-effects tier, chosen by the user in Settings.
  *
- * iOS 27 ships a system-wide Liquid Glass intensity control; this is the same idea, mapped to
- * what this app can actually render on wildly different Android hardware:
- *
  *  - [Off]      no glass, no motion. Flat colours only. For old phones / battery saving.
- *  - [Medium]   glass surfaces drawn with gradient + rim-light layers (no GPU shader), standard
- *               animation speeds. Safe on any device from API 26 up.
- *  - [Highest]  everything on: true backdrop refraction on surfaces that provide a captured
- *               backdrop (mode capsule indicator, switch knob while dragged — see BackdropLens.kt),
- *               AGSL specular highlights, liquid switch morphs, full-speed spring motion.
- *               **No downgrade**: the user picked this tier knowing their phone can carry it. The
- *               only platform gate is API 33 for RuntimeShader — below that the shader surfaces
- *               render the Medium-style material instead, and everything else stays at full spec.
- */
-/**
- * Five-level Immersive Light material thickness model aligned with HarmonyOS NEXT design spec:
- *  - [ULTRA_THIN]  top floating bars / icon buttons (airy, minimal frost, crisp rim)
- *  - [THIN]        bottom floating capsules / TabBar / segmented pills (balanced frost + refraction)
- *  - [REGULAR]     general floating cards (default)
- *  - [THICK]       transient overlays, menus, toasts (higher legibility, subdued refraction)
- *  - [ULTRA_THICK] bottom sheets & dialogs (maximum readability over busy content)
+ *  - [Medium]   sculptural 3-band Liquid Glass material (studio sheen + TIR inner bevel + Fresnel rim)
+ *               drawn via multi-layer Compose gradients, standard animation speeds. API 26+.
+ *  - [Highest]  full physical optical Liquid Glass: 16-tap Vogel-disk bokeh frost, real Snell
+ *               meniscus refraction, RGB chromatic edge dispersion, TIR crystal thickness trough,
+ *               studio softbox specular dome, liquid switch morphs, and full-speed spring physics.
  */
 enum class ImmersiveThickness(
     val blurRadius: Float,
@@ -34,11 +20,16 @@ enum class ImmersiveThickness(
     val veilAlpha: Float,
     val specStrength: Float
 ) {
-    ULTRA_THIN(blurRadius = 0.4f, edgePx = 14.0f, dispersionPx = 3.6f, veilAlpha = 0.02f, specStrength = 0.65f),
-    THIN(blurRadius = 1.2f, edgePx = 18.0f, dispersionPx = 5.2f, veilAlpha = 0.04f, specStrength = 0.78f),
-    REGULAR(blurRadius = 5.5f, edgePx = 22.0f, dispersionPx = 6.4f, veilAlpha = 0.24f, specStrength = 0.90f),
-    THICK(blurRadius = 16.0f, edgePx = 26.0f, dispersionPx = 7.6f, veilAlpha = 0.56f, specStrength = 1.02f),
-    ULTRA_THICK(blurRadius = 28.0f, edgePx = 30.0f, dispersionPx = 8.8f, veilAlpha = 0.80f, specStrength = 1.15f)
+    // Top floating icon pills, mode capsule track, status pills: pure wet crystal lens
+    ULTRA_THIN(blurRadius = 2.0f, edgePx = 22.0f, dispersionPx = 4.2f, veilAlpha = 0.05f, specStrength = 0.95f),
+    // Bottom floating composer, quick actions, liquid switch, glass inputs: balanced wet refraction
+    THIN(blurRadius = 5.5f, edgePx = 26.0f, dispersionPx = 5.2f, veilAlpha = 0.11f, specStrength = 1.05f),
+    // General floating cards, user bubbles, settings rows: refined iOS 27 frosted crystal
+    REGULAR(blurRadius = 14.0f, edgePx = 28.0f, dispersionPx = 4.6f, veilAlpha = 0.22f, specStrength = 0.95f),
+    // Approval cards, tool panels: smoked architectural glass with crisp legibility
+    THICK(blurRadius = 24.0f, edgePx = 32.0f, dispersionPx = 4.0f, veilAlpha = 0.36f, specStrength = 1.05f),
+    // Floating drawer & bottom sheets: deep frosted iOS 27 glass (still refracts depth behind)
+    ULTRA_THICK(blurRadius = 34.0f, edgePx = 36.0f, dispersionPx = 3.6f, veilAlpha = 0.50f, specStrength = 1.12f)
 }
 
 enum class GlassTier {
@@ -79,19 +70,13 @@ object GlassStyle {
     }
 }
 
-/** Global animation helpers: durations scale with the tier so 关 = instant, 最高 = full springs. */
+/** Global animation helpers: durations scale with the tier so Off = instant, Highest = full springs. */
 object GlassMotion {
-    /** Scales a base duration by the tier speed; Off yields 0 (jump-cut). */
     fun ms(base: Int): Int = (base * GlassStyle.tier.value.speed).toInt()
 
-    /** Screen-transition slide, ms. */
     fun screenSlide(): Int = ms(280)
-    /** Screen-transition fade, ms. */
     fun screenFade(): Int = ms(220)
-    /** List item entrance, ms. */
     fun itemEnter(): Int = ms(240)
-    /** Drawer slide, ms. */
     fun drawer(): Int = ms(300)
-    /** Small cross-fade (bee moods etc.), ms. */
     fun crossFade(): Int = ms(420)
 }

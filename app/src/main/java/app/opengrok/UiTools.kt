@@ -42,7 +42,7 @@ fun ExportButton(store: Store, chatId: String) {
         }
     }
     Box {
-        IconButton(onClick = { menu = true }) { Icon(Ic.Share, "导出", tint = Fg) }
+        Box(Modifier.size(36.dp).pressBounce { menu = true }.harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = Card), contentAlignment = Alignment.Center) { Icon(Ic.Share, "导出", tint = Fg, modifier = Modifier.size(18.dp)) }
         DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
             DropdownMenuItem(text = { Text("分享 Markdown") }, onClick = {
                 menu = false
@@ -101,14 +101,14 @@ fun SearchScreen(store: Store, go: (Screen) -> Unit) {
     Column(Modifier.fillMaxSize()) {
         // Top bar: back left, serif centred title (list-page pattern, STUDY §2.7).
         Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { go(Screen.Home) }) { Icon(Ic.Back, "返回", tint = Fg) }
+            Box(Modifier.size(40.dp).pressBounce { go(Screen.Home) }.harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = Card), contentAlignment = Alignment.Center) { Icon(Ic.Back, "返回", tint = Fg, modifier = Modifier.size(20.dp)) }
             Text("搜索", style = HiveSerif.SheetTitle(), modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
             Spacer(Modifier.width(48.dp))
         }
         // Search capsule (#20201E, magnifier + placeholder).
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
-                .clip(RoundedCornerShape(UiTokens.RadiusCard)).background(Card).padding(horizontal = 12.dp, vertical = 4.dp),
+                .harmonyGlass(thickness = ImmersiveThickness.THIN, radius = UiTokens.RadiusCard, fallbackBg = Card).padding(horizontal = 14.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(Ic.Search, null, tint = Sub, modifier = Modifier.size(20.dp))
@@ -129,7 +129,7 @@ fun SearchScreen(store: Store, go: (Screen) -> Unit) {
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(hits) { h ->
                 Column(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Card).clickable {
+                    Modifier.fillMaxWidth().harmonyGlass(thickness = ImmersiveThickness.REGULAR, radius = 16.dp, fallbackBg = Card).clickable {
                         if (h.sessionId != null) store.openAgentSession(h.sessionId)
                         go(if (h.chatKey == AGENT_ID || h.sessionId != null) Screen.AgentChat else Screen.Chat(h.chatKey))
                     }.padding(12.dp)

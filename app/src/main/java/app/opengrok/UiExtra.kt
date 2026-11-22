@@ -338,7 +338,7 @@ fun GlassTierCard() {
         val tip = when (tier) {
             GlassTier.Off -> "已关闭所有玻璃与动画,纯扁平配色。"
             GlassTier.Medium -> "玻璃层用渐变材质模拟,动画标准速度,老设备也流畅。"
-            GlassTier.Highest -> "沉浸光感 5 档材质梯度(顶栏超薄/底栏薄透/弹窗超厚)+ 双层菲涅尔光晕 + 零重分配真透镜折射(Android 13+,低版本自动无感回退)。"
+            GlassTier.Highest -> "物理级液态玻璃：16-tap Vogel 散景磨砂 + 全内反射暗槽(TIR) + 棚拍镜面高光 + 实时 RGB 色散折射(Android 13+,低版本自动优雅回退)。"
         }
         Text(tip, color = ThemeAccentPale, fontSize = 11.sp, lineHeight = 15.sp)
         // A live LiquidSwitch so the user sees the effect immediately on this very card.
@@ -371,11 +371,21 @@ fun ThemeColorCard() {
         )
         // Current color preview
         Box(
-            Modifier.fillMaxWidth().height(48.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(ThemeAccent)
-                .border(2.dp, SelectBlue, RoundedCornerShape(12.dp))
-        )
+            Modifier.fillMaxWidth().height(54.dp)
+                .harmonyGlass(
+                    thickness = ImmersiveThickness.THIN,
+                    radius = 16.dp,
+                    tint = ThemeAccent.copy(alpha = 0.24f),
+                    fallbackBg = Card
+                )
+                .padding(horizontal = 16.dp),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(Modifier.size(14.dp).clip(CircleShape).background(ThemeAccent))
+                Text("液态玻璃主题染色实时预览", color = Fg, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            }
+        }
         // Preset grid
         Text("预设", color = Sub, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp))
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

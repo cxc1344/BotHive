@@ -70,19 +70,19 @@ import app.opengrok.ThemeAccentDeep
 // recolours every screen in one place. The bee's own colours live in BeeUi.kt and
 // are untouched. Floating surfaces layer the glass material over these values.
 // Accent colors (Honey/HoneyDeep/HoneyPale) are now driven by ThemeColor (user-selectable).
-val Bg = Color(0xFF151515)            // page background: warm near-black
-val Card = Color(0xFF20201E)          // grouped card / glass body
-val Line = Color(0xFF2E2E2C)          // hairline separators
-val Fg = Color(0xFFF5F5F2)            // primary text: near-white
-val Sub = Color(0xFF9B9B97)           // secondary text: grey
-val Honey: Color get() = ThemeColor.currentColor   // accent: live getter over ThemeColor state (Muse landing repair: was Color.Unspecified, which broke Markdown/LiquidGlass/BackdropLens consumers)
-val HoneyDeep: Color get() = ThemeColor.currentDeep     // pressed/deeper variant
-val HoneyPale: Color get() = ThemeColor.currentPale     // muted variant
-val Ink = Color(0xFF151515)           // "on-accent" ink (accent/white surfaces take dark text)
-val BeeGreen = Color(0xFF9DDC77)      // success/running dot (unchanged, bee-family colour)
-val BeeDanger = Color(0xFFE0705A)     // danger text: coral red (semantic, not theme-driven)
-val BeePanel = Color(0xFF1B1B1A)      // sunken panel
-val BeePanelRaised = Color(0xFF20201E) // raised panel = card colour
+val Bg = Color(0xFF0B0C0E)            // Deep Titanium Obsidian canvas
+val Card = Color(0xFF16181D)          // Smoked Crystal Glass fallback
+val Line = Color(0x1FFFFFFF)          // Crisp 12% white optical hairline
+val Fg = Color(0xFFF6F7F9)            // Pearl White primary text
+val Sub = Color(0xFF969BA6)           // Cool Titanium secondary text
+val Honey: Color get() = ThemeColor.currentColor
+val HoneyDeep: Color get() = ThemeColor.currentDeep
+val HoneyPale: Color get() = ThemeColor.currentPale
+val Ink = Color(0xFF0B0C0E)           // Crisp obsidian ink on light/accent pills
+val BeeGreen = Color(0xFF9DDC77)      // success/running dot
+val BeeDanger = Color(0xFFE0705A)     // semantic danger coral
+val BeePanel = Color(0xFF121419)      // sunken glass panel fallback
+val BeePanelRaised = Color(0xFF191C23) // raised glass panel fallback
 
 // Resolved at composition time via ThemeColor — use these in composables:
 // (getters, not frozen vals: each read re-reads ThemeColor's snapshot state,
@@ -212,7 +212,8 @@ fun App(store: Store) {
                         this@drawWithContent.drawContent()
                     }
                 ) {
-                    HoneycombBackdrop(Modifier.fillMaxSize(), alpha = .35f)
+                    StudioOpticalBackdrop(Modifier.fillMaxSize())
+                    HoneycombBackdrop(Modifier.fillMaxSize(), alpha = .26f)
                     Box(Modifier.fillMaxSize().systemBarsPadding().imePadding()) {
                         ScreenHost(screen, store, nav)
                     }
@@ -596,17 +597,18 @@ private fun AssistantActions(store: Store, chatId: String, m: Msg) {
     var askResend by remember { mutableStateOf(false) }
     Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         Box(
-            Modifier.size(30.dp).clip(CircleShape).clickable {
+            Modifier.size(32.dp).pressBounce {
                 val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                 cm.setPrimaryClip(android.content.ClipData.newPlainText("message", m.text))
                 android.widget.Toast.makeText(ctx, "已复制", android.widget.Toast.LENGTH_SHORT).show()
-            },
+            }.harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = PILL),
             contentAlignment = Alignment.Center
-        ) { Icon(Ic.Copy, "复制", tint = Sub, modifier = Modifier.size(16.dp)) }
+        ) { Icon(Ic.Copy, "复制", tint = Sub, modifier = Modifier.size(15.dp)) }
         Box(
-            Modifier.size(30.dp).clip(CircleShape).clickable { askResend = true },
+            Modifier.size(32.dp).pressBounce { askResend = true }
+                .harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = PILL),
             contentAlignment = Alignment.Center
-        ) { Icon(Ic.Refresh, "重发", tint = Sub, modifier = Modifier.size(16.dp)) }
+        ) { Icon(Ic.Refresh, "重发", tint = Sub, modifier = Modifier.size(15.dp)) }
     }
     if (askResend) {
         AlertDialog(
@@ -857,18 +859,26 @@ fun Field(
     visual: VisualTransformation = VisualTransformation.None, minLines: Int = 1,
     trailing: @Composable (() -> Unit)? = null
 ) {
-    OutlinedTextField(
-        value = value, onValueChange = onChange, label = { Text(label) },
-        singleLine = singleLine, minLines = minLines, visualTransformation = visual,
-        keyboardOptions = KeyboardOptions(keyboardType = keyboard),
-        trailingIcon = trailing,
-        modifier = Modifier.fillMaxWidth(),
-        colors = OutlinedTextFieldDefaults.colors(
-            focusedTextColor = Fg, unfocusedTextColor = Fg,
-            focusedBorderColor = ThemeAccent, unfocusedBorderColor = Line,
-            focusedLabelColor = ThemeAccent, unfocusedLabelColor = Sub, cursorColor = ThemeAccent
+    Box(
+        Modifier.fillMaxWidth()
+            .harmonyGlass(thickness = ImmersiveThickness.THIN, radius = 18.dp, fallbackBg = Card)
+            .padding(horizontal = 4.dp, vertical = 2.dp)
+    ) {
+        OutlinedTextField(
+            value = value, onValueChange = onChange, label = { Text(label) },
+            singleLine = singleLine, minLines = minLines, visualTransformation = visual,
+            keyboardOptions = KeyboardOptions(keyboardType = keyboard),
+            trailingIcon = trailing,
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth(),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = Fg, unfocusedTextColor = Fg,
+                focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
+                focusedBorderColor = ThemeAccent.copy(alpha = 0.78f), unfocusedBorderColor = Color.Transparent,
+                focusedLabelColor = ThemeAccent, unfocusedLabelColor = Sub, cursorColor = ThemeAccent
+            )
         )
-    )
+    }
 }
 
 @Composable
@@ -906,7 +916,8 @@ fun EditBotScreen(store: Store, botId: String?, go: (Screen) -> Unit) {
 
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { back() }) { Icon(Ic.Back, null, tint = Fg) }
+            Box(Modifier.size(40.dp).pressBounce { back() }.harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = Card), contentAlignment = Alignment.Center) { Icon(Ic.Back, null, tint = Fg, modifier = Modifier.size(20.dp)) }
+            Spacer(Modifier.width(12.dp))
             Text(if (old == null) "新建 Bot" else "编辑 Bot", style = HiveSerif.SheetTitle())
         }
         Column(
@@ -1030,7 +1041,8 @@ fun NewGroupScreen(store: Store, go: (Screen) -> Unit) {
     val picked = remember { mutableStateListOf<String>() }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { go(Screen.Home) }) { Icon(Ic.Back, null, tint = Fg) }
+            Box(Modifier.size(40.dp).pressBounce { go(Screen.Home) }.harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = Card), contentAlignment = Alignment.Center) { Icon(Ic.Back, null, tint = Fg, modifier = Modifier.size(20.dp)) }
+            Spacer(Modifier.width(12.dp))
             Text("新建群聊", style = HiveSerif.SheetTitle())
         }
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
@@ -1057,5 +1069,50 @@ fun NewGroupScreen(store: Store, go: (Screen) -> Unit) {
                 store.addGroup(g); go(Screen.Chat("group:${g.id}"))
             }
         }
+    }
+}
+
+
+/**
+ * Architectural studio light canvas drawn inside AppBackdrop's captureLayer.
+ * Provides crisp neutral titanium softbox pools + subtle ThemeAccent rim glow +
+ * fine geometric light arcs so every floating Liquid Glass lens has real optical
+ * luminance contrast to bend, magnify, and prism-split (zero cliché purple/pink AI gradient).
+ */
+@Composable
+fun StudioOpticalBackdrop(modifier: Modifier = Modifier) {
+    val accent = ThemeAccent
+    androidx.compose.foundation.Canvas(modifier) {
+        val w = size.width
+        val h = size.height
+        // Top-left cool titanium studio softbox pool
+        drawCircle(
+            brush = Brush.radialGradient(
+                0f to Color(0xFFE8EEF8).copy(alpha = 0.14f),
+                0.55f to Color(0xFFB8C4D8).copy(alpha = 0.045f),
+                1f to Color.Transparent,
+                center = Offset(w * 0.16f, h * 0.10f),
+                radius = w * 0.78f
+            ),
+            radius = w * 0.78f,
+            center = Offset(w * 0.16f, h * 0.10f)
+        )
+        // Bottom-right signature ThemeAccent ambient studio bounce
+        drawCircle(
+            brush = Brush.radialGradient(
+                0f to accent.copy(alpha = 0.15f),
+                0.55f to accent.copy(alpha = 0.045f),
+                1f to Color.Transparent,
+                center = Offset(w * 0.86f, h * 0.86f),
+                radius = w * 0.72f
+            ),
+            radius = w * 0.72f,
+            center = Offset(w * 0.86f, h * 0.86f)
+        )
+        // Crisp architectural orbital rings for subtle optical lensing reference lines
+        val ringCol = Color.White.copy(alpha = 0.045f)
+        val stroke = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx())
+        drawCircle(color = ringCol, radius = w * 0.42f, center = Offset(w * 0.5f, h * 0.44f), style = stroke)
+        drawCircle(color = ringCol, radius = w * 0.66f, center = Offset(w * 0.5f, h * 0.44f), style = stroke)
     }
 }

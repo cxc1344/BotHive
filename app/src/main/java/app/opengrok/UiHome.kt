@@ -267,20 +267,22 @@ fun HomeScreen(store: Store, go: (Screen) -> Unit) {
     Box(Modifier.fillMaxSize()) {
         Column(
             Modifier.fillMaxSize().background(
-                androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Coral.copy(alpha = 0.07f), Color.Transparent), endY = 1100f)
+                androidx.compose.ui.graphics.Brush.verticalGradient(listOf(ThemeAccent.copy(alpha = 0.08f), Color.Transparent), endY = 980f)
             )
         ) {
             // Top bar: drawer toggle left, mode capsule centre, settings right. (The reference app's ghost icon has no counterpart
             // in this app; nothing here would be honest to invent, so the right side stays empty.)
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(44.dp)) {
-                    IconButton(onClick = openDrawer, modifier = Modifier.fillMaxSize()) { Icon(Ic.Menu, "菜单", tint = Fg) }
+                Box(Modifier.size(42.dp).pressBounce { openDrawer() }.harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = Card), contentAlignment = Alignment.Center) {
+                    Icon(Ic.Menu, "菜单", tint = Fg, modifier = Modifier.size(21.dp))
                     if (working > 0) {
-                        Box(Modifier.align(Alignment.TopEnd).padding(top = 9.dp, end = 9.dp).size(8.dp).clip(CircleShape).background(ThemeAccent))
+                        Box(Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 8.dp).size(8.dp).clip(CircleShape).background(ThemeAccent))
                     }
                 }
                 Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { ModeCapsule(ModeMemory.last.value, go) }
-                IconButton(onClick = { go(Screen.Settings) }, modifier = Modifier.size(44.dp)) { Icon(Ic.Gear, "设置", tint = Fg) }
+                Box(Modifier.size(42.dp).pressBounce { go(Screen.Settings) }.harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = Card), contentAlignment = Alignment.Center) {
+                    Icon(Ic.Gear, "设置", tint = Fg, modifier = Modifier.size(21.dp))
+                }
             }
             Column(
                 Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).imePadding(),
@@ -377,8 +379,8 @@ private fun HomeComposer(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
-            Modifier.size(40.dp).clip(CircleShape).background(Color(0xFF313131))
-                .clickable { if (keyboard) onSend() else focusRequester.requestFocus() },
+            Modifier.size(40.dp).pressBounce { if (keyboard) onSend() else focusRequester.requestFocus() }
+                .harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = PILL),
             contentAlignment = Alignment.Center
         ) { Icon(Ic.Add, null, tint = Fg, modifier = Modifier.size(18.dp)) }
         Spacer(Modifier.width(10.dp))
@@ -428,10 +430,11 @@ private fun DrawerPanel(store: Store, current: Screen, onClose: () -> Unit, go: 
     var deleteId by remember { mutableStateOf<String?>(null) }
     val entries = buildEntries(store).filter { it.time > 0L }
     Column(
-        Modifier.fillMaxHeight().fillMaxWidth(0.88f).widthIn(max = 360.dp)
-            .harmonyGlass(thickness = ImmersiveThickness.ULTRA_THICK, radius = 28.dp, fallbackBg = BeePanel)
-            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { }
+        Modifier.fillMaxHeight().fillMaxWidth(0.86f).widthIn(max = 360.dp)
             .systemBarsPadding().imePadding()
+            .padding(start = 10.dp, top = 10.dp, bottom = 10.dp)
+            .harmonyGlass(thickness = ImmersiveThickness.ULTRA_THICK, radius = 30.dp, fallbackBg = BeePanel)
+            .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) { }
     ) {
         Spacer(Modifier.height(18.dp))
         // Serif wordmark (STUDY §2.2).
@@ -463,7 +466,7 @@ private fun DrawerPanel(store: Store, current: Screen, onClose: () -> Unit, go: 
                 item {
                     Row(
                         Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 1.dp)
-                            .clip(RoundedCornerShape(12.dp)).background(Color(0xFF2E2E2C))
+                            .harmonyGlass(thickness = ImmersiveThickness.THIN, radius = 14.dp, tint = ThemeAccent.copy(alpha = 0.14f), fallbackBg = PILL)
                             .clickable { go(if (ap.chatId == AGENT_ID) Screen.AgentChat else Screen.Chat(ap.chatId)) }
                             .padding(horizontal = 12.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically
@@ -578,8 +581,8 @@ private fun DrawerWorkStatus(store: Store, go: (Screen) -> Unit) {
 @Composable
 private fun DrawerRow(e: ChatEntry, selected: Boolean, onClick: () -> Unit, onDelete: (() -> Unit)?, onPin: (() -> Unit)? = null) {
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 1.dp).clip(RoundedCornerShape(12.dp))
-            .background(if (selected) Color(0xFF2E2E2C) else Color.Transparent)
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp)
+            .then(if (selected) Modifier.harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 14.dp, fallbackBg = PILL) else Modifier.clip(RoundedCornerShape(14.dp)))
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically

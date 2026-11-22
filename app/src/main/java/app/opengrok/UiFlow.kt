@@ -143,9 +143,9 @@ fun WorkflowsScreen(store: Store, go: (Screen) -> Unit) {
     Column(Modifier.fillMaxSize()) {
         // List-page top bar: back left, serif centred title, add right (STUDY §2.7).
         Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { go(Screen.Home) }) { Icon(Ic.Back, null, tint = Fg) }
+            Box(Modifier.size(40.dp).pressBounce { go(Screen.Home) }.harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = Card), contentAlignment = Alignment.Center) { Icon(Ic.Back, null, tint = Fg, modifier = Modifier.size(20.dp)) }
             Text("工作流", style = HiveSerif.SheetTitle(), modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
-            IconButton(onClick = { go(Screen.EditWorkflow(null)) }) { Icon(Ic.Add, null, tint = Fg) }
+            Box(Modifier.size(40.dp).pressBounce { go(Screen.EditWorkflow(null)) }.harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = Card), contentAlignment = Alignment.Center) { Icon(Ic.Add, null, tint = Fg, modifier = Modifier.size(20.dp)) }
         }
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp),
@@ -356,19 +356,21 @@ fun AttachChips(items: List<AttachItem>, onRemove: (AttachItem) -> Unit) {
 @Composable
 fun StopButton(onStop: () -> Unit) {
     Box(
-        Modifier.size(40.dp).clip(androidx.compose.foundation.shape.CircleShape).background(Color(0xFF313131))
-            .clickable { onStop() },
+        Modifier.size(40.dp).pressBounce { onStop() }
+            .harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, tint = BeeDanger.copy(alpha = 0.16f), fallbackBg = PILL),
         contentAlignment = Alignment.Center
     ) { Icon(Ic.Stop, "停止", tint = Fg, modifier = Modifier.size(16.dp)) }
 }
 
-/** Round send button shared by every composer: white when there is something to send, dark otherwise. */
+/** Round send button shared by every composer: luminous white pill when ready, crystal glass otherwise. */
 @Composable
 fun SendButton(enabled: Boolean, onClick: () -> Unit) {
     Box(
         Modifier.size(40.dp).pressBounce(enabled = enabled, onClick = onClick)
-            .clip(androidx.compose.foundation.shape.CircleShape)
-            .background(if (enabled) PillWhite else Color(0xFF313131)),
+            .then(
+                if (enabled) Modifier.clip(androidx.compose.foundation.shape.CircleShape).background(PillWhite)
+                else Modifier.harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = PILL)
+            ),
         contentAlignment = Alignment.Center
     ) { Icon(Ic.Send, "发送", tint = if (enabled) Ink else Sub, modifier = Modifier.size(18.dp)) }
 }
@@ -398,10 +400,11 @@ fun ChatComposer(
     val tier = GlassStyle.tier.value
     val keyboard = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     val focused = keyboard
-    val expanded = if (tier.motion) {
-        val anim by animateFloatAsState(if (focused) 1f else 0f, tween(GlassMotion.ms(220)), label = "composer-morph")
-        anim
-    } else if (focused) 1f else 0f
+    val expanded by animateFloatAsState(
+        targetValue = if (focused) 1f else 0f,
+        animationSpec = tween(if (tier.motion) GlassMotion.ms(220) else 0),
+        label = "composer-morph"
+    )
     val radius = lerp(26.dp, 24.dp, expanded)
     val radiusPx = with(LocalDensity.current) { radius.toPx() }
 
@@ -414,8 +417,8 @@ fun ChatComposer(
         ) {
             // Leading "+" round button (attachments).
             Box(
-                Modifier.size(38.dp).clip(androidx.compose.foundation.shape.CircleShape)
-                    .background(Color(0xFF313131)).clickable { onPickFiles() },
+                Modifier.size(38.dp).pressBounce { onPickFiles() }
+                    .harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = PILL),
                 contentAlignment = Alignment.Center
             ) { Icon(Ic.Attach, "附件", tint = Fg, modifier = Modifier.size(17.dp)) }
             Spacer(Modifier.width(6.dp))
