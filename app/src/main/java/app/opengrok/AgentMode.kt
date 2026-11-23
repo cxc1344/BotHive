@@ -113,7 +113,10 @@ object AgentMode {
      * If the OS ever drops it underneath us, [ensureVirtual] rebuilds it on the next tool call.
      */
     fun onTaskFinished() {
-        // Intentionally empty: see the doc comment above.
+        // Auto-fold into a sleek mini pill and tear down after idle timeout so no orphan window lingers.
+        if (VirtualDisplayOverlay.isShowing()) {
+            VirtualDisplayOverlay.scheduleIdleAutoClose { teardown() }
+        }
     }
 
     /**
@@ -121,8 +124,13 @@ object AgentMode {
      * Returns null on success, or a human-readable error.
      */
     fun ensureVirtual(context: Context, owner: String): String? {
+        VirtualDisplayOverlay.cancelIdleAutoClose()
         if (VirtualScreen.active.value && VirtualScreen.displayId.value >= 0) {
             VirtualScreen.ownerName.value = owner
+            if (!VirtualDisplayOverlay.isShowing()) {
+                VirtualDisplayOverlay.onStop = { stopHook?.invoke() }
+                VirtualDisplayOverlay.show(context, owner)
+            }
             return null
         }
         val blocking = blockers(context)

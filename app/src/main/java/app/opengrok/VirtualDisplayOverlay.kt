@@ -1,10 +1,10 @@
 package app.opengrok
 
-import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.PixelFormat
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Handler
@@ -21,41 +21,47 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
- * Floating preview window for [VirtualScreen].
+ * Redesigned Titanium-Obsidian Liquid Glass floating preview window for [VirtualScreen].
  *
- * Shows the virtual display's live frames in a draggable TYPE_APPLICATION_OVERLAY window with a
- * status bar (Bot name + state) and pause / stop controls. Collapsing turns it into a small dot.
- *
- * This is an *Agent automation* surface: it exists so the user can watch and interrupt the Agent
- * without losing their own screen. It intentionally offers no casting or recording.
- *
- * Requires the "display over other apps" permission; [hasPermission] reports the state so the UI
- * can guide the user instead of failing silently.
+ * Improvements over the legacy yellow box:
+ *  - Crisp dark frosted bezel with hairline rim and subtle status dot.
+ *  - 4-step smooth zoom in / zoom out ("−" / "+") persisted across sessions.
+ *  - Sleek compact glass pill when collapsed (tappable to restore, draggable anywhere).
+ *  - Auto-idle teardown after a task finishes so no orphan bubble lingers forever.
  */
 object VirtualDisplayOverlay {
-    private const val FRAME_INTERVAL_MS = 120L      // ~8 fps: enough to follow along, cheap on battery
+    private const val FRAME_INTERVAL_MS = 110L
     private const val PREFS = "virtual_screen_overlay"
+    private const val IDLE_AUTO_CLOSE_MS = 22_000L
+
+    private val SCALE_STEPS = floatArrayOf(0.34f, 0.48f, 0.64f, 0.82f)
 
     private var wm: WindowManager? = null
     private var root: FrameLayout? = null
     private var preview: ImageView? = null
     private var statusText: TextView? = null
+    private var statusDot: View? = null
+    private var pauseBtn: TextView? = null
+    private var scaleLabel: TextView? = null
+    private var collapsedPillText: TextView? = null
     private var params: WindowManager.LayoutParams? = null
     private var collapsedView: View? = null
     private var expandedView: View? = null
+
     private var running = false
     private var collapsed = false
-    /** Bitmap currently handed to the ImageView; recycled one tick after it is replaced. */
+    private var scaleIdx = 1
+    private var displayW = 720
+    private var displayH = 1280
+    private var appCtx: Context? = null
     private var shownFrame: Bitmap? = null
     private val handler = Handler(Looper.getMainLooper())
+    private var idleCloseRunnable: Runnable? = null
 
-    /** Bot label shown in the status bar. */
     var title: String = "Agent"
         set(value) { field = value; refreshStatus() }
 
-    /** Called when the user taps stop: the owner should cancel the running Agent task. */
     var onStop: (() -> Unit)? = null
-    /** Called after the window is dismissed for any reason. */
     var onDismissed: (() -> Unit)? = null
 
     fun hasPermission(context: Context): Boolean =
@@ -63,96 +69,184 @@ object VirtualDisplayOverlay {
             android.provider.Settings.canDrawOverlays(context)
         } else true
 
-    /** Whether the floating window is currently on screen. */
     fun isShowing(): Boolean = running
 
+    private fun dp(context: Context, v: Int): Int =
+        (v * context.resources.displayMetrics.density).roundToInt()
+
     private fun savedX(context: Context): Int =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt("x", 24)
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt("x", dp(context, 14))
 
     private fun savedY(context: Context): Int =
-        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt("y", 220)
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt("y", dp(context, 120))
+
+    private fun savedScaleIdx(context: Context): Int =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getInt("scale_idx", 1)
+            .coerceIn(0, SCALE_STEPS.lastIndex)
 
     private fun savePos(context: Context, x: Int, y: Int) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putInt("x", x).putInt("y", y).apply()
     }
 
-    /** Builds and shows the window. Returns an error string, or null on success. */
+    private fun saveScaleIdx(context: Context, idx: Int) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putInt("scale_idx", idx).apply()
+    }
+
     fun show(context: Context, botName: String): String? {
-        if (running) { title = botName; return null }
+        cancelIdleAutoClose()
+        if (running) {
+            title = botName
+            return null
+        }
         if (!hasPermission(context)) return "缺少「显示在其他应用上层」权限"
         val w = VirtualScreen.width.takeIf { it > 0 } ?: return "虚拟屏还没有尺寸,请先创建虚拟屏"
         val h = VirtualScreen.height.takeIf { it > 0 } ?: return "虚拟屏还没有尺寸,请先创建虚拟屏"
         return try {
+            appCtx = context.applicationContext
+            displayW = w
+            displayH = h
+            scaleIdx = savedScaleIdx(context)
             title = botName
+
             val manager = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
             wm = manager
 
-            // Preview keeps the display's aspect ratio, capped to a comfortable phone-window size.
-            val maxW = (context.resources.displayMetrics.widthPixels * 0.46f).roundToInt().coerceAtLeast(150)
-            val scale = maxW.toFloat() / w
-            val viewW = maxW
-            val viewH = (h * scale).roundToInt().coerceAtLeast(120)
-
-            val container = FrameLayout(context)
-            val bg = GradientDrawable().apply {
-                cornerRadius = 26f
-                setColor(0xF21B1509.toInt())
-                setStroke(3, 0xFFFFC53D.toInt())
+            val container = FrameLayout(context).apply {
+                setBackgroundColor(Color.TRANSPARENT)
             }
-            container.background = bg
 
-            // ---- expanded content: header + preview + controls ----
-            val expanded = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+            // ---- Expanded Titanium Liquid Glass Window ----
+            val expanded = LinearLayout(context).apply {
+                orientation = LinearLayout.VERTICAL
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(context, 22).toFloat()
+                    setColor(0xEB101318.toInt())
+                    setStroke(dp(context, 1).coerceAtLeast(1), 0x42FFFFFF)
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    elevation = dp(context, 12).toFloat()
+                    clipToOutline = true
+                }
+            }
 
+            // Header bar: status dot + title + zoom (-) / (+) + collapse + close
             val header = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(28, 18, 16, 8)
+                setPadding(dp(context, 12), dp(context, 8), dp(context, 8), dp(context, 6))
             }
+            val dot = View(context).apply {
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(0xFF4ADE80.toInt())
+                }
+            }
+            statusDot = dot
+            header.addView(dot, LinearLayout.LayoutParams(dp(context, 7), dp(context, 7)).apply {
+                marginEnd = dp(context, 7)
+            })
+
             statusText = TextView(context).apply {
-                setTextColor(0xFFFFE6A1.toInt())
-                textSize = 11f
-                text = "BotHive"
+                setTextColor(0xFFF3F5F8.toInt())
+                textSize = 11.5f
+                typeface = Typeface.DEFAULT_BOLD
+                maxLines = 1
+                text = "$title · 操控中"
             }
             header.addView(statusText, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
-            val collapseBtn = tinyButton(context, "▾") { setCollapsed(true) }
-            header.addView(collapseBtn)
+
+            header.addView(glassIconBtn(context, "−") { stepScale(context, -1) })
+            scaleLabel = TextView(context).apply {
+                setTextColor(0xFF9AA4B2.toInt())
+                textSize = 10f
+                gravity = Gravity.CENTER
+                text = "${(SCALE_STEPS[scaleIdx] * 100).roundToInt()}%"
+            }
+            header.addView(scaleLabel, LinearLayout.LayoutParams(dp(context, 30), LinearLayout.LayoutParams.WRAP_CONTENT))
+            header.addView(glassIconBtn(context, "+") { stepScale(context, +1) })
+            header.addView(glassIconBtn(context, "—") { setCollapsed(true) })
+            header.addView(glassIconBtn(context, "×", tint = 0xFFFF6B6B.toInt()) { stopAndDismiss() })
             expanded.addView(header)
 
+            // Live virtual screen viewport with subtle rounded frame
+            val previewWrap = FrameLayout(context).apply {
+                setPadding(dp(context, 6), 0, dp(context, 6), 0)
+            }
             preview = ImageView(context).apply {
                 scaleType = ImageView.ScaleType.FIT_CENTER
-                setBackgroundColor(0xFF000000.toInt())
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(context, 14).toFloat()
+                    setColor(0xFF060709.toInt())
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    clipToOutline = true
+                }
             }
-            expanded.addView(preview, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
+            previewWrap.addView(
+                preview,
+                FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+            )
+            expanded.addView(previewWrap, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f))
 
+            // Footer controls: Pause/Resume + Close
             val controls = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER
-                setPadding(16, 10, 16, 18)
+                setPadding(dp(context, 10), dp(context, 7), dp(context, 10), dp(context, 9))
             }
-            controls.addView(actionButton(context, "暂停") { togglePause(context) })
-            controls.addView(actionButton(context, "停止") { stopAndDismiss() })
+            val pBtn = glassActionBtn(context, "暂停", primary = false) { togglePause() }
+            pauseBtn = pBtn
+            controls.addView(pBtn, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginEnd = dp(context, 8)
+            })
+            controls.addView(
+                glassActionBtn(context, "关闭虚拟屏", primary = true) { stopAndDismiss() },
+                LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            )
             expanded.addView(controls)
-
             expandedView = expanded
 
-            // ---- collapsed content: a single dot ----
-            val dot = FrameLayout(context).apply {
-                setBackgroundColor(Color.TRANSPARENT)
+            // ---- Collapsed Sleek Liquid Glass Mini Pill (tappable to expand!) ----
+            val pill = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(context, 12), dp(context, 8), dp(context, 12), dp(context, 8))
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(context, 999).toFloat()
+                    setColor(0xEE12161E.toInt())
+                    setStroke(dp(context, 1).coerceAtLeast(1), 0x55FFC83D)
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                    elevation = dp(context, 10).toFloat()
+                }
+                visibility = View.GONE
             }
-            val dotInner = View(context).apply {
+            val pillDot = View(context).apply {
                 background = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL
-                    setColor(0xFFFFC53D.toInt())
+                    setColor(0xFFFFC83D.toInt())
                 }
             }
-            val dotSize = 96
-            dot.addView(dotInner, FrameLayout.LayoutParams(dotSize, dotSize, Gravity.CENTER))
-            collapsedView = dot
-            dot.visibility = View.GONE
+            pill.addView(pillDot, LinearLayout.LayoutParams(dp(context, 8), dp(context, 8)).apply {
+                marginEnd = dp(context, 7)
+            })
+            val pillTxt = TextView(context).apply {
+                setTextColor(0xFFF3F5F8.toInt())
+                textSize = 11.5f
+                typeface = Typeface.DEFAULT_BOLD
+                text = "虚拟屏 · 展开"
+            }
+            collapsedPillText = pillTxt
+            pill.addView(pillTxt)
+            collapsedView = pill
 
+            val (viewW, viewH) = computeExpandedSize(context)
             container.addView(expanded, FrameLayout.LayoutParams(viewW, viewH))
-            container.addView(dot, FrameLayout.LayoutParams(140, 140))
+            container.addView(
+                pill,
+                FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT)
+            )
             root = container
 
             val type = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -175,10 +269,14 @@ object VirtualDisplayOverlay {
             }
             params = lp
 
-            attachDrag(context, container)
+            attachDragAndTap(context, container, onTapCollapsed = {
+                cancelIdleAutoClose()
+                setCollapsed(false)
+            })
             manager.addView(container, lp)
             running = true
             collapsed = false
+            refreshStatus()
             startFrameLoop()
             null
         } catch (e: Exception) {
@@ -187,61 +285,132 @@ object VirtualDisplayOverlay {
         }
     }
 
-    private fun tinyButton(context: Context, label: String, onClick: () -> Unit): TextView =
-        TextView(context).apply {
-            text = label
-            setTextColor(0xFFFFC53D.toInt())
-            textSize = 14f
-            setPadding(20, 4, 20, 4)
-            setOnClickListener { onClick() }
-        }
+    private fun computeExpandedSize(context: Context): Pair<Int, Int> {
+        val dm = context.resources.displayMetrics
+        val frac = SCALE_STEPS[scaleIdx]
+        val viewW = (dm.widthPixels * frac).roundToInt().coerceIn(dp(context, 145), (dm.widthPixels * 0.88f).roundToInt())
+        val chromeH = dp(context, 78)
+        val previewW = (viewW - dp(context, 12)).coerceAtLeast(100)
+        val aspectH = (previewW.toFloat() * displayH / displayW.coerceAtLeast(1)).roundToInt()
+        val maxTotalH = (dm.heightPixels * 0.78f).roundToInt()
+        val viewH = (aspectH + chromeH).coerceIn(dp(context, 190), maxTotalH)
+        return viewW to viewH
+    }
 
-    private fun actionButton(context: Context, label: String, onClick: () -> Unit): TextView =
+    private fun stepScale(context: Context, delta: Int) {
+        cancelIdleAutoClose()
+        val next = (scaleIdx + delta).coerceIn(0, SCALE_STEPS.lastIndex)
+        if (next == scaleIdx) return
+        scaleIdx = next
+        saveScaleIdx(context, scaleIdx)
+        scaleLabel?.text = "${(SCALE_STEPS[scaleIdx] * 100).roundToInt()}%"
+        val exp = expandedView ?: return
+        val (w, h) = computeExpandedSize(context)
+        exp.layoutParams = FrameLayout.LayoutParams(w, h)
+        exp.requestLayout()
+        val v = root ?: return
+        val lp = params ?: return
+        runCatching { wm?.updateViewLayout(v, lp) }
+    }
+
+    private fun glassIconBtn(context: Context, label: String, tint: Int = 0xFFE5EAF2.toInt(), onClick: () -> Unit): TextView =
         TextView(context).apply {
             text = label
-            setTextColor(0xFF1B1509.toInt())
-            textSize = 12f
+            setTextColor(tint)
+            textSize = 13f
+            typeface = Typeface.DEFAULT_BOLD
             gravity = Gravity.CENTER
             background = GradientDrawable().apply {
-                cornerRadius = 18f
-                setColor(0xFFFFC53D.toInt())
+                cornerRadius = dp(context, 999).toFloat()
+                setColor(0x22FFFFFF)
             }
-            setPadding(26, 10, 26, 10)
-            val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-            lp.marginEnd = 18
-            layoutParams = lp
+            val sz = dp(context, 24)
+            layoutParams = LinearLayout.LayoutParams(sz, sz).apply {
+                marginStart = dp(context, 4)
+            }
             setOnClickListener { onClick() }
         }
 
-    private fun togglePause(context: Context) {
+    private fun glassActionBtn(context: Context, label: String, primary: Boolean, onClick: () -> Unit): TextView =
+        TextView(context).apply {
+            text = label
+            setTextColor(if (primary) 0xFF101318.toInt() else 0xFFF3F5F8.toInt())
+            textSize = 11.5f
+            typeface = Typeface.DEFAULT_BOLD
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                cornerRadius = dp(context, 14).toFloat()
+                setColor(if (primary) 0xFFFFC83D.toInt() else 0x26FFFFFF)
+            }
+            setPadding(dp(context, 10), dp(context, 6), dp(context, 10), dp(context, 6))
+            setOnClickListener { onClick() }
+        }
+
+    private fun togglePause() {
+        cancelIdleAutoClose()
         VirtualScreen.paused.value = !VirtualScreen.paused.value
-        val controls = (expandedView as? LinearLayout)?.getChildAt(2) as? LinearLayout
-        val btn = controls?.getChildAt(0) as? TextView
-        btn?.text = if (VirtualScreen.paused.value) "继续" else "暂停"
+        pauseBtn?.text = if (VirtualScreen.paused.value) "继续" else "暂停"
         refreshStatus()
     }
 
     private fun refreshStatus() {
+        val paused = VirtualScreen.paused.value
+        val active = VirtualScreen.active.value
         val state = when {
-            !VirtualScreen.active.value -> "未连接"
-            VirtualScreen.paused.value -> "已暂停"
+            !active -> "待机"
+            paused -> "已暂停"
             else -> "操控中"
         }
         statusText?.text = "$title · $state"
+        collapsedPillText?.text = "虚拟屏 · $state"
+        (statusDot?.background as? GradientDrawable)?.setColor(
+            when {
+                !active -> 0xFF94A3B8.toInt()
+                paused -> 0xFFFFC83D.toInt()
+                else -> 0xFF4ADE80.toInt()
+            }
+        )
     }
 
-    /** Collapses to a dot (keeps the display alive) or restores the full window. */
     fun setCollapsed(value: Boolean) {
         collapsed = value
         collapsedView?.visibility = if (value) View.VISIBLE else View.GONE
         expandedView?.visibility = if (value) View.GONE else View.VISIBLE
+        val v = root ?: return
+        val lp = params ?: return
+        runCatching { wm?.updateViewLayout(v, lp) }
     }
 
-    private fun attachDrag(context: Context, view: View) {
+    /**
+     * Called when an Agent turn finishes: folds into a sleek mini pill and schedules
+     * automatic teardown if idle, so no orphan floating box stays stuck on screen.
+     */
+    fun scheduleIdleAutoClose(onAutoClose: () -> Unit) {
+        if (!running) return
+        handler.post {
+            if (!running) return@post
+            setCollapsed(true)
+            collapsedPillText?.text = "虚拟屏 · 已完成"
+            cancelIdleAutoClose()
+            val r = Runnable {
+                if (running) onAutoClose()
+            }
+            idleCloseRunnable = r
+            handler.postDelayed(r, IDLE_AUTO_CLOSE_MS)
+        }
+    }
+
+    fun cancelIdleAutoClose() {
+        idleCloseRunnable?.let { handler.removeCallbacks(it) }
+        idleCloseRunnable = null
+    }
+
+    private fun attachDragAndTap(context: Context, view: View, onTapCollapsed: () -> Unit) {
         var startX = 0
         var startY = 0
         var touchX = 0f
         var touchY = 0f
+        var moved = false
         view.setOnTouchListener { _, event ->
             val lp = params ?: return@setOnTouchListener false
             when (event.action) {
@@ -250,22 +419,28 @@ object VirtualDisplayOverlay {
                     startY = lp.y
                     touchX = event.rawX
                     touchY = event.rawY
-                    false
+                    moved = false
+                    collapsed
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = (event.rawX - touchX).roundToInt()
                     val dy = (event.rawY - touchY).roundToInt()
-                    // Only treat it as a drag once the finger actually travels, so taps still work.
                     if (abs(dx) > 8 || abs(dy) > 8) {
+                        moved = true
                         lp.x = startX + dx
                         lp.y = startY + dy
                         runCatching { wm?.updateViewLayout(view, lp) }
                         true
-                    } else false
+                    } else collapsed
                 }
                 MotionEvent.ACTION_UP -> {
-                    savePos(context, lp.x, lp.y)
-                    false
+                    if (moved) {
+                        savePos(context, lp.x, lp.y)
+                        true
+                    } else if (collapsed) {
+                        onTapCollapsed()
+                        true
+                    } else false
                 }
                 else -> false
             }
@@ -282,8 +457,6 @@ object VirtualDisplayOverlay {
                     if (frame != null && !frame.isRecycled) {
                         val previous = shownFrame
                         preview?.setImageBitmap(frame)
-                        // Free the bitmap the ImageView no longer draws (kept one frame to be safe:
-                        // the view may still be compositing it right after setImageBitmap).
                         if (previous != null && previous !== frame && !previous.isRecycled) {
                             runCatching { previous.recycle() }
                         }
@@ -297,16 +470,17 @@ object VirtualDisplayOverlay {
         handler.post(tick)
     }
 
-    /** User pressed stop: cancel the Agent run, then tear everything down. */
     private fun stopAndDismiss() {
+        cancelIdleAutoClose()
         val cb = onStop
         dismiss()
+        VirtualScreen.release()
         cb?.invoke()
     }
 
-    /** Removes the window. Does not release the virtual display (the owner decides that). */
     fun dismiss() {
         running = false
+        cancelIdleAutoClose()
         handler.removeCallbacksAndMessages(null)
         val view = root
         val manager = wm
@@ -316,6 +490,10 @@ object VirtualDisplayOverlay {
         root = null
         preview = null
         statusText = null
+        statusDot = null
+        pauseBtn = null
+        scaleLabel = null
+        collapsedPillText = null
         collapsedView = null
         expandedView = null
         params = null

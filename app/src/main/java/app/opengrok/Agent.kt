@@ -137,7 +137,7 @@ object Agent {
                 JSONObject().put("command", str("要执行的 shell 命令")), "command"))
             put(fn("phone_task", "把一条手机操作任务交给专用的手机操作模型(AutoGLM 风格)自动执行:它会自己截屏、判断、点击/滑动/输入,直到完成。适合「打开微信给某人发消息」这类需要连续看屏操作的任务。需要先在设置里启用专用手机模型。",
                 JSONObject().put("task", str("要完成的手机操作任务,写清楚目标和判断完成的条件")), "task"))
-            put(fn("screen_mode", "查看或切换 Agent 的操控模式。mode=status 查看当前模式;mode=virtual 切到虚拟屏悬浮窗(Agent 在独立虚拟显示屏里操作 App,你的主屏照常使用;需要 Shizuku 已激活并授权、且已授予「显示在其他应用上层」权限);mode=main 切回主屏模式。", JSONObject().put("mode", str("status / virtual / main")), "mode"))
+            put(fn("screen_mode", "查看、切换或关闭 Agent 的操控模式。mode=status 查看当前模式;mode=virtual 切到虚拟屏悬浮窗;mode=main 切回主屏模式;mode=close 任务完成后关闭虚拟屏悬浮窗释放资源。", JSONObject().put("mode", str("status / virtual / main / close")), "mode"))
             put(fn("screen_shot", "截取当前屏幕截图并直接看到画面(视觉看屏,推荐首选)。之后用 tap_at / long_press / drag_at 按画面上的相对位置操作:坐标是 0-1000 的归一化网格,左上角是 (0,0),右下角是 (1000,1000)。虚拟屏模式下返回虚拟屏的画面。", JSONObject()))
             put(fn("screen_dump", "以文字形式读取当前屏幕的界面结构(备用手段;优先用 screen_shot 看图)。", JSONObject()))
             put(fn("tap_at", "点击画面上的一点。x、y 为 0-1000 归一化坐标:先看 screen_shot 的截图,判断目标在画面中的相对位置,再给出坐标,例如画面正中是 (500,500)。",
@@ -564,7 +564,11 @@ object Agent {
                     "status", "" -> AgentMode.describe()
                     "virtual" -> AgentMode.switchTo(store.appContext(), bot.name, virtual = true)
                     "main" -> AgentMode.switchTo(store.appContext(), bot.name, virtual = false)
-                    else -> "mode 只能是 status / virtual / main。"
+                    "close", "off" -> {
+                        AgentMode.teardown()
+                        "已关闭虚拟屏悬浮窗并释放虚拟屏资源。"
+                    }
+                    else -> "mode 只能是 status / virtual / main / close。"
                 }
             }
             "screen_shot", "screen_dump", "tap_at", "long_press", "drag_at", "tap_text", "input_text", "press_key" -> {
@@ -722,13 +726,39 @@ object Agent {
         var lastError: Exception? = null
         for (attempt in keys.indices) {
             val idx = Math.floorMod(cursor.get() + attempt, keys.size)
-            try {
-                val out = callOnce(bot, msgs, tools, keys[idx])
-                cursor.set(idx)
-                return out
-            } catch (e: Exception) {
-                lastError = e
-                if (e.message?.startsWith("HTTP 429") != true) throw e
+            var attempt = 0
+            while (true) {
+                try {
+                    val out = callOnce(bot, msgs, tools, keys[idx])
+                    cursor.set(idx)
+                    return out
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    lastError = e
+                    val msg = e.message.orEmpty()
+                    if (msg.startsWith("HTTP 429")) {
+                        // Rotate immediately to next key if pool has multiple keys; else retry with backoff up to 5 times
+                        if (keys.size > 1) break
+                        if (attempt >= 5) throw e
+                        attempt++
+                        kotlinx.coroutines.delay((attempt * 1200L).coerceAtMost(5000L))
+                        continue
+                    }
+                    val isTransientGateway =
+                        msg.startsWith("HTTP 502") || msg.startsWith("HTTP 503") ||
+                        msg.startsWith("HTTP 504") || msg.startsWith("HTTP 500") ||
+                        msg.startsWith("HTTP 520") || msg.startsWith("HTTP 521") ||
+                        msg.startsWith("HTTP 522") || msg.startsWith("HTTP 523") ||
+                        msg.startsWith("HTTP 524") || msg.startsWith("HTTP 408") ||
+                        (!msg.startsWith("HTTP 4") && e is IOException)
+                    if (isTransientGateway && attempt < 5) {
+                        attempt++
+                        kotlinx.coroutines.delay((attempt * 1000L).coerceAtMost(5000L))
+                        continue
+                    }
+                    throw e
+                }
             }
         }
         throw lastError ?: IllegalStateException("key pool exhausted")
