@@ -429,7 +429,7 @@ fun ChatScreen(store: Store, id: String, go: (Screen) -> Unit) {
                         starters.forEach { q ->
                             Box(
                                 Modifier.pressBounce {
-                                    if (isManager && projectMode) Pipeline.start(store, id.removePrefix("bot:"), q)
+                                    if (isManager && projectMode) store.startProject(id, q)
                                     else store.send(id, q, emptyList())
                                 }
                                     .harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = Card)

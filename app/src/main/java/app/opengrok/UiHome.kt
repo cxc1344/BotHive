@@ -53,7 +53,7 @@ import java.util.Calendar
 /** Opens the app-wide history / work-status drawer (provided by [App]). */
 val LocalOpenDrawer = staticCompositionLocalOf<() -> Unit> { {} }
 
-private val ACTIVE_STAGES = setOf(Stage.PLANNING, Stage.AWAIT_CONFIRM, Stage.EXECUTING, Stage.REVIEWING, Stage.REPORTING)
+val ACTIVE_STAGES = setOf(Stage.PLANNING, Stage.AWAIT_CONFIRM, Stage.EXECUTING, Stage.REVIEWING, Stage.REPORTING)
 
 // ---------------------------------------------------------------- UI-only persisted state
 
