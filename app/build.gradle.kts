@@ -11,8 +11,8 @@ android {
         applicationId = "app.opengrok"
         minSdk = 26
         targetSdk = 34
-        versionCode = 31
-        versionName = "0.6.5"
+        versionCode = 67
+        versionName = "0.6.7.6.7"
     }
     // Fixed signing for CI builds: when KEYSTORE_FILE is present in the environment,
     // builds are signed with the project keystore (provided through CI secrets) so a

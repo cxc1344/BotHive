@@ -226,6 +226,7 @@ fun App(store: Store) {
                 AiBrowserTaskPill(Modifier.align(Alignment.TopEnd))
                 AppDrawer(store, drawer, screen, { drawer = false }, nav)
                 AiBrowserSheetOverlay()
+                SixSevenOverlay()
             }
         }
     }

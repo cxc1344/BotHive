@@ -269,7 +269,7 @@ fun SettingsScreen(store: Store, go: (Screen) -> Unit) {
                 }
             }
             Spacer(Modifier.height(8.dp))
-            Text("BotHive 0.6.5", color = Sub, fontSize = 12.sp)
+            Text("BotHive 0.6.7.6.7 · 点我重回 67 宇宙", color = ThemeAccentPale, fontSize = 12.sp, modifier = Modifier.clickable { SixSevenState.active = true })
             Spacer(Modifier.height(16.dp))
         }
         Row(
