@@ -492,7 +492,8 @@ object Agent {
                 else {
                     val (info, shot) = AiBrowser.openUrl(store.appContext(), store.appContext().cacheDir, url, a.optBoolean("desktop_mode", false))
                     if (shot != null) pendingShots[bot.id] = shot
-                    "$info\n已附带当前浏览器画面截图,请结合 0-1000 坐标继续用 browser_mouse / browser_type 操作。"\n                }
+                    "$info\n已附带当前浏览器画面截图,请结合 0-1000 坐标继续用 browser_mouse / browser_type 操作。"
+                    }
             }
             "browser_mouse" -> {
                 val (info, shot) = AiBrowser.mouseAction(
@@ -533,7 +534,8 @@ object Agent {
             "browser_screenshot" -> {
                 val (info, shot) = AiBrowser.navigate(store.appContext(), store.appContext().cacheDir, "snapshot")
                 if (shot != null) pendingShots[bot.id] = shot
-                "$info\n已截取最新浏览器画面并附带截图,请结合 0-1000 坐标继续操作。"\n            }
+                "$info\n已截取最新浏览器画面并附带截图,请结合 0-1000 坐标继续操作。"
+                }
             "browser_close" -> {
                 withContext(Dispatchers.Main) { AiBrowser.closeSession() }
                 "独立 AI 浏览器已关闭。"
