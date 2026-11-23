@@ -115,7 +115,7 @@ sealed interface Screen {
 fun App(store: Store) {
     val ctx = LocalContext.current
     remember { UiState.init(ctx) }
-    remember { ThemeColor.init(ctx); BixPrefs.init(ctx) }
+    remember { ThemeColor.init(ctx); BixPrefs.init(ctx); ModelPrefs.init(ctx) }
     var screen by remember { mutableStateOf<Screen>(Screen.Home) }
     var drawer by remember { mutableStateOf(false) }
     val nav: (Screen) -> Unit = { s ->
@@ -1241,7 +1241,10 @@ fun EditBotScreen(store: Store, botId: String?, go: (Screen) -> Unit) {
     var preset by remember { mutableStateOf(if (old == null) PRESETS[1].name else "自定义") }
     var isManager by remember { mutableStateOf(old?.isManager ?: PRESETS[1].manager) }
     val skillSel = remember { mutableStateListOf<String>().apply { addAll(old?.skillIds ?: emptyList()) } }
+    val ctxBot = LocalContext.current
     var shellAppr by remember { mutableStateOf(old?.shellApproval ?: false) }
+    var multimodal by remember { mutableStateOf(old?.let { ModelPrefs.isMultimodal(it.id, ctxBot) } ?: true) }
+    var reasoningEffort by remember { mutableStateOf(old?.let { ModelPrefs.reasoningEffort(it.id, ctxBot) } ?: "auto") }
     var baseUrl by remember { mutableStateOf(old?.baseUrl ?: "https://api.openai.com/v1") }
     var model by remember { mutableStateOf(old?.model ?: "gpt-4o-mini") }
     var key by remember { mutableStateOf(old?.apiKey ?: "") }
@@ -1338,6 +1341,13 @@ fun EditBotScreen(store: Store, botId: String?, go: (Screen) -> Unit) {
                     inlineMaxHeight = 240.dp
                 )
             }
+            ModelCapabilitiesSection(
+                botId = old?.id ?: "",
+                multimodal = multimodal,
+                onMultimodalChange = { multimodal = it },
+                reasoningEffort = reasoningEffort,
+                onReasoningChange = { reasoningEffort = it }
+            )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Shell 命令先经我批准", color = Fg, fontSize = 14.sp)
@@ -1362,7 +1372,11 @@ fun EditBotScreen(store: Store, botId: String?, go: (Screen) -> Unit) {
                     } else {
                         store.saveBot(Bot(id, name.trim(), prompt, baseUrl.trim(), key.trim(), model.trim(), isManager, allowInsecureHttp, "", skillSel.toList(), shellAppr))
                     }
-                    if (saved) go(Screen.Chat("bot:$id"))
+                    if (saved) {
+                        ModelPrefs.setMultimodal(ctxBot, id, multimodal)
+                        ModelPrefs.setReasoningEffort(ctxBot, id, reasoningEffort)
+                        go(Screen.Chat("bot:$id"))
+                    }
                 }
             }
             if (old != null) PillButton("复制这个 Bot(不含对话)", filled = false, modifier = Modifier.fillMaxWidth()) {

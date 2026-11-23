@@ -212,7 +212,8 @@ object Agent {
             when {
                 m.from == bot.id -> msgs.put(JSONObject().put("role", "assistant").put("content", m.text))
                 m.from == null -> {
-                    val usable = m.images.mapNotNull { imgB64[it] }
+                    val allowMm = ModelPrefs.isMultimodal(bot.id, store.appContext())
+                    val usable = if (allowMm) m.images.mapNotNull { imgB64[it] } else emptyList()
                     if (usable.isEmpty()) {
                         msgs.put(JSONObject().put("role", "user").put("content", m.text))
                     } else {
@@ -244,8 +245,10 @@ object Agent {
                 val message = withContext(Dispatchers.IO) { call(bot, msgs, allDefs) }
                 val calls = message.optJSONArray("tool_calls")
                 if (calls == null || calls.length() == 0) {
-                    val c = if (message.isNull("content")) "" else message.getString("content")
-                    return c.ifBlank { "(空回复)" }
+                    val c = if (message.isNull("content")) "" else message.optString("content", "")
+                    val r = message.optString("reasoning_content", "").ifBlank { message.optString("reasoning", "") }.trim()
+                    val combined = if (r.isNotBlank() && !c.contains("<think>", true)) "<think>\n$r\n</think>\n$c" else c
+                    return combined.ifBlank { "(空回复)" }
                 }
                 msgs.put(message)
                 for (i in 0 until calls.length()) {
@@ -263,7 +266,7 @@ object Agent {
                     tools[idx] = tools[idx].copy(output = out, image = if (carriesShot) shot!!.absolutePath else "")
                     onTools(tools.toList())
                     msgs.put(JSONObject().put("role", "tool").put("tool_call_id", c.getString("id")).put("content", out))
-                    if (carriesShot && shot != null) {
+                    if (carriesShot && shot != null && ModelPrefs.isMultimodal(bot.id, store.appContext())) {
                         // Attach the screenshot as a plain user vision message: tool messages with
                         // array content are rejected by several OpenAI-compatible providers.
                         val b64 = runCatching {
@@ -489,8 +492,7 @@ object Agent {
                 else {
                     val (info, shot) = AiBrowser.openUrl(store.appContext(), store.appContext().cacheDir, url, a.optBoolean("desktop_mode", false))
                     if (shot != null) pendingShots[bot.id] = shot
-                    "$info\n已附带当前浏览器画面截图,请结合 0-1000 坐标继续用 browser_mouse / browser_type 操作。"
-                }
+                    "$info\n已附带当前浏览器画面截图,请结合 0-1000 坐标继续用 browser_mouse / browser_type 操作。"\n                }
             }
             "browser_mouse" -> {
                 val (info, shot) = AiBrowser.mouseAction(
@@ -531,8 +533,7 @@ object Agent {
             "browser_screenshot" -> {
                 val (info, shot) = AiBrowser.navigate(store.appContext(), store.appContext().cacheDir, "snapshot")
                 if (shot != null) pendingShots[bot.id] = shot
-                "$info\n已截取最新浏览器画面并附带截图,请结合 0-1000 坐标继续操作。"
-            }
+                "$info\n已截取最新浏览器画面并附带截图,请结合 0-1000 坐标继续操作。"\n            }
             "browser_close" -> {
                 withContext(Dispatchers.Main) { AiBrowser.closeSession() }
                 "独立 AI 浏览器已关闭。"
@@ -757,6 +758,14 @@ object Agent {
                         kotlinx.coroutines.delay((attempt * 1000L).coerceAtMost(5000L))
                         continue
                     }
+                    // Auto-fallback: if the selected endpoint rejects image input (e.g. OpenRouter "Filter by Image Support" 404),
+                    // strip image_url parts and retry once cleanly as text-only instead of aborting the turn.
+                    val isImageUnsupported = (msg.startsWith("HTTP 404") || msg.startsWith("HTTP 400")) &&
+                        (msg.contains("image input", true) || msg.contains("Image Support", true) || msg.contains("vision", true))
+                    if (isImageUnsupported && hasImageParts(msgs)) {
+                        val stripped = stripImageParts(msgs)
+                        return callOnce(bot, stripped, tools, keys[idx])
+                    }
                     throw e
                 }
             }
@@ -764,10 +773,62 @@ object Agent {
         throw lastError ?: IllegalStateException("key pool exhausted")
     }
 
+    private fun hasImageParts(msgs: JSONArray): Boolean {
+        for (i in 0 until msgs.length()) {
+            val content = msgs.optJSONObject(i)?.opt("content") as? JSONArray ?: continue
+            for (j in 0 until content.length()) {
+                if (content.optJSONObject(j)?.optString("type") == "image_url") return true
+            }
+        }
+        return false
+    }
+
+    private fun stripImageParts(msgs: JSONArray): JSONArray {
+        val out = JSONArray()
+        for (i in 0 until msgs.length()) {
+            val obj = msgs.optJSONObject(i) ?: continue
+            val copy = JSONObject(obj.toString())
+            val content = copy.opt("content")
+            if (content is JSONArray) {
+                val sb = StringBuilder()
+                var hadImg = false
+                for (j in 0 until content.length()) {
+                    val part = content.optJSONObject(j) ?: continue
+                    when (part.optString("type")) {
+                        "text" -> {
+                            if (sb.isNotEmpty()) sb.append('
+')
+                            sb.append(part.optString("text"))
+                        }
+                        "image_url" -> hadImg = true
+                    }
+                }
+                if (hadImg) {
+                    if (sb.isNotEmpty()) sb.append('
+')
+                    sb.append("[当前上游节点不支持图像输入，已自动降级为纯文本模式；请结合文字摘要继续或更换支持视觉的节点]")
+                }
+                copy.put("content", sb.toString())
+            }
+            out.put(copy)
+        }
+        return out
+    }
+
     private suspend fun callOnce(bot: Bot, msgs: JSONArray, tools: JSONArray?, apiKey: String): JSONObject {
         val baseUrl = ApiEndpoint.validate(bot)
         val body = JSONObject().put("model", bot.model).put("messages", msgs)
         if (tools != null) body.put("tools", tools)
+        val effort = ModelPrefs.reasoningEffort(bot.id)
+        if (effort != "auto") {
+            if (baseUrl.contains("openrouter.ai", ignoreCase = true)) {
+                val rObj = JSONObject().put("effort", effort)
+                if (effort == "none") rObj.put("exclude", true)
+                body.put("reasoning", rObj)
+            } else {
+                body.put("reasoning_effort", effort)
+            }
+        }
         val req = Request.Builder()
             .url("$baseUrl/chat/completions")
             .header("Authorization", "Bearer $apiKey")

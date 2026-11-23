@@ -320,7 +320,10 @@ fun EditAgentScreen(store: Store, go: (Screen) -> Unit) {
     var allowHttp by remember { mutableStateOf(old?.allowInsecureHttp ?: false) }
     var providerId by remember { mutableStateOf(old?.providerId ?: "") }
     val skillSel = remember { mutableStateListOf<String>().apply { addAll(old?.skillIds ?: emptyList()) } }
+    val ctxAgent = LocalContext.current
     var shellAppr by remember { mutableStateOf(old?.shellApproval ?: false) }
+    var multimodal by remember { mutableStateOf(ModelPrefs.isMultimodal(AGENT_ID, ctxAgent)) }
+    var reasoningEffort by remember { mutableStateOf(ModelPrefs.reasoningEffort(AGENT_ID, ctxAgent)) }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { go(Screen.Home) }) { Icon(Ic.Back, null, tint = Fg) }
@@ -340,6 +343,13 @@ fun EditAgentScreen(store: Store, go: (Screen) -> Unit) {
                 key, { key = it },
                 allowHttp, { allowHttp = it },
                 model, { model = it }
+            )
+            ModelCapabilitiesSection(
+                botId = AGENT_ID,
+                multimodal = multimodal,
+                onMultimodalChange = { multimodal = it },
+                reasoningEffort = reasoningEffort,
+                onReasoningChange = { reasoningEffort = it }
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -364,7 +374,11 @@ fun EditAgentScreen(store: Store, go: (Screen) -> Unit) {
                     } else {
                         Bot(AGENT_ID, name.trim(), prompt, baseUrl.trim(), key.trim(), model.trim(), false, allowHttp, "", skillSel.toList(), shellAppr)
                     }
-                    if (store.saveAgent(b)) go(Screen.AgentChat)
+                    if (store.saveAgent(b)) {
+                        ModelPrefs.setMultimodal(ctxAgent, AGENT_ID, multimodal)
+                        ModelPrefs.setReasoningEffort(ctxAgent, AGENT_ID, reasoningEffort)
+                        go(Screen.AgentChat)
+                    }
                 }
             }
         }
@@ -453,7 +467,10 @@ fun AgentForm(store: Store, onSaved: () -> Unit) {
     var allowHttp by remember { mutableStateOf(old?.allowInsecureHttp ?: false) }
     var providerId by remember { mutableStateOf(old?.providerId ?: "") }
     val skillSel = remember { mutableStateListOf<String>().apply { addAll(old?.skillIds ?: emptyList()) } }
+    val ctxForm = LocalContext.current
     var shellAppr by remember { mutableStateOf(old?.shellApproval ?: false) }
+    var multimodal by remember { mutableStateOf(ModelPrefs.isMultimodal(AGENT_ID, ctxForm)) }
+    var reasoningEffort by remember { mutableStateOf(ModelPrefs.reasoningEffort(AGENT_ID, ctxForm)) }
     Field("名字", name, { name = it })
     Spacer(Modifier.height(14.dp))
     Field("System Prompt", prompt, { prompt = it }, singleLine = false, minLines = 5)
@@ -465,6 +482,14 @@ fun AgentForm(store: Store, onSaved: () -> Unit) {
         key, { key = it },
         allowHttp, { allowHttp = it },
         model, { model = it }
+    )
+    Spacer(Modifier.height(14.dp))
+    ModelCapabilitiesSection(
+        botId = AGENT_ID,
+        multimodal = multimodal,
+        onMultimodalChange = { multimodal = it },
+        reasoningEffort = reasoningEffort,
+        onReasoningChange = { reasoningEffort = it }
     )
     Spacer(Modifier.height(14.dp))
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -491,7 +516,11 @@ fun AgentForm(store: Store, onSaved: () -> Unit) {
             } else {
                 Bot(AGENT_ID, name.trim(), prompt, baseUrl.trim(), key.trim(), model.trim(), false, allowHttp, "", skillSel.toList(), shellAppr)
             }
-            if (store.saveAgent(b)) onSaved()
+            if (store.saveAgent(b)) {
+                ModelPrefs.setMultimodal(ctxForm, AGENT_ID, multimodal)
+                ModelPrefs.setReasoningEffort(ctxForm, AGENT_ID, reasoningEffort)
+                onSaved()
+            }
         }
     }
 }
