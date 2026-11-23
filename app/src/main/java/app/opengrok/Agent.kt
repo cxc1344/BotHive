@@ -796,16 +796,14 @@ object Agent {
                     val part = content.optJSONObject(j) ?: continue
                     when (part.optString("type")) {
                         "text" -> {
-                            if (sb.isNotEmpty()) sb.append('
-')
+                            if (sb.isNotEmpty()) sb.append('\n')
                             sb.append(part.optString("text"))
                         }
                         "image_url" -> hadImg = true
                     }
                 }
                 if (hadImg) {
-                    if (sb.isNotEmpty()) sb.append('
-')
+                    if (sb.isNotEmpty()) sb.append('\n')
                     sb.append("[当前上游节点不支持图像输入，已自动降级为纯文本模式；请结合文字摘要继续或更换支持视觉的节点]")
                 }
                 copy.put("content", sb.toString())
