@@ -118,6 +118,8 @@ fun AgentChatScreen(store: Store, go: (Screen) -> Unit) {
     val msgs = store.chat(AGENT_ID)
     val busy = AGENT_ID in store.busy
     var input by remember { mutableStateOf("") }
+    var showAgentFiles by remember { mutableStateOf(false) }
+    var showAgentMemory by remember { mutableStateOf(false) }
     val staged = remember { mutableStateListOf<AttachItem>() }
     val pickFiles = AttachPickerLauncher { staged.addAll(it) }
     val listState = rememberLazyListState()
@@ -256,7 +258,13 @@ fun AgentChatScreen(store: Store, go: (Screen) -> Unit) {
         ) {
             AppTopBar(store, "agent", go)
             ChatSubHeader(AGENT_ID, false, store.title(AGENT_ID), store.subtitle(AGENT_ID)) {
-                ExportButton(store, AGENT_ID)
+                Box(Modifier.size(36.dp).harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = Card)) {
+                    IconButton(onClick = { showAgentFiles = true }, modifier = Modifier.fillMaxSize()) { Icon(Ic.Artifacts, "沙盒文件柜", tint = Fg, modifier = Modifier.size(17.dp)) }
+                }
+                Spacer(Modifier.width(6.dp))
+                Box(Modifier.size(36.dp).harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = Card)) {
+                    IconButton(onClick = { showAgentMemory = true }, modifier = Modifier.fillMaxSize()) { Icon(Ic.Info, "记忆大脑", tint = Fg, modifier = Modifier.size(17.dp)) }
+                }
                 Spacer(Modifier.width(6.dp))
                 HeaderPill("新对话", Ic.Add, enabled = !busy && msgs.isNotEmpty()) { store.newAgentSession() }
                 Spacer(Modifier.width(6.dp))
@@ -296,6 +304,8 @@ fun AgentChatScreen(store: Store, go: (Screen) -> Unit) {
                 onStop = { store.stopChat(AGENT_ID) }
             )
         }
+        SandboxFilesSheet(store = store, botId = AGENT_ID, visible = showAgentFiles, onDismiss = { showAgentFiles = false })
+        MemoryBrainSheet(store = store, botId = AGENT_ID, botName = agent.name, visible = showAgentMemory, onDismiss = { showAgentMemory = false })
     }
 }
 

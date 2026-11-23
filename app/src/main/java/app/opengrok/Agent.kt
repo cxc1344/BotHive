@@ -112,6 +112,7 @@ object Agent {
                 .put("submit", JSONObject().put("type", "boolean").put("description", "是否回车提交,默认 false")), "text"))
         put(fn("browser_nav", "控制独立 AI 浏览器导航或查看当前最新画面:back(后退)/ forward(前进)/ reload(刷新)/ snapshot(仅截图查看)。",
             JSONObject().put("action", str("back / forward / reload / snapshot")), "action"))
+        put(fn("browser_screenshot", "截取当前独立 AI 浏览器的最新画面并返回给视觉模型(用于查看页面状态、定位 0-1000 坐标后执行点击/拖动等操作)。", JSONObject()))
         put(fn("browser_close", "关闭独立 AI 浏览器并结束浏览器任务。", JSONObject()))
         if (isAgent) {
             put(fn("fs_list", "列出任意目录的内容(绝对路径,如 /sdcard/Download)。channel 通道:auto(默认,普通优先、自动回退 Shizuku)/ standard(普通文件权限,需用户给了所有文件访问)/ shizuku(shell 身份,能到 /data/local/tmp 等)/ root(root 身份,能进其他应用的 /data 私有目录,需 Shizuku 以 root 运行或有 su)。",
@@ -256,22 +257,29 @@ object Agent {
                     tools.add(ToolCall(c.getString("id"), name, argStr, ""))
                     onTools(tools.toList())
                     val out = runTool(store, bot, name, argStr, depth, chatId)
-                    // A screen_shot call carries an image for the model AND a thumbnail for the UI.
+                    // screen_shot AND browser_* calls carry a live screenshot for the model AND a thumbnail for the UI.
                     val shot = pendingShots.remove(bot.id)
-                    tools[idx] = tools[idx].copy(output = out, image = shot?.takeIf { name == "screen_shot" }?.absolutePath.orEmpty())
+                    val carriesShot = shot != null && (name == "screen_shot" || name.startsWith("browser_"))
+                    tools[idx] = tools[idx].copy(output = out, image = if (carriesShot) shot!!.absolutePath else "")
                     onTools(tools.toList())
                     msgs.put(JSONObject().put("role", "tool").put("tool_call_id", c.getString("id")).put("content", out))
-                    if (shot != null && name == "screen_shot") {
+                    if (carriesShot && shot != null) {
                         // Attach the screenshot as a plain user vision message: tool messages with
                         // array content are rejected by several OpenAI-compatible providers.
                         val b64 = runCatching {
                             java.util.Base64.getEncoder().encodeToString(shot.readBytes())
                         }.getOrNull()
                         if (b64 != null) {
+                            val mime = if (shot.name.endsWith(".jpg", true) || shot.name.endsWith(".jpeg", true)) "image/jpeg" else "image/png"
+                            val caption = if (name.startsWith("browser_")) {
+                                "这是刚刚 $name 截取的独立浏览器实时画面，请结合画面中的元素位置（0-1000 归一化坐标）继续执行点击、长按、拖动、滚轮或输入操作。"
+                            } else {
+                                "这是刚刚 screen_shot 截到的屏幕(操作后请重新截屏核对)。"
+                            }
                             val parts = JSONArray()
-                            parts.put(JSONObject().put("type", "text").put("text", "这是刚刚 screen_shot 截到的屏幕(操作后请重新截屏核对)。"))
+                            parts.put(JSONObject().put("type", "text").put("text", caption))
                             parts.put(JSONObject().put("type", "image_url")
-                                .put("image_url", JSONObject().put("url", "data:image/png;base64,$b64")))
+                                .put("image_url", JSONObject().put("url", "data:$mime;base64,$b64")))
                             msgs.put(JSONObject().put("role", "user").put("content", parts))
                         }
                     }
@@ -519,6 +527,11 @@ object Agent {
                 )
                 if (shot != null) pendingShots[bot.id] = shot
                 info
+            }
+            "browser_screenshot" -> {
+                val (info, shot) = AiBrowser.navigate(store.appContext(), store.appContext().cacheDir, "snapshot")
+                if (shot != null) pendingShots[bot.id] = shot
+                "$info\n已截取最新浏览器画面并附带截图,请结合 0-1000 坐标继续操作。"
             }
             "browser_close" -> {
                 withContext(Dispatchers.Main) { AiBrowser.closeSession() }

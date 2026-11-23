@@ -446,6 +446,10 @@ fun ChatComposer(
                 }
             )
             Spacer(Modifier.width(6.dp))
+            if (!busy && value.isBlank()) {
+                VoiceInputButton(onText = { spoken -> onValueChange(if (value.isBlank()) spoken else "$value $spoken") })
+                Spacer(Modifier.width(6.dp))
+            }
             if (busy) StopButton(onStop = onStop) else SendButton(enabled = canSend, onClick = onSend)
         }
         // Second row appears only in card shape (keyboard up).

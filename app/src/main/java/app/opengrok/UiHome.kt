@@ -399,7 +399,11 @@ private fun HomeComposer(
                 Box { if (value.isEmpty()) Text("说点什么，交给小蜂团队…", color = Sub, fontSize = 16.sp); inner() }
             }
         )
-        Spacer(Modifier.width(10.dp))
+        Spacer(Modifier.width(6.dp))
+        if (value.isBlank()) {
+            VoiceInputButton(onText = { spoken -> onValueChange(spoken) })
+            Spacer(Modifier.width(6.dp))
+        }
         SendButton(enabled = value.isNotBlank(), onClick = onSend)
     }
 }
@@ -450,7 +454,7 @@ private fun DrawerPanel(store: Store, current: Screen, onClose: () -> Unit, go: 
         // Nav rows: only destinations that actually exist in this app (honest copy).
         DrawerNav("会话", Ic.ChatBubbles) { go(Screen.BotMode) }
         if (store.agent.value != null) DrawerNav("设备 Agent", Ic.Phone) { go(Screen.AgentChat) }
-        DrawerNav("员工 Bots", Ic.Group) { go(Screen.BotMode) }
+        DrawerNav("蜂巢指挥台 · Bots", Ic.Group) { go(Screen.BotHub) }
         DrawerNav("工作流", Ic.Tree) { go(Screen.Workflows) }
         DrawerNav("搜索", Ic.Search) { go(Screen.Search) }
         HorizontalDivider(color = Line, modifier = Modifier.padding(vertical = 12.dp))

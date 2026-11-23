@@ -231,6 +231,7 @@ fun humanToolSummary(t: ToolCall): String {
             "reload" -> "刷新浏览器页面"
             else -> "查看浏览器实况画面"
         }
+        "browser_screenshot" -> "截取独立浏览器画面"
         "browser_close" -> "关闭独立 AI 浏览器"
         "open_url" -> {
             val u = arg("url")

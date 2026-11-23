@@ -95,6 +95,7 @@ sealed interface Screen {
     data object Home : Screen
     /** Resolved by App to the most recently opened Bot/group chat. */
     data object BotMode : Screen
+    data object BotHub : Screen
     data class Chat(val id: String) : Screen
     data class EditBot(val id: String?) : Screen
     data class EditProvider(val id: String?) : Screen
@@ -246,6 +247,7 @@ private fun ScreenHost(screen: Screen, store: Store, nav: (Screen) -> Unit) {
         when (screen) {
             Screen.Home -> HomeScreen(store, nav)
             Screen.BotMode -> {}
+            Screen.BotHub -> BotHubScreen(store, nav)
             is Screen.Chat -> ChatScreen(store, screen.id, nav)
             is Screen.EditBot -> EditBotScreen(store, screen.id, nav)
             is Screen.EditProvider -> EditProviderScreen(store, screen.id, nav)
@@ -292,6 +294,7 @@ private fun ScreenHost(screen: Screen, store: Store, nav: (Screen) -> Unit) {
         when (s) {
             Screen.Home -> HomeScreen(store, nav)
             Screen.BotMode -> {}
+            Screen.BotHub -> BotHubScreen(store, nav)
             is Screen.Chat -> ChatScreen(store, s.id, nav)
             is Screen.EditBot -> EditBotScreen(store, s.id, nav)
             is Screen.EditProvider -> EditProviderScreen(store, s.id, nav)
@@ -319,6 +322,7 @@ private fun screenDepth(s: Screen): Int = when (s) {
     is Screen.EditBot, is Screen.EditProvider, is Screen.EditWorkflow,
     is Screen.EditMcp, is Screen.EditSkill -> 2
     Screen.BotMode -> 1
+    Screen.BotHub -> 1
 }
 
 @Composable
@@ -341,6 +345,9 @@ fun ChatScreen(store: Store, id: String, go: (Screen) -> Unit) {
     val staged = remember { mutableStateListOf<AttachItem>() }
     val pickFiles = AttachPickerLauncher { staged.addAll(it) }
     var confirm by remember { mutableStateOf(false) }
+    var showModelSheet by remember { mutableStateOf(false) }
+    var showFilesSheet by remember { mutableStateOf(false) }
+    var showMemorySheet by remember { mutableStateOf(false) }
     var projectMode by remember { mutableStateOf(true) }
     val isManager = isBot && store.bot(id.removePrefix("bot:"))?.isManager == true
     val listState = rememberLazyListState()
@@ -389,7 +396,50 @@ fun ChatScreen(store: Store, id: String, go: (Screen) -> Unit) {
                 }
             }
         }
-        if (msgs.isEmpty()) EmptyChatHint("开始对话", "在下方输入消息，Bot 会在自己的沙盒里干活；点工具调用可查看每一步。")
+        if (msgs.isEmpty()) {
+            Column(
+                Modifier.fillMaxSize().padding(horizontal = 24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                InteractiveBixHero(isAgent = false)
+                Spacer(Modifier.height(10.dp))
+                Text("开始对话", style = HiveSerif.Title(22.sp), textAlign = TextAlign.Center)
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    if (isManager) "总经理会先拆解分工再派给团队执行；也可以点右下角切回普通对话。"
+                    else "在下方输入消息，Bot 会在自己的沙盒或独立浏览器里干活；点摘要可查看每一步。",
+                    color = Sub, fontSize = 13.sp, textAlign = TextAlign.Center, lineHeight = 19.sp
+                )
+                if (!readOnly) {
+                    Spacer(Modifier.height(18.dp))
+                    val starters = if (isManager) listOf(
+                        "帮我拆解一个新项目并分工",
+                        "组织团队头脑风暴产品方案",
+                        "先介绍一下你的团队成员"
+                    ) else listOf(
+                        "先介绍一下你最擅长做什么",
+                        "用独立浏览器查下今天科技热点",
+                        "在沙盒里跑一段 Python 小测试"
+                    )
+                    Row(
+                        Modifier.horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        starters.forEach { q ->
+                            Box(
+                                Modifier.pressBounce {
+                                    if (isManager && projectMode) Pipeline.start(store, id.removePrefix("bot:"), q)
+                                    else store.send(id, q, emptyList())
+                                }
+                                    .harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = Card)
+                                    .padding(horizontal = 13.dp, vertical = 8.dp)
+                            ) { Text(q, color = Fg, fontSize = 12.sp) }
+                        }
+                    }
+                }
+            }
+        }
         // v0.6.4: Floating Liquid Glass scroll-to-bottom button when scrolled up in a long chat.
         androidx.compose.animation.AnimatedVisibility(
             visible = !atBottom && msgs.isNotEmpty(),
@@ -430,11 +480,24 @@ fun ChatScreen(store: Store, id: String, go: (Screen) -> Unit) {
                 if (isBot) {
                     Spacer(Modifier.width(6.dp))
                     Box(Modifier.size(36.dp).harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = Card)) {
-                        IconButton(onClick = { confirm = true }, modifier = Modifier.fillMaxSize()) { Icon(Ic.Refresh, null, tint = Fg, modifier = Modifier.size(18.dp)) }
+                        IconButton(onClick = { showModelSheet = true }, modifier = Modifier.fillMaxSize()) { Icon(Ic.Tune, "切换模型", tint = ThemeAccentPale, modifier = Modifier.size(18.dp)) }
                     }
                     Spacer(Modifier.width(6.dp))
                     Box(Modifier.size(36.dp).harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = Card)) {
-                        IconButton(onClick = { go(Screen.EditBot(id.removePrefix("bot:"))) }, modifier = Modifier.fillMaxSize()) { Icon(Ic.Edit, null, tint = Fg, modifier = Modifier.size(18.dp)) }
+                        IconButton(onClick = { showFilesSheet = true }, modifier = Modifier.fillMaxSize()) { Icon(Ic.Artifacts, "沙盒文件柜", tint = Fg, modifier = Modifier.size(17.dp)) }
+                    }
+                    Spacer(Modifier.width(6.dp))
+                    Box(Modifier.size(36.dp).harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = Card)) {
+                        IconButton(onClick = { showMemorySheet = true }, modifier = Modifier.fillMaxSize()) { Icon(Ic.Info, "记忆大脑", tint = Fg, modifier = Modifier.size(17.dp)) }
+                    }
+                    Spacer(Modifier.width(6.dp))
+                    Box(Modifier.size(36.dp).harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = Card)) {
+                        IconButton(onClick = { go(Screen.EditBot(id.removePrefix("bot:"))) }, modifier = Modifier.fillMaxSize()) { Icon(Ic.Edit, "编辑 Bot", tint = Fg, modifier = Modifier.size(18.dp)) }
+                    }
+                } else if (id.startsWith("group:")) {
+                    Spacer(Modifier.width(6.dp))
+                    Box(Modifier.size(36.dp).harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = Card)) {
+                        IconButton(onClick = { go(Screen.BotHub) }, modifier = Modifier.fillMaxSize()) { Icon(Ic.Group, "蜂巢指挥台", tint = Fg, modifier = Modifier.size(18.dp)) }
                     }
                 }
             }
@@ -490,6 +553,33 @@ fun ChatScreen(store: Store, id: String, go: (Screen) -> Unit) {
                 )
             }
         }
+    }
+    if (isBot) {
+        val curBot = store.bot(id.removePrefix("bot:"))
+        ModelSheet(
+            bot = curBot,
+            store = store,
+            visible = showModelSheet,
+            onDismiss = { showModelSheet = false },
+            onPick = { m ->
+                curBot?.let { b ->
+                    store.saveBot(b.copy(model = m))
+                }
+            }
+        )
+        SandboxFilesSheet(
+            store = store,
+            botId = id.removePrefix("bot:"),
+            visible = showFilesSheet,
+            onDismiss = { showFilesSheet = false }
+        )
+        MemoryBrainSheet(
+            store = store,
+            botId = id.removePrefix("bot:"),
+            botName = curBot?.name ?: "Bot",
+            visible = showMemorySheet,
+            onDismiss = { showMemorySheet = false }
+        )
     }
     if (confirm) {
         AlertDialog(
@@ -695,6 +785,7 @@ fun MsgView(store: Store, m: Msg, showName: Boolean, thinking: Boolean, go: (Scr
                 // vNext: no bubble — plain text laid straight onto the page colour, generous
                 // paragraph spacing (the container padding below is the only chrome).
                 SelectionContainer { MarkdownText(answerText, fontSize = 16.sp, lineHeight = 23.sp) }
+                if (!thinking) ArtifactPreviewRow(answerText)
             }
             // Action row under the assistant message: only the capabilities that exist today —
             // copy and resend (read-out is a 0.5.10 feature and is NOT shown).
