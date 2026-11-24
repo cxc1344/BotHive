@@ -48,9 +48,16 @@ object Secrets {
     }
 
     /** Legacy plaintext entries remain readable and are encrypted on the next successful save. */
-    fun dec(s: String): String {
+    fun dec(s: String): String = decOrNull(s) ?: ""
+
+    /**
+     * Like [dec], but returns null when an encrypted value cannot be decrypted (Keystore hiccup,
+     * restored backup on another device). Callers that persist secrets must keep the original
+     * ciphertext in that case instead of overwriting it with an empty string.
+     */
+    fun decOrNull(s: String): String? {
         if (!s.startsWith("enc:")) return s
-        return try { decStrict(s) } catch (_: Exception) { "" }
+        return try { decStrict(s) } catch (_: Exception) { null }
     }
 
     fun isKeystoreWorking(): Boolean =

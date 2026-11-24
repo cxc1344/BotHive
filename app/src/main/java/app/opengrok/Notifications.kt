@@ -1,6 +1,9 @@
 package app.opengrok
 
+import android.app.Notification
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import androidx.core.app.NotificationManagerCompat
@@ -33,15 +36,28 @@ object Notifications {
             while (buffer.size > 50) buffer.removeFirst()
         }
     }
+
+    /**
+     * v0.7.0 (F18): which notifications are kept at all. Ongoing ones (music, downloads, our own
+     * keep-alive), BotHive's own and VISIBILITY_SECRET ones never enter the buffer or a trigger.
+     */
+    internal fun shouldKeep(ownPackage: String, pkg: String, ongoing: Boolean, visibility: Int): Boolean {
+        if (ongoing) return false
+        if (pkg == ownPackage) return false
+        if (visibility == Notification.VISIBILITY_SECRET) return false
+        return true
+    }
 }
 
 class OgNotificationListener : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         try {
-            val extras = sbn.notification.extras
+            val n = sbn.notification ?: return
+            if (!Notifications.shouldKeep(packageName, sbn.packageName, sbn.isOngoing, n.visibility)) return
+            val extras = n.extras
             val title = extras.getCharSequence("android.title")?.toString().orEmpty()
-            val text = extras.getCharSequence("android.text")?.toString().orEmpty()
-            if (title.isBlank() && text.isBlank()) return
+            val rawText = extras.getCharSequence("android.text")?.toString().orEmpty()
+            if (title.isBlank() && rawText.isBlank()) return
             val app = try {
                 packageManager.getApplicationLabel(
                     packageManager.getApplicationInfo(sbn.packageName, 0)
@@ -49,8 +65,19 @@ class OgNotificationListener : NotificationListenerService() {
             } catch (_: Exception) {
                 sbn.packageName
             }
+            // v0.7.0 (F18): verification codes, card numbers and keys are masked before anything
+            // can hand them to a model (recent_notifications, notification-triggered routines).
+            Policy.init(applicationContext)
+            val mask = Policy.maskOtp
+            val safeTitle = if (mask) LeakGuard.mask(title) else title
+            val safeText = if (mask) LeakGuard.mask(rawText) else rawText
             val time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(sbn.postTime))
-            Notifications.push("[$time] $app:$title $text".take(300))
+            Notifications.push("[$time] $app:$safeTitle $safeText".take(300))
+            val pkg = sbn.packageName
+            val store = (applicationContext as? OgApp)?.store ?: return
+            Handler(Looper.getMainLooper()).post {
+                runCatching { store.onNotification(pkg, app, safeTitle, safeText) }
+            }
         } catch (_: Exception) {
         }
     }

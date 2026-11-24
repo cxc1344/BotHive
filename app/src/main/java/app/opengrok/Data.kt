@@ -18,7 +18,9 @@ data class Msg(
     val tools: List<ToolCall> = emptyList(),
     val from: String? = null,    // bot id of the author; null = the human user
     val images: List<String> = emptyList(), // attached image file names under files/attachments/
-    val time: Long = System.currentTimeMillis()  // 0 = unknown (messages saved before v0.4.8)
+    val time: Long = System.currentTimeMillis(),  // 0 = unknown (messages saved before v0.4.8)
+    /** v0.7.0: user feedback on an assistant message: +1 (helpful), -1 (not helpful), 0 (none). */
+    val feedback: Int = 0
 )
 
 /** A file/photo the user picked to attach to a chat message (bytes already read from the Uri). */
@@ -73,18 +75,49 @@ val PRESET_SKILLS: List<Skill> = listOf(
 data class Skill(
     val id: String,
     val name: String,
-    val content: String
+    val content: String,
+    /** v0.7.0: one-line "when to use" description; Bots see it in list_skills and load skills on demand via use_skill. */
+    val description: String = ""
 )
 
-/** A shell command waiting for the user's in-chat approval (permission broker). */
+/** v0.7.0: six-part skill skeleton (when / inputs / steps / validation / output / approvals). */
+const val SKILL_TEMPLATE: String =
+    "## 何时使用\n- (什么情况下该用这个技能,一两句话)\n\n" +
+    "## 需要的输入与权限\n- (需要用户提供什么、要用到哪些工具或授权)\n\n" +
+    "## 步骤\n1. \n2. \n3. \n\n" +
+    "## 如何验证结果\n- (怎样确认真的做成了:文件路径、截图、命令输出…)\n\n" +
+    "## 输出什么\n- (最后交给用户的内容与格式)\n\n" +
+    "## 哪些操作需要批准\n- (删除、发送、付款、改动系统等必须先问用户的步骤)\n"
+
+/** v0.7.0: daily brief task for the chief-of-staff Bot (used by the「蜂巢早报」routine). */
+const val CHIEF_BRIEF_TASK: String =
+    "请为用户写今天的「蜂巢早报」。先调用 team_status 获取整个蜂巢的现状,然后按这个顺序输出:" +
+    "①需要用户先处理的事(待批准操作、失败的例行任务、等待确认的项目),每条说明为什么需要他;" +
+    "②各 Bot 过去 24 小时做了什么,一句话一条;" +
+    "③今天已排期的例行任务;" +
+    "④你建议的下一步,并把能直接开工的第一步草拟好(例如回复草稿、命令或清单)。" +
+    "每一条都在末尾用【来源:对话名】标出出处。只依据 team_status 的内容,没有的信息不要编造;没有要处理的事就直说。简洁,结论先行。"
+
+/** A tool call waiting for the user's approval (permission broker). */
 data class Approval(
     val id: String,
     val chatId: String,
     val botId: String,
     val command: String,
     val createdMs: Long,
-    /** Tool waiting for approval: "shell" (default), "shizuku_shell", or "fs_delete". */
-    val toolName: String = "shell"
+    /** Tool waiting for approval: "shell" (default), "shizuku_shell", "fs_delete", or (v0.7.0) any tool name. */
+    val toolName: String = "shell",
+    /** v0.7.0: original tool arguments (JSON) for generic replay; "" = legacy approval (command-only path). */
+    val argsJson: String = "",
+    /** v0.7.0: one-line human description of what will happen. */
+    val summary: String = "",
+    /** v0.7.0: ActionClass.name of the gated action; "" for legacy approvals. */
+    val actionClass: String = "",
+    /** v0.7.0: wall-clock expiry; 0 = never (attended chats). */
+    val expiresMs: Long = 0,
+    /** v0.7.0: sentinel review: "" | "pending" | "ok" | "warn" | "block" | "error". */
+    val sentinelVerdict: String = "",
+    val sentinelNote: String = ""
 )
 
 /** A remote MCP server (Streamable HTTP JSON-RPC). headers may carry secrets; stored Keystore-encrypted. */
@@ -105,7 +138,33 @@ data class Routine(
     val repeatDaily: Boolean = false,
     val createdBy: String = "user",
     val lastRunMs: Long = 0,
-    val lastResult: String = ""
+    val lastResult: String = "",
+    /** v0.7.0: "time" | "notification" | "webhook". */
+    val trigger: String = "time",
+    /** v0.7.0 (notification trigger): package name or app-label substring; empty = any app. */
+    val matchApp: String = "",
+    /** v0.7.0 (notification trigger): keyword in title/text; empty = any. */
+    val matchText: String = "",
+    val paused: Boolean = false,
+    /** v0.7.0: minimum minutes between two event-triggered runs. */
+    val minIntervalMin: Int = 5,
+    val lastFiredMs: Long = 0,
+    /** v0.7.0: newest first, at most 20 records. */
+    val history: List<RunRecord> = emptyList()
+)
+
+/** One routine run (v0.7.0). trigger: "time" | "notification" | "webhook" | "manual". */
+data class RunRecord(val startMs: Long, val ok: Boolean, val summary: String, val trigger: String)
+
+/** One tool call in the cross-chat audit timeline (v0.7.0). */
+data class ActivityItem(
+    val time: Long,
+    val chatId: String,
+    val chatTitle: String,
+    val botId: String?,
+    val botName: String,
+    val msgId: String,
+    val tool: ToolCall
 )
 
 data class WStep(val botId: String, val instruction: String)

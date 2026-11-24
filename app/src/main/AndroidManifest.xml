@@ -21,6 +21,13 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent>
+        <!-- v0.7.0 (F23): voice input needs to see the system speech recognizer on Android 11+. -->
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+        <intent>
+            <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
+        </intent>
     </queries>
     <application
         android:name=".OgApp"
@@ -28,7 +35,9 @@
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="false"
         android:usesCleartextTraffic="true"
-        android:theme="@style/Theme.App">
+        android:enableOnBackInvokedCallback="true"
+        android:theme="@style/Theme.App"
+        tools:targetApi="33">
         <activity
             android:name=".MainActivity"
             android:exported="true"

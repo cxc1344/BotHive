@@ -57,6 +57,7 @@ uniform float uBlurRadius;
 uniform float uTintR;
 uniform float uTintG;
 uniform float uTintB;
+uniform float uIntensity;
 uniform shader uBackdrop;
 
 const float SMOOTH = 1.5;
@@ -168,6 +169,13 @@ half4 main(float2 xy) {
     float tirTrough = exp(-pow((sdf + 7.5) / 4.2, 2.0));
     outC.rgb *= half(1.0 - tirTrough * (0.26 + clarity * 0.14));
 
+    //    (a2) iOS 27 legibility rim: thin darkened contour just inside the bright outer hairline
+    float dr = (sdf + 3.0) / 1.7;
+    float darkRim = exp(-dr * dr);
+    outC.rgb *= half(1.0 - darkRim * (0.14 + 0.26 * uIntensity));
+    //    brighter specular highlights, scaled by the user's glass intensity
+    float specGain = 1.0 + 0.38 * uIntensity;
+
     //    (b) Directional studio softbox specular reflection across the curved bevel + top shoulder
     float2 L = normalize(float2(uLightX, uLightY));
     float2 L2 = -L;
@@ -190,10 +198,10 @@ half4 main(float2 xy) {
     float boost = 1.0 + uGlowBoost * 0.65;
 
     // Neutral studio-white primary specular + cool optical opposite-edge bounce (zero cliché purple cast)
-    outC.rgb += half3(1.00, 1.00, 0.99) * half((primaryRim * 0.58 + softboxSpec * 0.75) * uSpec * shimmer * boost);
-    outC.rgb += half3(0.84, 0.94, 1.00) * half(oppositeBounce * uSpec * (0.36 + clarity * 0.20) * boost);
-    outC.rgb += half3(1.00, 1.00, 1.00) * half(rimHair * (0.34 + uGlowBoost * 0.28));
-    outC.rgb += half3(1.00, 1.00, 1.00) * half(topSheen * uSpec * boost);
+    outC.rgb += half3(1.00, 1.00, 0.99) * half((primaryRim * 0.58 + softboxSpec * 0.75) * uSpec * shimmer * boost * specGain);
+    outC.rgb += half3(0.84, 0.94, 1.00) * half(oppositeBounce * uSpec * (0.36 + clarity * 0.20) * boost * specGain);
+    outC.rgb += half3(1.00, 1.00, 1.00) * half(rimHair * (0.34 + uGlowBoost * 0.28) * (0.85 + 0.25 * uIntensity));
+    outC.rgb += half3(1.00, 1.00, 1.00) * half(topSheen * uSpec * boost * specGain);
 
     return half4(clamp(outC.rgb, half3(0.0), half3(1.0)), half(1.0));
 }
@@ -281,17 +289,21 @@ fun Modifier.backdropLens(
             val path = Path().apply {
                 addRoundRect(RoundRect(0f, 0f, size.width, size.height, radiusPx, radiusPx))
             }
+            val compat = GlassCompatBrushes(tint, thickness, glowBoost, size)
             onDrawBehind {
                 if (AppBackdrop.isCapturing) return@onDrawBehind
                 @Suppress("UNUSED_VARIABLE")
                 val tick = AppBackdrop.frameTick.intValue
                 val frame = AppBackdrop.currentFrame()
                 if (shader == null || brush == null || frame == null || frame.bitmap.isRecycled) {
-                    drawGlassLayersCompat(tint, thickness, glowBoost)
+                    drawGlassLayersCompat(compat)
                     return@onDrawBehind
                 }
                 val ok = runCatching {
                     val effectiveSpec = thickness.specStrength * (1f + glowBoost * 0.70f)
+                    // Continuous glass intensity: lower lens amount = more frost + tint, less refraction.
+                    val lens = GlassStyle.lensAmount
+                    val solid = 1f - lens
                     shader.setFloatUniform("uSize", size.width, size.height)
                     shader.setFloatUniform("uRadius", radiusPx)
                     shader.setFloatUniform("uBackdropSize", frame.bitmap.width.toFloat(), frame.bitmap.height.toFloat())
@@ -299,10 +311,11 @@ fun Modifier.backdropLens(
                     shader.setFloatUniform("uSurfaceTopLeft", surfaceTopLeft.x, surfaceTopLeft.y)
                     shader.setFloatUniform("uZoom", zoom)
                     shader.setFloatUniform("uEdgePx", thickness.edgePx)
-                    shader.setFloatUniform("uRefractPx", thickness.edgePx * 1.05f)
-                    shader.setFloatUniform("uDispersionPx", thickness.dispersionPx)
-                    shader.setFloatUniform("uBlurRadius", thickness.blurRadius)
-                    shader.setFloatUniform("uVeil", thickness.veilAlpha)
+                    shader.setFloatUniform("uRefractPx", thickness.edgePx * 1.05f * (0.70f + 0.30f * lens))
+                    shader.setFloatUniform("uDispersionPx", thickness.dispersionPx * (0.55f + 0.45f * lens))
+                    shader.setFloatUniform("uBlurRadius", thickness.blurRadius * (1f + solid * 0.9f))
+                    shader.setFloatUniform("uVeil", (thickness.veilAlpha + solid * 0.22f).coerceAtMost(0.62f))
+                    shader.setFloatUniform("uIntensity", GlassStyle.effectiveIntensity)
                     shader.setFloatUniform("uTintR", tint.red * 255f)
                     shader.setFloatUniform("uTintG", tint.green * 255f)
                     shader.setFloatUniform("uTintB", tint.blue * 255f)
@@ -321,48 +334,54 @@ fun Modifier.backdropLens(
                         drawRect(brush, topLeft = Offset.Zero, size = size)
                     }
                 } else {
-                    drawGlassLayersCompat(tint, thickness, glowBoost)
+                    drawGlassLayersCompat(compat)
                 }
             }
         }
     )
 }
 
-/** Sculptural 3-band Liquid Glass fallback when shader is unavailable. */
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawGlassLayersCompat(
-    tint: Color, thickness: ImmersiveThickness, glowBoost: Float
-) {
-    val w = size.width
-    val h = size.height
-    val veil = (thickness.veilAlpha * 0.95f).coerceIn(0.06f, 0.48f)
-    val hi = (0.11f + thickness.specStrength * (0.09f + glowBoost * 0.08f)).coerceAtMost(0.36f)
-    // Studio top-to-bottom specular dome shading
-    drawRect(
-        Brush.verticalGradient(
+/** Pre-built brushes for the shader-unavailable fallback (built once per size in drawWithCache). */
+private class GlassCompatBrushes(tint: Color, thickness: ImmersiveThickness, glowBoost: Float, size: Size) {
+    val dome: Brush
+    val pool: Brush
+    val hairline: Brush
+    val hairSize: Size = Size(size.width, 2.5f)
+
+    init {
+        val w = size.width
+        val h = size.height
+        val veil = (thickness.veilAlpha * 0.95f).coerceIn(0.06f, 0.48f)
+        val hi = (0.11f + thickness.specStrength * (0.09f + glowBoost * 0.08f)).coerceAtMost(0.36f)
+        // Studio top-to-bottom specular dome shading
+        dome = Brush.verticalGradient(
             0f to Color.White.copy(alpha = hi),
             0.22f to Color.White.copy(alpha = hi * 0.25f),
             0.55f to Color.Transparent,
             0.90f to Color.Black.copy(alpha = veil * 0.50f),
             1f to Color.White.copy(alpha = hi * 0.35f)
         )
-    )
-    // Subtle top-left studio softbox pool
-    drawRect(
-        Brush.radialGradient(
+        // Subtle top-left studio softbox pool
+        pool = Brush.radialGradient(
             listOf(tint.copy(alpha = (tint.alpha + veil * 0.28f).coerceAtMost(0.38f)), Color.Transparent),
             center = Offset(w * 0.22f, h * 0.08f),
-            radius = maxOf(w, h) * 0.85f
+            radius = maxOf(maxOf(w, h) * 0.85f, 1f)
         )
-    )
-    // Crisp top specular hairline
-    drawRect(
-        Brush.linearGradient(
+        // Crisp top specular hairline
+        hairline = Brush.linearGradient(
             0f to Color.White.copy(alpha = (hi * 1.6f).coerceAtMost(0.55f)),
             0.45f to Color.White.copy(alpha = hi * 0.35f),
             1f to Color.Transparent
-        ),
-        size = Size(w, 2.5f)
-    )
+        )
+    }
+}
+
+/** Sculptural 3-band Liquid Glass fallback when shader is unavailable. */
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawGlassLayersCompat(b: GlassCompatBrushes) {
+    val k = GlassStyle.effectiveIntensity
+    drawRect(b.dome, alpha = (0.80f + 0.30f * k).coerceAtMost(1f))
+    drawRect(b.pool)
+    drawRect(b.hairline, size = b.hairSize, alpha = (0.75f + 0.35f * k).coerceAtMost(1f))
 }
 
 object AppBackdrop {

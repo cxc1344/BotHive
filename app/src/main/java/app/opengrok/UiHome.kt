@@ -304,6 +304,19 @@ fun HomeScreen(store: Store, go: (Screen) -> Unit) {
                 AnimatedVisibility(shown, enter = fadeIn(tween(500, delayMillis = 150))) {
                     HomeStatusPill(store) { b -> modelBot = b; modelSheet = true }
                 }
+                // v0.7.0: Bix brings what needs you to the front page.
+                val pendingCount = store.pendingApprovals.size
+                val failedRoutines = store.routines.count { r -> r.history.firstOrNull()?.ok == false }
+                if (pendingCount > 0 || failedRoutines > 0) {
+                    Spacer(Modifier.height(12.dp))
+                    Box(Modifier.padding(horizontal = 24.dp).clickable { go(if (pendingCount > 0) Screen.Approvals else Screen.Routines) }) {
+                        BixTip(
+                            if (pendingCount > 0) "有 $pendingCount 件事等你点头,点这里处理"
+                            else "有 $failedRoutines 个例行任务上次没跑成,点这里看看",
+                            if (pendingCount > 0) BixAction.Sentinel else BixAction.Dizzy
+                        )
+                    }
+                }
                 if (!keyboard) {
                     Spacer(Modifier.height(20.dp))
                     AnimatedVisibility(shown, enter = fadeIn(tween(600, delayMillis = 300)) + slideInVertically(tween(600, delayMillis = 300)) { it / 6 }) {
@@ -456,6 +469,11 @@ private fun DrawerPanel(store: Store, current: Screen, onClose: () -> Unit, go: 
         if (store.agent.value != null) DrawerNav("设备 Agent", Ic.Phone) { go(Screen.AgentChat) }
         DrawerNav("蜂巢指挥台 · Bots", Ic.Group) { go(Screen.BotHub) }
         DrawerNav("工作流", Ic.Tree) { go(Screen.Workflows) }
+        // v0.7.0「蜂巢自治」
+        DrawerNav("需要你" + if (store.pendingApprovals.isNotEmpty()) " · ${store.pendingApprovals.size}" else "", Ic.Shield) { go(Screen.Approvals) }
+        DrawerNav("活动看板", Ic.Board) { go(Screen.Activity) }
+        DrawerNav("例行任务", Ic.Bell) { go(Screen.Routines) }
+        DrawerNav("蜂巢中枢", Ic.Chart) { go(Screen.HiveCenter) }
         DrawerNav("搜索", Ic.Search) { go(Screen.Search) }
         HorizontalDivider(color = Line, modifier = Modifier.padding(vertical = 12.dp))
         // Recents: single-line rows with a line icon, one ellipsised line (STUDY §2.2).
@@ -474,13 +492,13 @@ private fun DrawerPanel(store: Store, current: Screen, onClose: () -> Unit, go: 
                     Row(
                         Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 1.dp)
                             .harmonyGlass(thickness = ImmersiveThickness.THIN, radius = 14.dp, tint = ThemeAccent.copy(alpha = 0.14f), fallbackBg = PILL)
-                            .clickable { go(if (ap.chatId == AGENT_ID) Screen.AgentChat else Screen.Chat(ap.chatId)) }
+                            .clickable { go(Screen.Approvals) }
                             .padding(horizontal = 12.dp, vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        BixScene(action = BixAction.ApprovalGuard, compact = true)
+                        BixScene(action = bixForSentinelVerdict(ap.sentinelVerdict.ifBlank { "pending" }), compact = true)
                         Spacer(Modifier.width(10.dp))
-                        Text("${store.pendingApprovals.size} 条命令待批准", color = Fg, fontSize = 15.sp, modifier = Modifier.weight(1f))
+                        Text("Bix 拦下了 ${store.pendingApprovals.size} 件事 · 等你决定", color = Fg, fontSize = 15.sp, modifier = Modifier.weight(1f))
                         Icon(Ic.Chevron, null, tint = Sub, modifier = Modifier.size(16.dp))
                     }
                 }

@@ -33,6 +33,7 @@ object ModelPrefs {
     private const val PREFS = "model_capabilities"
     private const val KEY_MM_PREFIX = "mm_"
     private const val KEY_REASON_PREFIX = "reason_"
+    private const val KEY_MEMORY_PREFIX = "memory_"
 
     val EFFORT_OPTIONS = listOf(
         "auto" to "默认",
@@ -64,6 +65,19 @@ object ModelPrefs {
         val id = botId.ifBlank { AGENT_ID }
         appCtx = context.applicationContext
         prefs(context)?.edit()?.putBoolean(KEY_MM_PREFIX + id, enabled)?.apply()
+        revision++
+    }
+
+    /** v0.7.0: per-Bot long-term memory switch (default on). Off = no remember/recall and no shared facts in the prompt. */
+    fun isMemoryEnabled(botId: String, context: Context? = null): Boolean {
+        val id = botId.ifBlank { AGENT_ID }
+        return prefs(context)?.getBoolean(KEY_MEMORY_PREFIX + id, true) ?: true
+    }
+
+    fun setMemoryEnabled(context: Context, botId: String, on: Boolean) {
+        val id = botId.ifBlank { AGENT_ID }
+        appCtx = context.applicationContext
+        prefs(context)?.edit()?.putBoolean(KEY_MEMORY_PREFIX + id, on)?.apply()
         revision++
     }
 

@@ -20,6 +20,13 @@ class Sandbox(context: Context, botId: String) {
     /** Each Bot gets its own full unpacked Ubuntu tree and package database. */
     private val rootfs: File = File(app.filesDir, "linux-rootfs/$safeId")
 
+    /**
+     * v0.7.0: extra host:guest binds for the next command (e.g. the project exchange folder at
+     * /exchange while this Bot is assigned to a project). Set by Store; must be cheap and thread-safe.
+     */
+    @Volatile
+    var bindProvider: (() -> List<Pair<String, String>>)? = null
+
     fun exec(cmd: String, timeoutSec: Long = 30): String {
         if (cmd.isBlank()) return "(空命令)"
         // Working-directory persistence across one-shot executions: resume where the
@@ -40,8 +47,12 @@ class Sandbox(context: Context, botId: String) {
                 rootfs = rootfs,
                 workspace = dir,
                 command = wrapped,
-                timeoutSec = timeoutSec
+                timeoutSec = timeoutSec,
+                extraBinds = runCatching { bindProvider?.invoke() }.getOrNull().orEmpty()
             )
+        } catch (e: InterruptedException) {
+            // Cancellation (Stop button): let runInterruptible turn this into a CancellationException.
+            throw e
         } catch (e: Exception) {
             Log.e("OpenGrokLinux", "exec failed", e)
             runCatching { File(app.cacheDir, "linux-last-error.log").writeText(Log.getStackTraceString(e)) }

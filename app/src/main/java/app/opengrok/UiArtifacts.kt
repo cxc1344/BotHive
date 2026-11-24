@@ -1,8 +1,11 @@
 package app.opengrok
 
 import android.annotation.SuppressLint
+import android.content.Intent
+import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -77,6 +80,15 @@ fun extractLiveArtifacts(markdown: String): List<LiveArtifact> {
         if (out.size >= 3) break
     }
     return out
+}
+
+/**
+ * A per-artifact origin (stable for the same content) under the reserved .invalid TLD, so storage
+ * written by one artifact is invisible to every other artifact and never collides with a real site.
+ */
+internal fun artifactOrigin(art: LiveArtifact): String {
+    val h = Integer.toHexString((art.kind + "\u0000" + art.htmlDoc).hashCode())
+    return "https://a$h.artifact.bothive.invalid/"
 }
 
 /** Compact Liquid Glass artifact launch cards shown underneath assistant messages containing HTML/SVG. */
@@ -201,13 +213,38 @@ private fun ArtifactPreviewDialog(art: LiveArtifact, onDismiss: () -> Unit) {
                     AndroidView(
                         factory = { c ->
                             WebView(c).apply {
+                                // Model-generated HTML is untrusted. v0.7.0 hardening:
+                                //  - each artifact gets its own origin, so one artifact cannot read
+                                //    localStorage/IndexedDB written by another Bot's artifact;
+                                //  - no file:// or content:// access, no mixed content;
+                                //  - top-level navigation leaves the sandbox and opens in the system browser.
                                 settings.javaScriptEnabled = true
                                 settings.domStorageEnabled = true
                                 settings.useWideViewPort = true
                                 settings.loadWithOverviewMode = true
-                                settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
-                                loadDataWithBaseURL("https://bothive.local/", art.htmlDoc, "text/html", "UTF-8", null)
+                                settings.allowFileAccess = false
+                                settings.allowContentAccess = false
+                                settings.javaScriptCanOpenWindowsAutomatically = false
+                                settings.mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                                webViewClient = object : WebViewClient() {
+                                    override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                                        val req = request ?: return true
+                                        val uri = req.url ?: return true
+                                        if (!req.isForMainFrame) return false
+                                        if (uri.scheme == "http" || uri.scheme == "https") {
+                                            runCatching {
+                                                c.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                                            }
+                                        }
+                                        return true
+                                    }
+                                }
+                                loadDataWithBaseURL(artifactOrigin(art), art.htmlDoc, "text/html", "UTF-8", null)
                             }
+                        },
+                        onRelease = { wv ->
+                            wv.stopLoading()
+                            wv.destroy()
                         },
                         modifier = Modifier.fillMaxSize()
                     )

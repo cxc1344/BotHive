@@ -41,6 +41,30 @@ object Agent {
     /** Hard cap on tool-calling rounds per user turn to prevent runaway loops and quota burn. */
     private const val MAX_TOOL_ROUNDS = 24
 
+    private const val NO_APPROVAL_CONTEXT =
+        "【未执行】这一步按权限策略需要用户批准,但当前调用没有可以发起批准的对话,这条操作已拒绝执行。请把需要执行的内容告诉用户,让用户在对话里发起。"
+
+    /** Every N tool rounds the latest human request is restated to keep long runs on scope. */
+    private const val SCOPE_REMINDER_EVERY = 8
+
+    /** Tools that only the on-device Agent has (checked before the policy gate). */
+    private val AGENT_ONLY = setOf(
+        "fs_list", "fs_read", "fs_write", "fs_delete", "fs_scan", "device_status", "app_usage", "list_apps",
+        "launch_app", "open_url", "recent_notifications", "shizuku_shell", "phone_task", "screen_mode",
+        "screen_shot", "screen_dump", "tap_at", "long_press", "drag_at", "tap_text", "input_text", "press_key"
+    )
+    /** Classes whose string arguments are scanned by the leak guard before they leave the device. */
+    private val LEAK_SCAN = setOf(
+        ActionClass.SANDBOX, ActionClass.PRIVILEGED, ActionClass.WEB, ActionClass.EXTERNAL,
+        ActionClass.SCREEN, ActionClass.FILE_WRITE
+    )
+    private val PAYMENT_SCREEN_TOOLS = setOf("tap_at", "long_press", "drag_at", "tap_text", "input_text", "launch_app")
+    private val PAYMENT_WEB_TOOLS = setOf("browser_open", "browser_mouse", "browser_type", "browser_fill_secret", "open_url")
+    private val SCREEN_ACTION_TOOLS = setOf("tap_at", "long_press", "drag_at", "tap_text", "input_text", "press_key")
+
+    /** Bot ids already notified about today's budget stop (one notification per Bot per day). */
+    private val budgetNotified = java.util.concurrent.ConcurrentHashMap<String, String>()
+
     /** Screenshot captured by the latest screen_shot call, keyed by bot id so concurrent chats never mix up shots. */
     private val pendingShots = java.util.concurrent.ConcurrentHashMap<String, File>()
 
@@ -58,8 +82,7 @@ object Agent {
      *  on HTTP 429 the next key is tried and the cursor stays on the working key. */
     private val keyCursors = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.atomic.AtomicInteger>()
 
-    private fun keyPool(bot: Bot): List<String> =
-        bot.apiKey.lines().map { it.trim() }.filter { it.isNotEmpty() }.ifEmpty { listOf("") }
+    private fun keyPool(bot: Bot): List<String> = RetryPolicy.parseKeyPool(bot.apiKey)
 
     private fun fn(name: String, desc: String, props: JSONObject, vararg req: String) =
         JSONObject().put("type", "function").put(
@@ -77,21 +100,32 @@ object Agent {
         put(fn("ask_bot", "向另一个 Bot 或设备 Agent 发私信求助/派活,返回对方的回复。",
             JSONObject().put("bot_name", str("对方的名字")).put("message", str("要说的话")),
             "bot_name", "message"))
-        put(fn("remember", "把一条重要事实存入你的长期记忆(跨会话保留,如用户偏好、项目约定、关键结论)。可附可选分类标签 category。",
-            JSONObject().put("text", str("要记住的内容")).put("category", str("可选分类标签,如 偏好/项目/设备")), "text"))
+        put(fn("remember", "把一条重要事实存入长期记忆(跨会话保留,如用户偏好、项目约定、关键结论)。可附可选分类标签 category。scope=user 表示这是关于用户本人的基础事实(称呼、时区、长期偏好),会共享给所有 Bot;默认 scope=self 只存在你自己的记忆里。",
+            JSONObject().put("text", str("要记住的内容")).put("category", str("可选分类标签,如 偏好/项目/设备"))
+                .put("scope", str("self(默认,只给自己) / user(关于用户的共享事实)")), "text"))
         put(fn("recall", "取回你的长期记忆条目;传入可选 query 可按关键词或分类筛选。",
             JSONObject().put("query", str("可选筛选关键词或分类标签"))))
-        put(fn("schedule_task", "给自己派一个定时任务:到点后你会在自己的对话里收到这条任务并执行。delay_minutes 是多少分钟后执行;repeat_daily 为 true 时此后每天同一时间重复。",
-            JSONObject().put("task", str("到点要执行的任务内容"))
-                .put("delay_minutes", JSONObject().put("type", "integer").put("description", "多少分钟后首次执行"))
-                .put("repeat_daily", JSONObject().put("type", "boolean").put("description", "是否每天重复")),
-            "task", "delay_minutes"))
-        put(fn("list_tasks", "列出你自己的全部待执行定时任务。", JSONObject()))
+        put(fn("schedule_task", "给自己派一个例行任务。trigger=time(默认):delay_minutes 分钟后在你自己的对话里收到这条任务并执行,repeat_daily=true 时此后每天同一时间重复。trigger=notification:手机收到匹配的通知时执行(match_app 为应用名或包名,match_text 为通知里的关键词,至少填一个)。trigger=webhook:外部程序调用本机 Webhook 地址时执行。事件内容会附在任务后面一起交给你。",
+            JSONObject().put("task", str("到点或事件发生时要执行的任务内容"))
+                .put("trigger", str("time(默认) / notification / webhook"))
+                .put("delay_minutes", JSONObject().put("type", "integer").put("description", "trigger=time 时:多少分钟后首次执行"))
+                .put("repeat_daily", JSONObject().put("type", "boolean").put("description", "trigger=time 时:是否每天重复"))
+                .put("match_app", str("trigger=notification 时:应用名或包名(可选)"))
+                .put("match_text", str("trigger=notification 时:通知标题或内容里的关键词(可选)")),
+            "task"))
+        put(fn("list_tasks", "列出你自己的全部例行任务(定时、通知触发、Webhook 触发)。", JSONObject()))
         put(fn("run_workflow", "按名称启动一个用户建好的工作流(步骤链),它会自己运行,你不用等结果。",
             JSONObject().put("name", str("工作流名称")), "name"))
-        put(fn("list_skills", "列出全部技能包,以及哪些已经挂在你身上。", JSONObject()))
-        put(fn("create_skill", "把一套可复用的方法、规范或领域知识写成新技能包,并立刻挂到你自己身上(之后每次对话都生效)。内容要具体、可执行,不要空话。",
-            JSONObject().put("name", str("技能名")).put("content", str("技能内容")), "name", "content"))
+        put(fn("list_skills", "列出全部技能包及其用途说明,以及哪些已经挂在你身上。", JSONObject()))
+        put(fn("use_skill", "按名称加载一个技能包的完整内容(没挂在你身上的技能也可以按需加载,本轮生效)。",
+            JSONObject().put("name", str("技能名")), "name"))
+        put(fn("create_skill", "把一套可复用的方法、规范或领域知识写成新技能包,并立刻挂到你自己身上(之后每次对话都生效)。内容要具体、可执行,建议按六段写:何时使用 / 需要的输入与权限 / 步骤 / 如何验证结果 / 输出什么 / 哪些操作需要批准。",
+            JSONObject().put("name", str("技能名")).put("content", str("技能内容"))
+                .put("description", str("一句话说明什么时候该用这个技能")), "name", "content"))
+        put(fn("team_status", "查看整个蜂巢的现状:正在运行的对话、待批准的操作、各 Bot 最近 24 小时的输出、项目进度、接下来的例行任务与失败记录。写早报或回答「大家在忙什么」时先调用它。", JSONObject()))
+        put(fn("secret_list", "列出用户保险箱里已保存的凭据名称(只有名称,看不到内容)。", JSONObject()))
+        put(fn("browser_fill_secret", "把用户保险箱里名为 name 的凭据填入 AI 浏览器当前聚焦的输入框(先用 browser_mouse 点中输入框)。你看不到凭据内容,只会得到「已填入」;每次填写都需要用户批准。",
+            JSONObject().put("name", str("凭据名称,用 secret_list 查看")), "name"))
         put(fn("browser_open", "在内置独立 AI 浏览器中打开网址(会实时展示浏览器任务条,用户可随时观看实况或一键接管操控)。返回页面摘要并附带实时截图。",
             JSONObject().put("url", str("完整网址,如 https://example.com"))
                 .put("desktop_mode", JSONObject().put("type", "boolean").put("description", "是否使用桌面版 UA,默认 false")), "url"))
@@ -168,9 +202,24 @@ object Agent {
     ): String {
         val bot = store.resolved(rawBot)
         val isAgent = bot.id == AGENT_ID
+        // v0.7.0: daily token budget, checked before any model call.
+        budgetStop(store, bot)?.let { return it }
         val skillsText = store.skills.filter { it.id in bot.skillIds }
             .joinToString("\n\n") { "## 技能:${it.name}\n${it.content}" }
-        val skillSuffix = if (skillsText.isBlank()) "" else "\n\n你启用了以下技能,请遵循:\n$skillsText"
+        // v0.7.0 Skills 2.0: unattached skills are listed by description and loaded on demand (use_skill).
+        val catalog = store.skills.filter { it.id !in bot.skillIds }.take(20)
+            .joinToString("\n") { "- ${it.name}" + if (it.description.isNotBlank()) ":${it.description.take(80)}" else "" }
+        val skillSuffix = (if (skillsText.isBlank()) "" else "\n\n你启用了以下技能,请遵循:\n$skillsText") +
+            (if (catalog.isBlank()) "" else "\n\n技能库里还有这些技能,需要时用 use_skill 按名称加载:\n$catalog")
+        // v0.7.0 Memory 2.0: shared facts about the user (all Bots), unless this Bot's memory is off.
+        val memoryOn = ModelPrefs.isMemoryEnabled(bot.id, store.appContext())
+        val facts = if (memoryOn) store.userFacts().takeLast(30) else emptyList()
+        val factsSuffix = if (facts.isEmpty()) "" else
+            "\n\n关于用户的共享事实(所有 Bot 共用,请遵循):\n" + facts.joinToString("\n") { "- $it" }.take(2_000)
+        // v0.7.0: staff assigned to a project see the shared exchange folder.
+        val exchangeSuffix = if (!isAgent && store.exchangeDirFor(bot.id) != null)
+            "\n\n你正在参与一个项目,项目共享交换目录挂载在 /exchange:把要交付给总经理或同事的文件复制进去(例如 cp 报告.md /exchange/),不要 cd 进去;总经理审查时会看到这里的文件列表和内容预览。"
+        else ""
         val others = (store.bots.filter { it.id != bot.id }.map { it.name } +
             listOfNotNull(store.agent.value?.name).filter { !isAgent }).distinct().joinToString("、")
         // Current date/time grounding: models have no clock, and "今天/明天" style requests
@@ -183,12 +232,12 @@ object Agent {
                 (if (others.isNotEmpty()) "云端 Bot 同伴:$others,可用 ask_bot 私信求助或给他们派活。" else "") +
                 "你能管理手机文件:fs_* 工具用绝对路径,分普通(需所有文件访问授权,管共享存储)/ Shizuku(shell 身份)/ Root(能进其他应用 /data)三档通道,默认 auto 自动选。" +
                 "屏幕操作走视觉模式:先 screen_shot 截屏(截图会随结果附给你看),判断目标在画面中的相对位置,再用 0-1000 归一化坐标调用 tap_at 点击 / long_press 长按 / drag_at 拖动;左上角是 (0,0),右下角是 (1000,1000),例如正中央是 (500,500)。每操作几步重新截屏核对,别凭记忆连点。无障碍通道不增加文件权限。" +
-                "如果用户希望不被打断,可用 screen_mode 切到虚拟屏模式:Agent 在独立虚拟显示屏里操作 App,画面显示在可拖动的悬浮窗里。虚拟屏模式下 screen_dump / tap_text 不可用(节点树绑主屏),一切以 screen_shot 看图为准;遇到 FLAG_SECURE 页面(银行/支付)会黑屏,应提示用户切回主屏模式。请使用用户的语言回复。" + skillSuffix
+                "如果用户希望不被打断,可用 screen_mode 切到虚拟屏模式:Agent 在独立虚拟显示屏里操作 App,画面显示在可拖动的悬浮窗里。虚拟屏模式下 screen_dump / tap_text 不可用(节点树绑主屏),一切以 screen_shot 看图为准;遇到 FLAG_SECURE 页面(银行/支付)会黑屏,应提示用户切回主屏模式。请使用用户的语言回复。" + factsSuffix + skillSuffix
         } else {
             bot.prompt + clockSuffix + "\n\n你叫「${bot.name}」,运行在一部安卓手机上,有自己独立的工作目录(Ubuntu 环境),可用 shell 工具执行命令。" +
                 "工作目录不是操作系统级安全隔离,只允许读写自己的工作目录,不得尝试访问应用数据或其他 Bot 的文件。" +
                 (if (others.isNotEmpty()) "同伴:$others(其中设备 Agent 在用户手机本地,能读写用户授权的手机文件夹),可用 ask_bot 私信求助。" else "") +
-                "群聊里其他 Bot 的发言会以 [名字] 开头。请使用用户的语言回复。" + skillSuffix
+                "群聊里其他 Bot 的发言会以 [名字] 开头。请使用用户的语言回复。" + factsSuffix + exchangeSuffix + skillSuffix
         }
         // Context window: very long chats were sent wholesale, burning tokens (and money) on
         // hundreds of stale messages before the model even saw the new one.
@@ -238,9 +287,17 @@ object Agent {
             val extra = Mcp.defsJson(mcpTools)
             for (i in 0 until extra.length()) put(extra.get(i))
         }
+        val latestHuman = history.lastOrNull { it.from == null && it.role == "user" && it.text.isNotBlank() }?.text.orEmpty()
         try {
             var rounds = 0
             while (rounds < MAX_TOOL_ROUNDS) {
+                // v0.7.0: scope reminder. Long tool chains drift; restate the latest human request.
+                if (rounds > 0 && rounds % SCOPE_REMINDER_EVERY == 0 && latestHuman.isNotBlank()) {
+                    msgs.put(JSONObject().put("role", "user").put("content",
+                        "【范围提醒】继续之前,请对照用户最近的请求检查进度,只做请求范围内的事,完成就停下汇报:「" +
+                            LeakGuard.mask(latestHuman).take(500) + "」"))
+                }
+                if (rounds > 0) budgetStop(store, bot)?.let { return it }
                 rounds++
                 val message = withContext(Dispatchers.IO) { call(bot, msgs, allDefs) }
                 val calls = message.optJSONArray("tool_calls")
@@ -259,7 +316,8 @@ object Agent {
                     val idx = tools.size
                     tools.add(ToolCall(c.getString("id"), name, argStr, ""))
                     onTools(tools.toList())
-                    val out = runTool(store, bot, name, argStr, depth, chatId)
+                    // v0.7.0: defence in depth: a Vault value never travels back to the model or the UI.
+                    val out = Vault.redact(runTool(store, bot, name, argStr, depth, chatId))
                     // screen_shot AND browser_* calls carry a live screenshot for the model AND a thumbnail for the UI.
                     val shot = pendingShots.remove(bot.id)
                     val carriesShot = shot != null && (name == "screen_shot" || name.startsWith("browser_"))
@@ -299,6 +357,7 @@ object Agent {
     /** Single plain completion (no tools) — used by the manager pipeline and self-check. Throws on failure. */
     suspend fun once(store: Store, rawBot: Bot, system: String, user: String): String = withContext(Dispatchers.IO) {
         val bot = store.resolved(rawBot)
+        budgetStop(store, bot)?.let { throw IOException(it) }
         val msgs = JSONArray()
         msgs.put(JSONObject().put("role", "system").put("content", system))
         msgs.put(JSONObject().put("role", "user").put("content", user))
@@ -306,9 +365,210 @@ object Agent {
         if (m.isNull("content")) "" else m.getString("content")
     }
 
+    /** Budget stop text (neutral, also shown in the chat) or null when the Bot may call its model. */
+    private fun budgetStop(store: Store, bot: Bot): String? {
+        if (!UsageLedger.overBudget(bot.id)) return null
+        val budget = UsageLedger.budget(bot.id)
+        val day = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+        if (budgetNotified.put(bot.id, day) != day) {
+            Notify.post(store.appContext(), Notify.CH_ROUTINES, ("budget:" + bot.id).hashCode(),
+                BixVoice.TITLE, BixVoice.budgetHit(bot.name), null)
+        }
+        return "今日用量已达到「${bot.name}」的每日预算($budget tokens),本次没有调用模型。可以在「设置 → 用量与预算」调高预算,明天 0 点自动恢复。"
+    }
+
+    /** Takes (and clears) the screenshot the last screen/browser tool produced for [botId]. */
+    internal fun takePendingShot(botId: String): File? = pendingShots.remove(botId)
+
     private suspend fun runTool(store: Store, bot: Bot, name: String, args: String, depth: Int, chatId: String = ""): String {
         val a = try { JSONObject(args) } catch (_: Exception) { JSONObject() }
+        if (name in AGENT_ONLY && bot.id != AGENT_ID) return "该工具只有设备 Agent 可用。"
+        gate(store, bot, name, a, args, chatId, approved = false)?.let { return it }
+        return executeTool(store, bot, name, a, args, depth, chatId)
+    }
+
+    /**
+     * v0.7.0: replays a tool call the user approved. Skips the approval gate once, but the
+     * payment floor (HANDOFF) and the Guard checks inside each tool still apply.
+     */
+    suspend fun executeApproved(store: Store, bot: Bot, chatId: String, tool: String, argsJson: String): String {
+        val b = store.resolved(bot)
+        val a = try { JSONObject(argsJson) } catch (_: Exception) { JSONObject() }
+        if (tool in AGENT_ONLY && b.id != AGENT_ID) return "该工具只有设备 Agent 可用。"
+        gate(store, b, tool, a, argsJson, chatId, approved = true)?.let { return it }
+        return Vault.redact(executeTool(store, b, tool, a, argsJson, 0, chatId))
+    }
+
+    /** One-line, masked, human description of a tool call (approval cards, logs, sentinel). */
+    internal fun summarize(name: String, a: JSONObject): String {
+        fun s(k: String) = a.optString(k).replace(Regex("\\s+"), " ").trim()
+        val text = when (name) {
+            "shell" -> "在沙盒执行:${s("command")}"
+            "shizuku_shell" -> "以 Shizuku 执行:${s("command")}"
+            "fs_write" -> "写入文件 ${s("path")}(${a.optString("content").length} 字符)"
+            "fs_delete" -> "删除 ${s("path")}"
+            "browser_open", "open_url" -> "打开网页 ${s("url")}"
+            "browser_type" -> "在网页输入「${s("text").take(60)}」" + if (a.optBoolean("submit", false)) "并提交" else ""
+            "browser_mouse" -> "网页鼠标 ${s("action").ifBlank { "click" }} (${a.optInt("x", 500)},${a.optInt("y", 500)})"
+            "browser_nav" -> "网页${s("action")}"
+            "browser_fill_secret" -> "把保险箱凭据「${s("name")}」填入 ${PolicyRules.hostOf(AiBrowser.currentUrl).ifBlank { "当前网页" }} 的输入框"
+            "tap_at" -> "点击屏幕 (${a.optInt("x")},${a.optInt("y")})"
+            "long_press" -> "长按屏幕 (${a.optInt("x")},${a.optInt("y")})"
+            "drag_at" -> "拖动 (${a.optInt("x1")},${a.optInt("y1")})→(${a.optInt("x2")},${a.optInt("y2")})"
+            "tap_text" -> "点击文字「${s("text")}」"
+            "input_text" -> "在手机输入「${s("text").take(60)}」"
+            "press_key" -> "按系统键 ${s("key")}"
+            "launch_app" -> "打开应用 ${s("query")}"
+            "phone_task" -> "手机任务:${s("task")}"
+            "remember" -> "写入记忆:${s("text")}"
+            "schedule_task" -> "创建例行任务:${s("task")}"
+            "create_skill" -> "创建技能「${s("name")}」"
+            "run_workflow" -> "启动工作流「${s("name")}」"
+            "ask_bot" -> "给「${s("bot_name")}」发消息:${s("message")}"
+            else -> if (name.startsWith("mcp_")) "调用外部工具 $name" else "$name ${a.toString().take(80)}"
+        }
+        return LeakGuard.mask(Vault.redact(text)).take(160)
+    }
+
+    /** Payment / account protection (PAYMENT floor = HANDOFF). Returns the reason, or null. */
+    private suspend fun paymentReason(store: Store, bot: Bot, name: String, a: JSONObject): String? {
+        if (name in PAYMENT_WEB_TOOLS) {
+            if (name == "browser_open" || name == "open_url") {
+                val url = a.optString("url").trim()
+                if (url.isNotEmpty() && Policy.isSensitivePage(url, "")) return "目标网址是支付或账户安全页面(${PolicyRules.hostOf(url)})"
+                if (name == "browser_open") return null
+            }
+            if (name != "open_url" && withContext(Dispatchers.Main) { AiBrowser.onSensitivePage() }) {
+                return "AI 浏览器当前停在支付或账户安全页面(${PolicyRules.hostOf(AiBrowser.currentUrl)})"
+            }
+            return null
+        }
+        if (bot.id != AGENT_ID || name !in PAYMENT_SCREEN_TOOLS) return null
+        if (name == "launch_app") {
+            val q = a.optString("query").trim()
+            val pkg = SystemTools.resolvePackage(store.appContext(), q) ?: q
+            return if (Policy.isProtectedApp(pkg)) "「$q」在受保护应用名单里(支付或银行类应用)" else null
+        }
+        if (VirtualScreen.active.value) {
+            val pkg = ShizukuTools.foregroundOnDisplay(VirtualScreen.displayId.value)
+            return if (pkg.isNotEmpty() && Policy.isProtectedApp(pkg)) "虚拟屏前台是受保护的应用 $pkg" else null
+        }
+        val pkg = A11y.foregroundPackage()
+        if (pkg.isNotEmpty() && Policy.isProtectedApp(pkg)) return "屏幕前台是受保护的应用 $pkg"
+        if (Policy.isPaymentText(A11y.visibleText())) return "屏幕上出现了支付或密码确认字样"
+        return null
+    }
+
+    private suspend fun handoff(store: Store, bot: Bot, chatId: String, name: String, a: JSONObject, reason: String): String {
+        withContext(Dispatchers.Main) {
+            if (name in PAYMENT_WEB_TOOLS && name != "open_url") {
+                AiBrowser.setTakeover(true)
+                AiBrowser.sheetOpen = true
+            }
+            if (chatId.isNotEmpty()) store.postNotice(chatId, BixVoice.handoff(reason))
+            store.logGuard(bot.id, summarize(name, a), "交给用户:$reason")
+        }
+        return "【已交给用户,未执行】$reason。按安全策略,支付、转账和账户安全相关的操作必须由用户亲自完成。" +
+            "请停止操作这个页面,用一句话告诉用户需要他亲自完成哪一步,然后等待用户回复。"
+    }
+
+    private fun isQuickReviewTool(name: String) = name == "browser_type" || name == "input_text" || name.startsWith("mcp_")
+
+    /** The text form of a legacy approval (UI cards of older builds read `command`). */
+    private fun legacyCommand(name: String, a: JSONObject, summary: String): String = when (name) {
+        "shell", "shizuku_shell" -> a.optString("command")
+        "fs_delete" -> a.optString("channel", "auto").ifBlank { "auto" } + "|" + a.optString("path")
+        else -> summary
+    }
+
+    /**
+     * v0.7.0 policy gate, run before EVERY tool: classify -> level -> leak guard -> payment check ->
+     * optional sentinel quick review -> run / approval card / hand off. Fails closed: an ASK without
+     * a chat to post the card into is refused. [approved] = user-approved replay (payment floor only).
+     * Returns null when the tool may run now, else the (neutral) text for the model.
+     */
+    private suspend fun gate(
+        store: Store, bot: Bot, name: String, a: JSONObject, args: String, chatId: String, approved: Boolean
+    ): String? {
+        var cls = Policy.classify(name, a)
+        if (cls == ActionClass.READ) return null
+        paymentReason(store, bot, name, a)?.let { return handoff(store, bot, chatId, name, a, it) }
+        if (approved) return null
+        // Commands the Guard blocks never become approval cards.
+        if (name == "shell" || name == "shizuku_shell") {
+            val cmd = a.optString("command")
+            val allow = if (name == "shell") store.sandbox(bot.id).dir.absolutePath else "/"
+            val why = Guard.check(cmd, allow)
+            if (why != null) {
+                withContext(Dispatchers.Main) { store.logGuard(bot.id, cmd, why) }
+                return "【安全策略已拦截】$why。该命令没有执行,请换一种更安全的做法。"
+            }
+        }
+        var level = PolicyRules.effectiveLevel(cls, Policy.configured(cls), bot.shellApproval)
+        var leakNote = ""
+        if (cls in LEAK_SCAN) {
+            val text = a.toString()
+            val hits = LeakGuard.scan(text)
+            val vaultHit = Vault.leaksAny(text)
+            if (hits.isNotEmpty() || vaultHit) {
+                cls = ActionClass.SENSITIVE_DATA
+                level = PolicyRules.stricter(level, PolicyLevel.ASK)
+                leakNote = (hits + if (vaultHit) listOf("保险箱凭据") else emptyList()).joinToString("、")
+            }
+        }
+        if (level == PolicyLevel.EXPLICIT) {
+            val human = withContext(Dispatchers.Main) { store.latestHumanText(chatId) }
+            val key = PolicyRules.keyArg(name) { k -> a.optString(k, "") }
+            level = if (PolicyRules.explicitlyRequested(name, key, human)) PolicyLevel.AUTO else PolicyLevel.ASK
+        }
+        val summary = summarize(name, a)
+        var verdict = ""
+        var verdictNote = ""
+        if (level == PolicyLevel.AUTO && Policy.sentinelEnabled && Policy.sentinelReviewAuto && isQuickReviewTool(name)) {
+            val v = Sentinel.quickCheck(store, bot, chatId, name, args, summary)
+            if (v.verdict != "ok") {
+                level = PolicyLevel.ASK
+                verdict = v.verdict
+                verdictNote = v.note
+            }
+        }
+        return when (level) {
+            PolicyLevel.AUTO -> null
+            PolicyLevel.HANDOFF -> handoff(store, bot, chatId, name, a, "「${cls.label}」类操作按你的设置交给你亲自完成")
+            else -> {
+                if (chatId.isEmpty()) return NO_APPROVAL_CONTEXT
+                val unattended = withContext(Dispatchers.Main) {
+                    store.requestApproval(
+                        chatId, bot.id, legacyCommand(name, a, summary), name, args, summary, cls.name,
+                        sentinelVerdict = verdict, sentinelNote = verdictNote
+                    )
+                    store.isUnattended(chatId)
+                }
+                val why = when {
+                    leakNote.isNotEmpty() -> "参数里含有敏感数据($leakNote)"
+                    verdict.isNotEmpty() -> "哨兵复核未通过($verdict:${verdictNote.take(60)})"
+                    else -> "属于「${cls.label}」类操作"
+                }
+                "【等待用户批准】这一步($summary)$why,已提交给用户批准。本轮不要重复提交同一操作;" +
+                    "请先用一句话告诉用户你在等批准、这一步打算做什么。用户批准后结果会回到对话里,你再继续。" +
+                    if (unattended) "这条审批 30 分钟内无人处理会自动过期。" else ""
+            }
+        }
+    }
+
+    private suspend fun executeTool(
+        store: Store, bot: Bot, name: String, a: JSONObject, args: String, depth: Int, chatId: String
+    ): String {
         if (name.startsWith("mcp_")) return Mcp.callTool(store, name, args)
+        // v0.7.0: one Bot drives the AI browser at a time; others get a clear message.
+        if (name.startsWith("browser_") && name != "browser_fill_secret") {
+            val busyMsg = withContext(Dispatchers.Main) {
+                if (name == "browser_close") {
+                    if (AiBrowser.isOwnedByOther(bot.id)) "AI 浏览器正在被「${AiBrowser.ownerName}」使用,你不能关闭它。" else null
+                } else AiBrowser.claim(bot.id, bot.name)
+            }
+            if (busyMsg != null) return busyMsg
+        }
         return when (name) {
             "shell" -> {
                 val cmd = a.optString("command")
@@ -317,9 +577,6 @@ object Agent {
                 if (why != null) {
                     withContext(Dispatchers.Main) { store.logGuard(bot.id, cmd, why) }
                     "【安全策略已拦截】$why。该命令没有执行,请换一种更安全的做法。"
-                } else if (bot.shellApproval && chatId.isNotEmpty()) {
-                    withContext(Dispatchers.Main) { store.requestApproval(chatId, bot.id, cmd) }
-                    "【等待用户批准】这条命令已提交到对话里等用户点「执行」。本轮不要重复提交同一条命令,请先用一句话告诉用户:你在等批准、这条命令打算做什么。用户批准并执行后,结果会回到对话里,你再继续。"
                 } else store.withSandboxLock(bot.id) {
                     runInterruptible(Dispatchers.IO) { sb.exec(cmd) }
                 }
@@ -335,7 +592,10 @@ object Agent {
                     store.addDm(dm, Msg(role = "assistant", text = a.optString("message"), from = bot.id))
                 }
                 val hist = withContext(Dispatchers.Main) { store.chat(dm).toList() }
-                val reply = run(store, target, hist, depth + 1) { }
+                // v0.7.0: run the target inside the DM thread so its own approval settings apply
+                // (approval cards land in that DM and on the home banner). Previously no chat id
+                // was passed and「命令先批准」was silently skipped for every Bot reached via ask_bot.
+                val reply = run(store, target, hist, depth + 1, chatId = dm) { }
                 withContext(Dispatchers.Main) {
                     store.addDm(dm, Msg(role = "assistant", text = reply, from = target.id))
                 }
@@ -352,12 +612,7 @@ object Agent {
                         "fs_read" -> FsTools.read(store.appContext(), p, ch)
                         "fs_write" -> FsTools.write(store.appContext(), p, a.optString("content"), ch)
                         "fs_scan" -> FsTools.scan(p, a.optInt("depth", 2))
-                        else -> {
-                            if (bot.shellApproval && chatId.isNotEmpty()) {
-                                withContext(Dispatchers.Main) { store.requestApproval(chatId, bot.id, "$ch|$p", "fs_delete") }
-                                "【等待用户批准】删除操作($p)已提交到对话顶部等用户点「执行」。请简短告知用户等待批准,不要重复提交。"
-                            } else FsTools.delete(store.appContext(), p, ch)
-                        }
+                        else -> FsTools.delete(store.appContext(), p, ch)
                     }
                 }
             }
@@ -413,40 +668,94 @@ object Agent {
             "remember" -> {
                 val text = a.optString("text").trim()
                 val cat = a.optString("category").trim()
-                if (text.isBlank()) "内容为空,未保存。"
-                else {
-                    withContext(Dispatchers.Main) { store.remember(bot.id, text, cat) }
-                    if (cat.isNotEmpty()) "已存入长期记忆(分类:$cat)。" else "已存入长期记忆。"
+                val scope = a.optString("scope").trim().lowercase()
+                when {
+                    !ModelPrefs.isMemoryEnabled(bot.id, store.appContext()) -> "用户关闭了你的长期记忆,本条没有保存。"
+                    text.isBlank() -> "内容为空,未保存。"
+                    LeakGuard.scan(text).isNotEmpty() || Vault.leaksAny(text) -> "内容里含有敏感数据(卡号、证件号、验证码或密钥),长期记忆不保存这类信息。"
+                    scope == "user" -> {
+                        withContext(Dispatchers.Main) { store.addUserFact(text) }
+                        "已存为关于用户的共享事实,所有 Bot 都会看到。"
+                    }
+                    else -> {
+                        withContext(Dispatchers.Main) { store.remember(bot.id, text, cat) }
+                        if (cat.isNotEmpty()) "已存入长期记忆(分类:$cat)。" else "已存入长期记忆。"
+                    }
                 }
             }
             "recall" -> {
                 val q = a.optString("query").trim()
-                val list = store.recall(bot.id, q)
-                if (list.isEmpty()) (if (q.isEmpty()) "(长期记忆为空)" else "(未找到包含「$q」的记忆)")
-                else list.mapIndexed { i, t -> "${i + 1}. $t" }.joinToString("\n")
+                if (!ModelPrefs.isMemoryEnabled(bot.id, store.appContext())) "(用户关闭了你的长期记忆)"
+                else {
+                    val list = withContext(Dispatchers.Main) { store.recall(bot.id, q) }
+                    if (list.isEmpty()) (if (q.isEmpty()) "(长期记忆为空)" else "(未找到包含「$q」的记忆)")
+                    else list.mapIndexed { i, t -> "${i + 1}. $t" }.joinToString("\n")
+                }
             }
             "schedule_task" -> {
                 val task = a.optString("task").trim()
-                val delayMin = a.optInt("delay_minutes", 0)
-                if (task.isBlank()) "任务内容为空,未创建。"
-                else if (delayMin < 1) "delay_minutes 至少为 1。"
-                else {
-                    val repeat = a.optBoolean("repeat_daily", false)
-                    val next = System.currentTimeMillis() + delayMin * 60_000L
-                    val id = java.util.UUID.randomUUID().toString().take(8)
-                    withContext(Dispatchers.Main) {
-                        store.addRoutine(Routine(id, bot.id, task, next, repeat, createdBy = bot.name))
+                val trigger = a.optString("trigger", "time").trim().lowercase().ifBlank { "time" }
+                val id = java.util.UUID.randomUUID().toString().take(8)
+                val boundary = "执行中遇到需要批准的操作会生成审批卡;无人值守时审批 30 分钟内未处理会过期,该步骤不执行。"
+                val missing = "触发事件缺少信息时,任务照常运行,并在结果里说明缺了什么。"
+                when {
+                    task.isBlank() -> "任务内容为空,未创建。"
+                    trigger == "time" -> {
+                        val delayMin = a.optInt("delay_minutes", 0)
+                        if (delayMin < 1) "delay_minutes 至少为 1。"
+                        else {
+                            val repeat = a.optBoolean("repeat_daily", false)
+                            val next = System.currentTimeMillis() + delayMin * 60_000L
+                            withContext(Dispatchers.Main) {
+                                store.addRoutine(Routine(id, bot.id, task, next, repeat, createdBy = bot.name))
+                            }
+                            val when_ = java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(next))
+                            "已创建定时任务(id $id):\n- 执行者:${bot.name}\n- 何时运行:$when_" +
+                                (if (repeat) ",此后每天同一时间" else ",只运行一次") +
+                                "\n- 任务:$task\n- 审批边界:$boundary"
+                        }
                     }
-                    val when_ = java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(next))
-                    "已创建定时任务:$when_ 执行「$task」" + if (repeat) ",此后每天同一时间重复。" else "。"
+                    trigger == "notification" -> {
+                        val matchApp = a.optString("match_app").trim().take(60)
+                        val matchText = a.optString("match_text").trim().take(60)
+                        if (matchApp.isEmpty() && matchText.isEmpty()) {
+                            "通知触发至少要给 match_app 或 match_text 之一,否则每条通知都会触发。未创建。"
+                        } else {
+                            withContext(Dispatchers.Main) {
+                                store.addRoutine(Routine(id, bot.id, task, 0L, false, createdBy = bot.name,
+                                    trigger = "notification", matchApp = matchApp, matchText = matchText))
+                            }
+                            val listening = Notifications.isEnabled(store.appContext())
+                            "已创建通知触发任务(id $id):\n- 执行者:${bot.name}\n- 何时运行:收到" +
+                                (if (matchApp.isNotEmpty()) "「$matchApp」的" else "任意应用的") + "通知" +
+                                (if (matchText.isNotEmpty()) "且标题或内容包含「$matchText」" else "") +
+                                "时(两次之间至少间隔 5 分钟)\n- 任务:$task\n- 输入:通知的应用、标题和内容(验证码等敏感内容会被打码)\n- 审批边界:$boundary\n- 缺数据时:$missing" +
+                                if (listening) "" else "\n注意:用户还没开启「通知使用权」,开启前不会触发。请提醒用户在 Agent 面板开启。"
+                        }
+                    }
+                    trigger == "webhook" -> {
+                        withContext(Dispatchers.Main) {
+                            store.addRoutine(Routine(id, bot.id, task, 0L, false, createdBy = bot.name, trigger = "webhook"))
+                        }
+                        val on = WebhookServer.isEnabled(store.appContext())
+                        "已创建 Webhook 触发任务(id $id):\n- 执行者:${bot.name}\n- 何时运行:有程序向 ${WebhookServer.urlFor(id)} 发送 POST 请求时" +
+                            "(请求头需带设置页里的 Bearer 令牌,请求体就是事件内容)\n- 任务:$task\n- 审批边界:$boundary\n- 缺数据时:$missing" +
+                            if (on) "" else "\n注意:Webhook 服务还没开启,请提醒用户在「设置 → Webhook」里打开。"
+                    }
+                    else -> "trigger 只能是 time / notification / webhook。未创建。"
                 }
             }
             "list_tasks" -> {
                 val mine = store.routines.filter { it.ownerId == bot.id }
-                if (mine.isEmpty()) "(你没有待执行的定时任务)"
+                if (mine.isEmpty()) "(你没有例行任务)"
                 else mine.joinToString("\n") { r ->
-                    val when_ = java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(r.nextRunMs))
-                    "- $when_${if (r.repeatDaily) "(每天)" else ""}:${r.task}"
+                    val whenText = when (r.trigger) {
+                        "notification" -> "通知触发(" + listOf(r.matchApp, r.matchText).filter { it.isNotBlank() }.joinToString(" / ") + ")"
+                        "webhook" -> "Webhook 触发"
+                        else -> java.text.SimpleDateFormat("MM-dd HH:mm", java.util.Locale.getDefault()).format(java.util.Date(r.nextRunMs)) +
+                            if (r.repeatDaily) "(每天)" else ""
+                    }
+                    "- [${r.id}] $whenText${if (r.paused) "【已暂停】" else ""}:${r.task}"
                 }
             }
             "run_workflow" -> {
@@ -464,18 +773,45 @@ object Agent {
             }
             "list_skills" -> {
                 if (store.skills.isEmpty()) "(还没有技能包,用 create_skill 可以自己写一个)"
-                else store.skills.joinToString("\n") { "- ${it.name}${if (it.id in bot.skillIds) "(已挂在你身上)" else ""}" }
+                else store.skills.joinToString("\n") {
+                    "- ${it.name}${if (it.id in bot.skillIds) "(已挂在你身上)" else ""}" +
+                        if (it.description.isNotBlank()) ":${it.description.take(100)}" else ""
+                } + "\n没挂在你身上的技能可用 use_skill 按名称加载。"
+            }
+            "use_skill" -> {
+                val q = a.optString("name").trim()
+                val sk = store.skills.firstOrNull { it.name == q }
+                    ?: store.skills.firstOrNull { it.name.equals(q, ignoreCase = true) }
+                    ?: store.skills.firstOrNull { q.isNotEmpty() && it.name.contains(q, ignoreCase = true) }
+                if (sk == null) "没有叫「$q」的技能。可用 list_skills 查看全部技能。"
+                else "## 技能:${sk.name}\n" + (if (sk.description.isNotBlank()) "用途:${sk.description}\n\n" else "") +
+                    sk.content + "\n\n(本技能本轮生效,请按其中的步骤执行。)"
+            }
+            "team_status" -> withContext(Dispatchers.Main) { store.teamStatus() }
+            "secret_list" -> {
+                val names = Vault.names()
+                if (names.isEmpty()) "(保险箱里还没有凭据。请用户在「设置 → 凭据保险箱」里添加。)"
+                else "保险箱里的凭据(只有名称):\n" + names.joinToString("\n") { "- $it" } +
+                    "\n用 browser_fill_secret(name) 把凭据填入 AI 浏览器当前聚焦的输入框。"
+            }
+            "browser_fill_secret" -> {
+                val sName = a.optString("name").trim()
+                withContext(Dispatchers.Main) { AiBrowser.claim(bot.id, bot.name) }?.let { return it }
+                val value = Vault.valueOf(sName)
+                if (value == null) "保险箱里没有叫「$sName」的凭据(或暂时无法解密)。可用 secret_list 查看。"
+                else AiBrowser.fillSecret(store.appContext(), value)
             }
             "create_skill" -> {
                 val sName = a.optString("name").trim()
                 val sContent = a.optString("content").trim()
+                val sDesc = a.optString("description").trim().take(200)
                 when {
                     sName.isBlank() || sContent.isBlank() -> "技能名与内容都要填。"
                     store.skills.any { it.name == sName } -> "已存在同名技能「$sName」,换个名字,或让用户在设置里改现成的。"
                     else -> {
                         val id = java.util.UUID.randomUUID().toString().take(8)
                         withContext(Dispatchers.Main) {
-                            store.saveSkill(Skill(id, sName, sContent.take(4_000)))
+                            store.saveSkill(Skill(id, sName, sContent.take(4_000), sDesc))
                             if (bot.id == AGENT_ID) {
                                 store.agent.value?.let { store.saveAgent(it.copy(skillIds = it.skillIds + id)) }
                             } else {
@@ -543,9 +879,10 @@ object Agent {
             "shizuku_shell" -> {
                 if (bot.id != AGENT_ID) return "该工具只有设备 Agent 可用。"
                 val cmd = a.optString("command")
-                if (bot.shellApproval && chatId.isNotEmpty()) {
-                    withContext(Dispatchers.Main) { store.requestApproval(chatId, bot.id, cmd, "shizuku_shell") }
-                    "【等待用户批准】这条 Shizuku 命令已提交到对话顶部等用户点「执行」。请简短说明命令用途,不要重复提交。"
+                val why = Guard.check(cmd, "/")
+                if (why != null) {
+                    withContext(Dispatchers.Main) { store.logGuard(bot.id, cmd, why) }
+                    "【安全策略已拦截】$why"
                 } else ShizukuTools.shell(cmd)
             }
             "phone_task" -> {
@@ -576,6 +913,11 @@ object Agent {
             }
             "screen_shot", "screen_dump", "tap_at", "long_press", "drag_at", "tap_text", "input_text", "press_key" -> {
                 if (bot.id != AGENT_ID) return "该工具只有设备 Agent 可用。"
+                // v0.7.0: live progress for the overlay step ring / control glow (free-form: no step budget).
+                if (name in SCREEN_ACTION_TOOLS) {
+                    val label = summarize(name, a)
+                    withContext(Dispatchers.Main) { AgentProgress.action(AgentProgress.step.intValue, label) }
+                }
                 // In virtual mode the display is expected to outlive a single turn. If the OS dropped
                 // it (process reclaim, OEM killing the display), rebuild it here instead of returning
                 // "not running" — that used to send the model into a retry loop that burned tokens.
@@ -675,64 +1017,143 @@ object Agent {
      */
     private suspend fun runPhoneTask(store: Store, bot: Bot, task: String): String {
         if (task.isBlank()) return "任务内容为空。"
-        val ctx = store.appContext()
         val maxSteps = 15
+        withContext(Dispatchers.Main) { AgentProgress.begin(maxSteps) }
+        try {
+            return phoneTaskLoop(store, bot, task, maxSteps)
+        } finally {
+            withContext(kotlinx.coroutines.NonCancellable + Dispatchers.Main) { AgentProgress.end() }
+        }
+    }
+
+    /**
+     * Decodes a screenshot once: (looks black, 64-bit difference hash or null).
+     * v0.7.0: only the central region is hashed (see [ScreenHash.centerCrop]) so edge overlays
+     * (control glow, status bar clock, notification dots) cannot defeat the stuck detection.
+     */
+    private fun inspectFrame(file: File): Pair<Boolean, Long?> {
+        val bmp = android.graphics.BitmapFactory.decodeFile(file.absolutePath) ?: return false to null
+        var crop: android.graphics.Bitmap? = null
+        return try {
+            val black = VirtualScreen.looksBlack(bmp)
+            val r = ScreenHash.centerCrop(bmp.width, bmp.height)
+            val region = if (r[2] >= 9 && r[3] >= 8) {
+                android.graphics.Bitmap.createBitmap(bmp, r[0], r[1], r[2], r[3]).also { crop = it }
+            } else bmp
+            val small = android.graphics.Bitmap.createScaledBitmap(region, 9, 8, true)
+            val gray = IntArray(72)
+            for (y in 0 until 8) for (x in 0 until 9) {
+                val c = small.getPixel(x, y)
+                gray[y * 9 + x] = (((c shr 16) and 0xFF) * 299 + ((c shr 8) and 0xFF) * 587 + (c and 0xFF) * 114) / 1000
+            }
+            if (small !== region) small.recycle()
+            black to ScreenHash.dHash(gray)
+        } catch (_: Exception) {
+            false to null
+        } finally {
+            crop?.takeIf { it !== bmp && !it.isRecycled }?.recycle()
+            bmp.recycle()
+        }
+    }
+
+    private suspend fun phoneTaskLoop(store: Store, bot: Bot, task: String, maxSteps: Int): String {
+        val ctx = store.appContext()
         val log = mutableListOf<String>()
         var lastAction = ""
         var repeats = 0
+        var prevHash: Long? = null
+        var unchanged = 0
+        var lastWasAction = false
+        fun done() = log.mapIndexed { i, s -> "${i + 1}. $s" }.joinToString("\n").ifBlank { "无" }
         for (step in 1..maxSteps) {
+            // v0.7.0: payment protection. A protected (payment / bank) app in front stops the task.
+            val fg = ShizukuTools.foregroundOnDisplay(VirtualScreen.displayId.value)
+            if (fg.isNotEmpty() && Policy.isProtectedApp(fg)) {
+                val reason = "虚拟屏前台是受保护的应用 $fg"
+                withContext(Dispatchers.Main) {
+                    store.logGuard(bot.id, "手机任务:" + LeakGuard.mask(task).take(80), "交给用户:$reason")
+                }
+                return "【已交给用户,未继续】$reason(支付或银行类应用必须由用户亲自操作),手机任务已停止。\n已执行:\n${done()}"
+            }
             val cap = withContext(Dispatchers.IO) { VirtualScreen.captureToFile(ctx.cacheDir) }
-                ?: return "第 $step 步截不到虚拟屏画面,任务中止。\n已执行:${log.joinToString(";").ifBlank { "无" }}"
+                ?: return "第 $step 步截不到虚拟屏画面,任务中止。\n已执行:\n${done()}"
             val b64 = withContext(Dispatchers.IO) {
                 runCatching { java.util.Base64.getEncoder().encodeToString(cap.first.readBytes()) }.getOrNull()
             } ?: return "截图读取失败,任务中止。"
+            val (black, hash) = withContext(Dispatchers.IO) { inspectFrame(cap.first) }
             // Black frame = FLAG_SECURE page; the model cannot see anything, so stop early.
-            val black = withContext(Dispatchers.IO) {
-                runCatching {
-                    val bmp = android.graphics.BitmapFactory.decodeFile(cap.first.absolutePath)
-                    if (bmp == null) false else { val v = VirtualScreen.looksBlack(bmp); bmp.recycle(); v }
-                }.getOrDefault(false)
-            }
             if (black) {
                 return "当前页面在虚拟屏里是黑屏(可能启用了 FLAG_SECURE,如银行/支付/密码页)。" +
-                    "任务中止,请让用户切回主屏模式(screen_mode main)处理。\n已执行:${log.joinToString(";")}"
+                    "任务中止,请让用户切回主屏模式(screen_mode main)处理。\n已执行:\n${done()}"
+            }
+            // v0.7.0: screenshot-hash stuck detection: 3 actions in a row that changed nothing -> stop.
+            val prev = prevHash
+            if (lastWasAction && prev != null && hash != null && ScreenHash.distance(prev, hash) <= ScreenHash.SAME_THRESHOLD) {
+                unchanged++
+            } else if (lastWasAction) {
+                unchanged = 0
+            }
+            if (hash != null) prevHash = hash
+            if (unchanged >= 3) {
+                withContext(Dispatchers.Main) { AgentProgress.markStuck() }
+                return "连续 3 次操作后画面都没有变化,判定为卡住,任务中止以免继续消耗额度。\n已执行:\n${done()}"
             }
             val action = try {
                 PhoneOperator.nextAction(ctx, b64, task, log)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                return "调用手机模型失败:${e.message ?: e.javaClass.simpleName}\n已执行:${log.joinToString(";")}"
-            } ?: return "手机模型没有返回可识别的动作(回复格式不符)。\n已执行:${log.joinToString(";").ifBlank { "无" }}"
+                return "调用手机模型失败:${e.message ?: e.javaClass.simpleName}\n已执行:\n${done()}"
+            } ?: return "手机模型没有返回可识别的动作(回复格式不符)。\n已执行:\n${done()}"
 
             if (action.kind == "finish") {
-                return "任务完成:${action.message ?: "(无说明)"}\n执行了 ${log.size} 步:\n" +
-                    log.mapIndexed { i, s -> "${i + 1}. $s" }.joinToString("\n")
+                return "任务完成:${action.message ?: "(无说明)"}\n执行了 ${log.size} 步:\n${done()}"
             }
             val signature = "${action.kind}:${action.x},${action.y}:${action.text ?: ""}"
             repeats = if (signature == lastAction) repeats + 1 else 0
             lastAction = signature
             if (repeats >= 2) {
-                return "手机模型连续 3 次给出同一个动作,判定为卡住,任务中止以免继续消耗额度。\n" +
-                    "已执行:\n" + log.mapIndexed { i, s -> "${i + 1}. $s" }.joinToString("\n")
+                withContext(Dispatchers.Main) { AgentProgress.markStuck() }
+                return "手机模型连续 3 次给出同一个动作,判定为卡住,任务中止以免继续消耗额度。\n已执行:\n${done()}"
             }
+            if (action.kind == "launch") {
+                val pkg = SystemTools.resolvePackage(ctx, action.app ?: "")
+                if (pkg != null && Policy.isProtectedApp(pkg)) {
+                    return "【已交给用户,未继续】要打开的「${action.app}」在受保护应用名单里(支付或银行类应用必须由用户亲自操作),手机任务已停止。\n已执行:\n${done()}"
+                }
+            }
+            val label = when (action.kind) {
+                "tap" -> "点击 (${action.x}, ${action.y})"
+                "long_press" -> "长按 (${action.x}, ${action.y})"
+                "swipe" -> "滑动"
+                "type" -> "输入文字"
+                "launch" -> "打开 ${action.app ?: "应用"}"
+                "back" -> "返回"
+                "home" -> "回桌面"
+                "wait" -> "等待"
+                else -> action.kind
+            }
+            withContext(Dispatchers.Main) { AgentProgress.action(step, label) }
             val line = PhoneOperator.execute(ctx, action, task)
             log.add(line)
+            lastWasAction = action.kind != "wait"
         }
-        return "已执行 $maxSteps 步仍未完成,任务中止(避免继续消耗额度)。\n执行记录:\n" +
-            log.mapIndexed { i, s -> "${i + 1}. $s" }.joinToString("\n")
+        return "已执行 $maxSteps 步仍未完成,任务中止(避免继续消耗额度)。\n执行记录:\n${done()}"
     }
 
     private suspend fun call(bot: Bot, msgs: JSONArray, tools: JSONArray?): JSONObject {
+        // Configuration errors (bad URL, HTTP not allowed) fail fast instead of being retried.
+        ApiEndpoint.validate(bot)
         val keys = keyPool(bot)
-        if (keys.size <= 1) return callOnce(bot, msgs, tools, keys.first())
-        val cursorKey = bot.id + "|" + bot.baseUrl
-        val cursor = keyCursors.getOrPut(cursorKey) { java.util.concurrent.atomic.AtomicInteger(0) }
+        val cursor = keyCursors.getOrPut(bot.id + "|" + bot.baseUrl) { java.util.concurrent.atomic.AtomicInteger(0) }
+        var payload = msgs
         var lastError: Exception? = null
-        for (attempt in keys.indices) {
-            val idx = Math.floorMod(cursor.get() + attempt, keys.size)
-            var attempt = 0
-            while (true) {
+        for (k in keys.indices) {
+            val idx = Math.floorMod(cursor.get() + k, keys.size)
+            var retries = 0
+            keyLoop@ while (true) {
                 try {
-                    val out = callOnce(bot, msgs, tools, keys[idx])
+                    val out = callOnce(bot, payload, tools, keys[idx])
                     cursor.set(idx)
                     return out
                 } catch (e: CancellationException) {
@@ -740,35 +1161,23 @@ object Agent {
                 } catch (e: Exception) {
                     lastError = e
                     val msg = e.message.orEmpty()
-                    if (msg.startsWith("HTTP 429")) {
-                        // Rotate immediately to next key if pool has multiple keys; else retry with backoff up to 5 times
-                        if (keys.size > 1) break
-                        if (attempt >= 5) throw e
-                        attempt++
-                        kotlinx.coroutines.delay((attempt * 1200L).coerceAtMost(5000L))
-                        continue
+                    val action = RetryPolicy.decide(
+                        message = msg,
+                        isIo = e is IOException,
+                        hasMoreKeys = k < keys.lastIndex,
+                        retriesSoFar = retries,
+                        hasImages = hasImageParts(payload)
+                    )
+                    when (action) {
+                        RetryPolicy.Action.ROTATE_KEY -> break@keyLoop
+                        RetryPolicy.Action.BACKOFF -> {
+                            retries++
+                            kotlinx.coroutines.delay(RetryPolicy.backoffMs(retries, RetryPolicy.httpCode(msg) == 429))
+                        }
+                        // The endpoint rejects image input (e.g. OpenRouter 404 "image input"): retry as text-only.
+                        RetryPolicy.Action.STRIP_IMAGES -> payload = stripImageParts(payload)
+                        RetryPolicy.Action.FAIL -> throw e
                     }
-                    val isTransientGateway =
-                        msg.startsWith("HTTP 502") || msg.startsWith("HTTP 503") ||
-                        msg.startsWith("HTTP 504") || msg.startsWith("HTTP 500") ||
-                        msg.startsWith("HTTP 520") || msg.startsWith("HTTP 521") ||
-                        msg.startsWith("HTTP 522") || msg.startsWith("HTTP 523") ||
-                        msg.startsWith("HTTP 524") || msg.startsWith("HTTP 408") ||
-                        (!msg.startsWith("HTTP 4") && e is IOException)
-                    if (isTransientGateway && attempt < 5) {
-                        attempt++
-                        kotlinx.coroutines.delay((attempt * 1000L).coerceAtMost(5000L))
-                        continue
-                    }
-                    // Auto-fallback: if the selected endpoint rejects image input (e.g. OpenRouter "Filter by Image Support" 404),
-                    // strip image_url parts and retry once cleanly as text-only instead of aborting the turn.
-                    val isImageUnsupported = (msg.startsWith("HTTP 404") || msg.startsWith("HTTP 400")) &&
-                        (msg.contains("image input", true) || msg.contains("Image Support", true) || msg.contains("vision", true))
-                    if (isImageUnsupported && hasImageParts(msgs)) {
-                        val stripped = stripImageParts(msgs)
-                        return callOnce(bot, stripped, tools, keys[idx])
-                    }
-                    throw e
                 }
             }
         }
@@ -837,6 +1246,7 @@ object Agent {
 
         // Cancelling the coroutine now cancels the actual OkHttp call rather than merely
         // abandoning a blocking execute() on an IO thread.
+        val t0 = System.currentTimeMillis()
         return suspendCancellableCoroutine { continuation ->
             val call = http.newCall(req)
             continuation.invokeOnCancellation { call.cancel() }
@@ -850,7 +1260,18 @@ object Agent {
                         val message = response.use { r ->
                             val s = r.body?.string().orEmpty()
                             if (!r.isSuccessful) throw IOException("HTTP ${r.code}: ${s.take(300)}")
-                            JSONObject(s).getJSONArray("choices").getJSONObject(0).getJSONObject("message")
+                            val root = JSONObject(s)
+                            // v0.7.0 usage ledger: OpenAI-compatible `usage` (absent on some providers -> 0 tokens, 1 call).
+                            val usage = root.optJSONObject("usage")
+                            runCatching {
+                                UsageLedger.record(
+                                    bot.id, bot.model,
+                                    usage?.optLong("prompt_tokens", 0L) ?: 0L,
+                                    usage?.optLong("completion_tokens", 0L) ?: 0L,
+                                    System.currentTimeMillis() - t0
+                                )
+                            }
+                            root.getJSONArray("choices").getJSONObject(0).getJSONObject("message")
                         }
                         if (continuation.isActive) continuation.resume(message)
                     } catch (e: Exception) {
@@ -859,5 +1280,36 @@ object Agent {
                 }
             })
         }
+    }
+}
+
+/** v0.7.0: tiny perceptual hash for "did the screen change?" checks (pure; unit-tested). */
+internal object ScreenHash {
+    /** Hamming distance at or below which two frames count as unchanged (tolerates a blinking cursor or clock). */
+    const val SAME_THRESHOLD = 3
+
+    /** Difference hash of a 9x8 grayscale grid (row-major, 72 values): bit = left pixel brighter than right. */
+    fun dHash(gray: IntArray): Long {
+        require(gray.size >= 72) { "need 9x8 values" }
+        var h = 0L
+        var bit = 0
+        for (y in 0 until 8) for (x in 0 until 8) {
+            if (gray[y * 9 + x] > gray[y * 9 + x + 1]) h = h or (1L shl bit)
+            bit++
+        }
+        return h
+    }
+
+    fun distance(a: Long, b: Long): Int = java.lang.Long.bitCount(a xor b)
+
+    /**
+     * Central region used for change detection: the middle 80 % of the width and 70 % of the
+     * height. Returns [x, y, w, h] in pixels, always inside the frame.
+     */
+    fun centerCrop(width: Int, height: Int, fracW: Float = 0.8f, fracH: Float = 0.7f): IntArray {
+        if (width <= 0 || height <= 0) return intArrayOf(0, 0, 0, 0)
+        val w = (width * fracW).toInt().coerceIn(1, width)
+        val h = (height * fracH).toInt().coerceIn(1, height)
+        return intArrayOf((width - w) / 2, (height - h) / 2, w, h)
     }
 }

@@ -4,6 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -41,6 +42,47 @@ object Mcp {
     }
 
     private val sessions = ConcurrentHashMap<String, Session>()
+
+    /** Consecutive connection failures per server; a failing server is skipped until retryAtMs. */
+    private class Failure(val count: Int, val retryAtMs: Long)
+    private val failures = ConcurrentHashMap<String, Failure>()
+
+    /** 30 s, 1 min, 2 min, ... capped at 15 min. A dead server used to cost up to 75 s on EVERY turn. */
+    internal fun backoffMs(consecutiveFailures: Int): Long =
+        (30_000L shl (consecutiveFailures - 1).coerceIn(0, 5)).coerceAtMost(15 * 60_000L)
+
+    private fun recordFailure(serverId: String) {
+        val n = (failures[serverId]?.count ?: 0) + 1
+        failures[serverId] = Failure(n, System.currentTimeMillis() + backoffMs(n))
+    }
+
+    private fun inCooldown(serverId: String): Boolean =
+        (failures[serverId]?.retryAtMs ?: 0L) > System.currentTimeMillis()
+
+    /**
+     * MCP headers often carry tokens, so plain HTTP is only accepted for loopback and private-LAN
+     * hosts (a local MCP bridge on the phone or the home network). Everything else must be HTTPS.
+     */
+    internal fun checkUrl(raw: String): HttpUrl {
+        val url = raw.trim().toHttpUrlOrNull()
+            ?: throw IllegalArgumentException("MCP 服务地址格式无效:$raw")
+        if (url.username.isNotEmpty() || url.password.isNotEmpty()) {
+            throw IllegalArgumentException("MCP 服务地址不允许包含账号密码")
+        }
+        if (!url.isHttps && !isLocalHost(url.host)) {
+            throw IllegalArgumentException("MCP 服务必须使用 HTTPS(仅本机与局域网地址允许 HTTP):${url.host}")
+        }
+        return url
+    }
+
+    internal fun isLocalHost(host: String): Boolean {
+        val h = host.lowercase().trim('[', ']')
+        if (h == "localhost" || h.endsWith(".local") || h == "::1") return true
+        val parts = h.split('.').mapNotNull { it.toIntOrNull() }
+        if (parts.size != 4 || h.count { it == '.' } != 3) return false
+        val (a, b) = parts[0] to parts[1]
+        return a == 127 || a == 10 || (a == 192 && b == 168) || (a == 172 && b in 16..31)
+    }
     private val locks = ConcurrentHashMap<String, Mutex>()
     private val idSeq = AtomicInteger(100)
 
@@ -68,11 +110,7 @@ object Mcp {
             .put("method", method)
         if (!notification) payload.put("id", idSeq.incrementAndGet())
         if (params != null) payload.put("params", params)
-        val parsedUrl = server.url.trim().toHttpUrlOrNull()
-            ?: throw IllegalArgumentException("MCP 服务地址格式无效:${server.url}")
-        if (parsedUrl.username.isNotEmpty() || parsedUrl.password.isNotEmpty()) {
-            throw IllegalArgumentException("MCP 服务地址不允许包含账号密码")
-        }
+        val parsedUrl = checkUrl(server.url)
         val builder = Request.Builder()
             .url(parsedUrl)
             .header("Content-Type", "application/json")
@@ -111,7 +149,7 @@ object Mcp {
             val initParams = JSONObject()
                 .put("protocolVersion", "2024-11-05")
                 .put("capabilities", JSONObject())
-                .put("clientInfo", JSONObject().put("name", "BotHive").put("version", "0.6.7.6.7"))
+                .put("clientInfo", JSONObject().put("name", "BotHive").put("version", "0.7.0"))
             val resp = rpc(server, session, "initialize", initParams)
             if (resp != null && resp.has("error")) {
                 throw Exception("MCP initialize 被拒:${resp.getJSONObject("error").optString("message")}")
@@ -140,16 +178,20 @@ object Mcp {
     /** Drops a server's cached MCP session/tool list (after edits or failures). */
     fun invalidate(serverId: String) {
         sessions.remove(serverId)
+        failures.remove(serverId)
     }
 
     /** Function definitions for all enabled servers; a failing server contributes nothing (and never blocks the run). */
     suspend fun toolDefs(store: Store): List<McpTool> {
         val out = mutableListOf<McpTool>()
         for (server in store.mcpServers.filter { it.enabled }) {
+            if (inCooldown(server.id)) continue
             try {
                 out.addAll(ensureReady(server).tools)
+                failures.remove(server.id)
             } catch (_: Exception) {
                 sessions.remove(server.id)
+                recordFailure(server.id)
             }
         }
         return out
@@ -172,6 +214,7 @@ object Mcp {
     /** Settings-page connectivity test: returns the server's tool names. Throws with a readable message. */
     suspend fun testList(server: McpServer): List<String> {
         sessions.remove(server.id)
+        failures.remove(server.id)
         return ensureReady(server).tools.map { it.realName }
     }
 

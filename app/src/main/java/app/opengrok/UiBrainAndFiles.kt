@@ -35,6 +35,9 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -192,9 +195,8 @@ fun SandboxFilesSheet(
                         if (!isImage) {
                             SmallChip("复制文本") {
                                 val txt = runCatching { file.readText().take(20000) }.getOrDefault("")
-                                val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                cm.setPrimaryClip(ClipData.newPlainText(file.name, txt))
-                                Toast.makeText(ctx, "已复制内容", Toast.LENGTH_SHORT).show()
+                                // v0.7.0 (F16): sandbox files (.env, configs) often hold secrets.
+                                copySensitive(ctx, file.name, txt, "已复制内容")
                             }
                             SmallChip("分享") {
                                 val txt = runCatching { file.readText().take(20000) }.getOrDefault("")
@@ -239,6 +241,14 @@ fun MemoryBrainSheet(
     var rev by remember { mutableIntStateOf(0) }
     var draft by remember { mutableStateOf("") }
     var category by remember { mutableStateOf("") }
+    // v0.7.0 memory 2.0: per-Bot switch, shared user facts, feedback → rule suggestions.
+    var memoryOn by remember(botId) { mutableStateOf(ModelPrefs.isMemoryEnabled(botId, ctx)) }
+    var factDraft by remember { mutableStateOf("") }
+    var distilling by remember { mutableStateOf(false) }
+    var suggestions by remember { mutableStateOf<List<String>>(emptyList()) }
+    val picked = remember { mutableStateListOf<String>() }
+    val scope = rememberCoroutineScope()
+    val facts = remember(rev) { store.userFacts() }
 
     val items = remember(botId, rev) {
         store.memories[botId]?.toList().orEmpty()
@@ -256,6 +266,77 @@ fun MemoryBrainSheet(
             onDismiss = onDismiss
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                HiveSwitchRow(
+                    "长期记忆", if (memoryOn) "开启:对话时会带上下面的记忆" else "关闭:不读取也不写入这只 Bot 的记忆", memoryOn
+                ) { on -> ModelPrefs.setMemoryEnabled(ctx, botId, on); memoryOn = on }
+
+                // Shared user facts: every Bot sees these (name, time zone, preferences).
+                Text("关于你(所有 Bot 共享)", color = Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                if (facts.isEmpty()) {
+                    Text("还没有。比如「我叫小陈,时区北京时间,回复请用中文」。", color = Sub, fontSize = 12.sp)
+                } else {
+                    facts.forEachIndexed { i, f ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("• $f", color = Fg, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                            Box(
+                                Modifier.size(24.dp).pressBounce { store.removeUserFact(i); rev++ }
+                                    .clip(CircleShape).background(BeeDanger.copy(alpha = 0.16f)),
+                                contentAlignment = Alignment.Center
+                            ) { Icon(Ic.Close, "删除", tint = BeeDanger, modifier = Modifier.size(12.dp)) }
+                        }
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f)) { Field("添加一条关于你的事实", factDraft, { factDraft = it }) }
+                    SmallChip("添加") {
+                        if (factDraft.isNotBlank()) { store.addUserFact(factDraft.trim()); factDraft = ""; rev++ }
+                    }
+                }
+
+                // Feedback → rules: thumbs on replies are distilled into suggestions you approve.
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("从反馈里学习", color = Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                    SmallChip(if (distilling) "Bix 整理中…" else "整理反馈") {
+                        if (distilling) return@SmallChip
+                        distilling = true
+                        scope.launch {
+                            try {
+                                suggestions = store.distillFeedback(botId)
+                                picked.clear(); picked.addAll(suggestions)
+                                if (suggestions.isEmpty()) Toast.makeText(ctx, "没有足够的反馈可整理,先给几条回复点赞或点踩吧", Toast.LENGTH_LONG).show()
+                            } catch (e: Exception) {
+                                Toast.makeText(ctx, e.message ?: "整理失败", Toast.LENGTH_LONG).show()
+                            } finally {
+                                distilling = false
+                            }
+                        }
+                    }
+                }
+                if (suggestions.isNotEmpty()) {
+                    BixTip("Bix 从你的点赞和点踩里总结出这些规则,勾选后应用(会写成一个技能挂到这只 Bot 上):", BixAction.Thinking)
+                    suggestions.forEach { rule ->
+                        val on = rule in picked
+                        Row(
+                            Modifier.fillMaxWidth().clickable { if (on) picked.remove(rule) else picked.add(rule) }
+                                .harmonyGlass(thickness = ImmersiveThickness.THIN, radius = 12.dp, fallbackBg = PILL)
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(if (on) Ic.Check else Ic.Close, null, tint = if (on) BeeGreen else Sub, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(rule, color = if (on) Fg else Sub, fontSize = 13.sp)
+                        }
+                    }
+                    PillButton("应用选中的 ${picked.size} 条") {
+                        if (picked.isNotEmpty()) {
+                            store.applyFeedbackRules(botId, picked.toList())
+                            Toast.makeText(ctx, "Bix 记住了,下一轮对话起生效", Toast.LENGTH_SHORT).show()
+                            suggestions = emptyList()
+                        }
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Text("这只 Bot 的记忆", color = Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 Field("写入一条新记忆（偏好、规范或事实）", draft, { draft = it }, singleLine = false, minLines = 2)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.weight(1f)) {
@@ -292,13 +373,8 @@ fun MemoryBrainSheet(
                             Spacer(Modifier.width(8.dp))
                             Box(
                                 Modifier.size(26.dp).pressBounce {
-                                    store.memories[botId]?.let { list ->
-                                        if (origIdx in list.indices) {
-                                            list.removeAt(origIdx)
-                                            store.save()
-                                            rev++
-                                        }
-                                    }
+                                    store.removeMemory(botId, origIdx)
+                                    rev++
                                 }.clip(CircleShape).background(BeeDanger.copy(alpha = 0.16f)),
                                 contentAlignment = Alignment.Center
                             ) { Icon(Ic.Close, "遗忘", tint = BeeDanger, modifier = Modifier.size(13.dp)) }

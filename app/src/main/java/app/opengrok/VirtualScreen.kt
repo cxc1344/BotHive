@@ -55,13 +55,54 @@ object VirtualScreen {
     var density: Int = 0
         private set
 
-    /** Last frame, kept for callers that need a bitmap without blocking. */
+    /**
+     * v0.7.0 frame ownership: [latest] is the newest full-resolution frame and is owned by this
+     * object only. It is never handed to a View, so it can be recycled safely when replaced.
+     * Views (the floating preview) and screenshots always get their own scaled copies.
+     *
+     * Before, the overlay's main-thread loop consumed every ImageReader frame itself, displayed the
+     * full-size bitmap and recycled the previous one while the RenderThread could still be drawing
+     * it; screen_shot on an idle screen then found no new image and reported "no frame".
+     */
+    private val frameLock = Any()
+    private var latest: Bitmap? = null
     @Volatile
-    private var lastFrame: Bitmap? = null
+    private var frameSeq = 0L
 
-    /** Drops the cached frame reference. Never recycles: the overlay may still be drawing it. */
+    /** Pulls a new frame if one is ready; returns true when [latest] changed. Call under [frameLock]. */
+    private fun pollLocked(): Boolean {
+        val fresh = grabFrame() ?: return false
+        val old = latest
+        latest = fresh
+        frameSeq++
+        if (old != null && old !== fresh && !old.isRecycled) old.recycle()
+        return true
+    }
+
     private fun swapFrame(next: Bitmap?) {
-        lastFrame = next
+        synchronized(frameLock) {
+            val old = latest
+            latest = next
+            if (old != null && old !== next && !old.isRecycled) old.recycle()
+        }
+    }
+
+    /**
+     * Scaled copy of the newest frame for the floating preview, or null when nothing changed since
+     * [sinceSeq]. The caller owns the copy (never recycled by this object). Runs off the main thread.
+     */
+    fun previewFrame(maxWidth: Int, sinceSeq: Long): Pair<Bitmap, Long>? = synchronized(frameLock) {
+        pollLocked()
+        val src = latest ?: return@synchronized null
+        if (frameSeq == sinceSeq || src.isRecycled) return@synchronized null
+        val scale = minOf(1f, maxWidth.coerceAtLeast(64).toFloat() / src.width)
+        val w = (src.width * scale).toInt().coerceAtLeast(1)
+        val h = (src.height * scale).toInt().coerceAtLeast(1)
+        val copy = runCatching {
+            if (w == src.width) src.copy(Bitmap.Config.ARGB_8888, false)
+            else Bitmap.createScaledBitmap(src, w, h, true)
+        }.getOrNull() ?: return@synchronized null
+        copy to frameSeq
     }
 
     /**
@@ -150,8 +191,9 @@ object VirtualScreen {
     /**
      * Pulls the newest frame from the ImageReader. Callers own the returned bitmap.
      * Returns null when no frame is ready (the display is idle or was just created).
+     * Only called under [frameLock] so the preview loop and screen_shot never race on the reader.
      */
-    fun grabFrame(): Bitmap? {
+    private fun grabFrame(): Bitmap? {
         val ir = reader ?: return null
         val image = try {
             ir.acquireLatestImage()
@@ -180,43 +222,37 @@ object VirtualScreen {
         }
     }
 
-    /**
-     * Frame for the floating window. The previous bitmap is NOT recycled here: the ImageView may
-     * still be drawing it, and recycling it out from under the view crashes the render thread.
-     * The GC reclaims these — frames are small (display-sized ARGB) and produced ~8/s at most.
-     */
-    fun frameForOverlay(): Bitmap? {
-        val fresh = grabFrame()
-        if (fresh != null) lastFrame = fresh
-        return lastFrame
-    }
-
     /** True when a frame is available without waiting for a new one. */
-    fun hasFrame(): Boolean = lastFrame != null
+    fun hasFrame(): Boolean = synchronized(frameLock) { latest != null }
 
     /**
      * Writes a scaled PNG of the virtual display for `screen_shot`, reusing the main-screen
      * screenshot conventions (720px wide cap, rolling 20-file history).
+     * An idle screen produces no new ImageReader frame, so the newest known frame is used.
      */
     fun captureToFile(cacheDir: File): Pair<File, Pair<Int, Int>>? {
-        // A freshly created display needs a moment before the first frame lands, and an idle app
-        // only produces a frame when something changes. Poll briefly so a just-launched app does
-        // not look like a broken screen.
-        var shot = grabFrame()
+        // A freshly created display needs a moment before the first frame lands. Poll briefly so a
+        // just-launched app does not look like a broken screen. The lock is never held while sleeping.
         var waited = 0L
-        while (shot == null && waited < 1_500L) {
+        var shot: Bitmap? = null
+        while (true) {
+            shot = synchronized(frameLock) {
+                pollLocked()
+                val src = latest
+                if (src == null || src.isRecycled) null else {
+                    val scale = minOf(1f, 720f / src.width.toFloat())
+                    runCatching {
+                        if (scale < 1f) Bitmap.createScaledBitmap(src, (src.width * scale).toInt(), (src.height * scale).toInt(), true)
+                        else src.copy(Bitmap.Config.ARGB_8888, false)
+                    }.getOrNull()
+                }
+            }
+            if (shot != null || waited >= 1_500L) break
             Thread.sleep(120)
             waited += 120
-            shot = grabFrame()
         }
-        if (shot == null) return null
-        var scaled: Bitmap? = null
+        val out = shot ?: return null
         return try {
-            val scale = minOf(1f, 720f / shot.width.toFloat())
-            val out = if (scale < 1f) {
-                Bitmap.createScaledBitmap(shot, (shot.width * scale).toInt(), (shot.height * scale).toInt(), true)
-                    .also { scaled = it }
-            } else shot
             val dir = File(cacheDir, "screenshots").apply { mkdirs() }
             val f = File(dir, "vshot_${System.currentTimeMillis()}.png")
             FileOutputStream(f).use { out.compress(Bitmap.CompressFormat.PNG, 90, it) }
@@ -225,9 +261,7 @@ object VirtualScreen {
         } catch (_: Exception) {
             null
         } finally {
-            // Recycle only what we allocated; the raw frame is always ours to free.
-            scaled?.takeIf { !it.isRecycled }?.recycle()
-            if (!shot.isRecycled) shot.recycle()
+            if (!out.isRecycled) out.recycle()
         }
     }
 

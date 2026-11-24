@@ -183,6 +183,7 @@ private fun DrawScope.drawLiquidDrop(
                 dropShader.setFloatUniform("uLightY", -0.85f)
                 dropShader.setFloatUniform("uSpec", t.specStrength * (1.05f + press * 0.65f))
                 dropShader.setFloatUniform("uGlowBoost", press)
+                dropShader.setFloatUniform("uIntensity", GlassStyle.effectiveIntensity)
                 dropShader.setFloatUniform("uTime", (System.nanoTime() / 1_000_000_000f) % 60f)
                 dropShader.setInputShader("uBackdrop", frame.shader)
                 true
@@ -494,7 +495,7 @@ fun Modifier.pressBounce(enabled: Boolean = true, onClick: () -> Unit): Modifier
     val source = remember { MutableInteractionSource() }
     val pressed by source.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        targetValue = if (pressed && tier.motion) 0.955f else 1f,
+        targetValue = if (pressed && tier.motion && !GlassStyle.reduceMotion.value) 0.955f else 1f,
         animationSpec = spring(dampingRatio = 0.42f, stiffness = 520f),
         label = "pressBounce"
     )

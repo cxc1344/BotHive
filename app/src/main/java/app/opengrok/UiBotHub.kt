@@ -345,7 +345,13 @@ fun BotHubScreen(store: Store, go: (Screen) -> Unit) {
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Avatar(chatKey, 40.dp)
+                                // v0.7.0: status halo — working / waiting for approval / idle.
+                                val halo = when {
+                                    store.pendingApprovals.any { it.botId == b.id } -> HaloState.Waiting
+                                    store.busy.any { it == chatKey || (it.startsWith("dm:") && it.contains(b.id)) } -> HaloState.Working
+                                    else -> HaloState.Idle
+                                }
+                                Box(Modifier.statusHalo(halo, cornerRadius = 999.dp)) { Avatar(chatKey, 40.dp) }
                                 Spacer(Modifier.width(10.dp))
                                 Column(Modifier.weight(1f)) {
                                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -390,26 +396,16 @@ fun BotHubScreen(store: Store, go: (Screen) -> Unit) {
                                 SmallChip("记忆") { memoryBot = b }
                                 SmallChip("编辑") { go(Screen.EditBot(b.id)) }
                                 SmallChip("克隆") {
-                                    val copy = b.copy(
-                                        id = UUID.randomUUID().toString().take(8),
-                                        name = "${b.name} 副本"
-                                    )
-                                    if (store.saveBot(copy)) {
-                                        Toast.makeText(ctx, "已克隆「${copy.name}」", Toast.LENGTH_SHORT).show()
-                                    }
+                                    // v0.7.0: unique "副本 n" names and never a second manager.
+                                    val copy = store.duplicateBot(b.id)
+                                    if (copy != null) Toast.makeText(ctx, "已克隆「${copy.name}」", Toast.LENGTH_SHORT).show()
                                 }
                                 SmallChip("分享配置") {
-                                    // Sanitized export: NEVER exports apiKey!
-                                    val js = JSONObject()
-                                        .put("name", b.name)
-                                        .put("prompt", b.prompt)
-                                        .put("model", b.model)
-                                        .put("isManager", b.isManager)
-                                        .put("shellApproval", b.shellApproval)
-                                        .toString(2)
+                                    // v0.7.0 (F22): every non-secret field travels; the API key never does.
+                                    val js = exportBotConfig(store, b, ctx).toString(2)
                                     val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                     cm.setPrimaryClip(ClipData.newPlainText("bothive_bot", js))
-                                    Toast.makeText(ctx, "已复制配置 JSON（不含密钥）", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(ctx, "已复制配置 JSON(不含密钥)", Toast.LENGTH_SHORT).show()
                                 }
                                 Spacer(Modifier.weight(1f))
                                 if (lastMsg != null && lastMsg.time > 0) {
@@ -547,24 +543,12 @@ fun BotHubScreen(store: Store, go: (Screen) -> Unit) {
                         if (parsed == null || parsed.optString("name").isBlank()) {
                             Toast.makeText(ctx, "JSON 格式不正确或缺少 name 字段", Toast.LENGTH_SHORT).show()
                         } else {
-                            val prov = store.providers.firstOrNull()
-                            val ag = store.agent.value
-                            val nb = Bot(
-                                id = UUID.randomUUID().toString().take(8),
-                                name = parsed.optString("name").trim(),
-                                prompt = parsed.optString("prompt", ""),
-                                baseUrl = prov?.baseUrl ?: ag?.baseUrl ?: "https://openrouter.ai/api/v1",
-                                apiKey = if (prov != null) "" else (ag?.apiKey ?: ""),
-                                model = parsed.optString("model").ifBlank { ag?.model ?: "openrouter/free" },
-                                isManager = parsed.optBoolean("isManager", false),
-                                allowInsecureHttp = prov?.allowInsecureHttp ?: ag?.allowInsecureHttp ?: false,
-                                providerId = prov?.id ?: ag?.providerId ?: "",
-                                skillIds = emptyList(),
-                                shellApproval = parsed.optBoolean("shellApproval", false)
-                            )
-                            if (store.saveBot(nb)) {
+                            val nb = importBotConfig(store, parsed, ctx)
+                            if (nb != null) {
                                 showImportDialog = false
                                 Toast.makeText(ctx, "已导入「${nb.name}」", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(ctx, "导入失败:本地数据未能保存", Toast.LENGTH_SHORT).show()
                             }
                         }
                     }) { Text("导入") }
@@ -573,4 +557,83 @@ fun BotHubScreen(store: Store, go: (Screen) -> Unit) {
             )
         }
     }
+}
+
+/**
+ * v0.7.0 (F22): shareable Bot config, schema 2. Carries every non-secret field: prompt, model,
+ * manager flag, approval setting, connection (Provider name, or base URL when there is none),
+ * attached skills (full text, so another device can recreate them) and model capability prefs.
+ * The API key is NEVER included.
+ */
+internal fun exportBotConfig(store: Store, b: Bot, ctx: Context): JSONObject {
+    val prov = store.provider(b.providerId)
+    val skills = org.json.JSONArray()
+    store.skills.filter { it.id in b.skillIds }.forEach { sk ->
+        skills.put(JSONObject().put("name", sk.name).put("description", sk.description).put("content", sk.content))
+    }
+    return JSONObject()
+        .put("schemaVersion", 2)
+        .put("kind", "bothive.bot")
+        .put("name", b.name)
+        .put("prompt", b.prompt)
+        .put("model", b.model)
+        .put("isManager", b.isManager)
+        .put("shellApproval", b.shellApproval)
+        .put("providerName", prov?.name ?: "")
+        .put("baseUrl", if (prov == null) b.baseUrl else "")
+        .put("allowInsecureHttp", prov?.allowInsecureHttp ?: b.allowInsecureHttp)
+        .put("skills", skills)
+        .put("multimodal", ModelPrefs.isMultimodal(b.id, ctx))
+        .put("reasoningEffort", ModelPrefs.reasoningEffort(b.id, ctx))
+}
+
+/**
+ * Imports schema 1 (name/prompt/model/isManager/shellApproval) and schema 2 configs. The connection
+ * reuses a Provider with the same name when one exists, otherwise the first Provider; skills are
+ * matched by name or recreated. A second manager is never created by import.
+ */
+internal fun importBotConfig(store: Store, o: JSONObject, ctx: Context): Bot? {
+    val ag = store.agent.value
+    val wantedProvider = o.optString("providerName").trim()
+    val prov = store.providers.firstOrNull { wantedProvider.isNotEmpty() && it.name == wantedProvider }
+        ?: store.providers.firstOrNull()
+    val skillIds = mutableListOf<String>()
+    val arr = o.optJSONArray("skills")
+    if (arr != null) {
+        for (i in 0 until arr.length()) {
+            val s = arr.optJSONObject(i) ?: continue
+            val name = s.optString("name").trim()
+            if (name.isEmpty()) continue
+            val existing = store.skills.firstOrNull { it.name == name }
+            val id = existing?.id ?: UUID.randomUUID().toString().take(8).also { nid ->
+                store.saveSkill(Skill(nid, name, s.optString("content").take(4_000), s.optString("description").take(200)))
+            }
+            if (id !in skillIds) skillIds.add(id)
+        }
+    }
+    val baseUrl = o.optString("baseUrl").trim()
+    val wantsManager = o.optBoolean("isManager", false) && store.bots.none { it.isManager }
+    val nb = Bot(
+        id = UUID.randomUUID().toString().take(8),
+        name = nextDuplicateName(o.optString("name").trim(), store.bots.map { it.name }.toSet())
+            .let { if (store.bots.any { b -> b.name == o.optString("name").trim() }) it else o.optString("name").trim() },
+        prompt = o.optString("prompt", ""),
+        baseUrl = when {
+            prov != null -> prov.baseUrl
+            baseUrl.isNotEmpty() -> baseUrl
+            else -> ag?.baseUrl ?: "https://openrouter.ai/api/v1"
+        },
+        apiKey = if (prov != null) "" else (ag?.apiKey ?: ""),
+        model = o.optString("model").ifBlank { ag?.model ?: "openrouter/free" },
+        isManager = wantsManager,
+        allowInsecureHttp = prov?.allowInsecureHttp ?: o.optBoolean("allowInsecureHttp", false),
+        providerId = prov?.id ?: ag?.providerId ?: "",
+        skillIds = skillIds,
+        shellApproval = o.optBoolean("shellApproval", false)
+    )
+    if (!store.saveBot(nb)) return null
+    if (o.has("multimodal")) ModelPrefs.setMultimodal(ctx, nb.id, o.optBoolean("multimodal", true))
+    val effort = o.optString("reasoningEffort")
+    if (effort.isNotBlank() && ModelPrefs.EFFORT_OPTIONS.any { it.first == effort }) ModelPrefs.setReasoningEffort(ctx, nb.id, effort)
+    return nb
 }

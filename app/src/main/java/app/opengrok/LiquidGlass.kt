@@ -49,6 +49,7 @@ uniform float uSpec;
 uniform float uTime;
 uniform float uVeil;
 uniform float uRim;
+uniform float uIntensity;
 
 const float SMOOTH = 1.5;
 
@@ -85,6 +86,12 @@ half4 main(float2 xy) {
     float tirTrough = exp(-pow((sdf + 7.0) / 4.0, 2.0));
     body *= (1.0 - tirTrough * 0.28);
 
+    // iOS 27 legibility rim: thin darkened contour just inside the bright hairline (scaled by intensity)
+    float dr = (sdf + 3.0) / 1.7;
+    float darkRim = exp(-dr * dr);
+    body *= (1.0 - darkRim * (0.14 + 0.24 * uIntensity));
+    float specGain = 1.0 + 0.38 * uIntensity;
+
     // Sculptural Fresnel rim & opposite-corner optical bounce
     float2 n = sdfNormal(p, c, r);
     float rimBand = smoothstep(-10.0, -0.4, sdf);
@@ -98,8 +105,8 @@ half4 main(float2 xy) {
     float topSheen = pow(clamp(1.0 - (xy.y / max(uSize.y * 0.35, 1.0)), 0.0, 1.0), 2.5) * 0.08;
 
     float3 col = body
-        + float3(1.0, 1.0, 0.99) * (rimPrimary * uSpec * 0.58 * uRim + pool * pool * uSpec * 0.16 + topSheen)
-        + float3(0.84, 0.94, 1.0) * (rimBounce * uSpec * 0.32 * uRim)
+        + float3(1.0, 1.0, 0.99) * ((rimPrimary * uSpec * 0.58 * uRim + pool * pool * uSpec * 0.16) * specGain + topSheen)
+        + float3(0.84, 0.94, 1.0) * (rimBounce * uSpec * 0.32 * uRim * specGain)
         + float3(1.0, 1.0, 1.0) * (innerHair * 0.28 * uRim);
 
     float alpha = 1.0 - smoothstep(0.0, SMOOTH, sdf);
@@ -132,70 +139,85 @@ fun Modifier.glassSurface(
             Modifier.drawWithCache {
                 val shader = runCatching { GlassShader.newShader() }.getOrNull()
                 val brush = shader?.let { ShaderBrush(it) }
+                val layers = GlassLayerBrushes(tint, thickness, glowBoost, size)
                 onDrawBehind {
                     if (AppBackdrop.isCapturing) return@onDrawBehind
                     if (shader == null || brush == null) {
-                        drawGlassLayers(tint, thickness, glowBoost)
+                        drawGlassLayers(layers)
                         return@onDrawBehind
                     }
+                    val k = GlassStyle.effectiveIntensity
+                    val lens = GlassStyle.lensAmount
                     val spec = if (lightEffect) thickness.specStrength * (1f + glowBoost * 0.65f) else 0.30f
                     val rim = if (lightEffect) (0.70f + thickness.specStrength * 0.40f) else 0.45f
-                    shader.setFloatUniform("uSize", size.width, size.height)
-                    shader.setFloatUniform("uRadius", radiusPx)
-                    shader.setFloatUniform("uTintA", tint.alpha)
-                    shader.setFloatUniform("uTint", tint.red, tint.green, tint.blue, 1f)
-                    shader.setFloatUniform("uLightX", light.x)
-                    shader.setFloatUniform("uLightY", light.y)
-                    shader.setFloatUniform("uSpec", spec)
-                    shader.setFloatUniform("uTime", (System.nanoTime() / 1_000_000_000f) % 60f)
-                    shader.setFloatUniform("uVeil", thickness.veilAlpha)
-                    shader.setFloatUniform("uRim", rim)
-                    drawRect(brush, topLeft = Offset.Zero, size = size)
+                    val ok = runCatching {
+                        shader.setFloatUniform("uSize", size.width, size.height)
+                        shader.setFloatUniform("uRadius", radiusPx)
+                        shader.setFloatUniform("uTintA", tint.alpha)
+                        shader.setFloatUniform("uTint", tint.red, tint.green, tint.blue, 1f)
+                        shader.setFloatUniform("uLightX", light.x)
+                        shader.setFloatUniform("uLightY", light.y)
+                        shader.setFloatUniform("uSpec", spec)
+                        shader.setFloatUniform("uTime", (System.nanoTime() / 1_000_000_000f) % 60f)
+                        // Lower intensity = more tinted veil (iOS 27 transparency slider).
+                        shader.setFloatUniform("uVeil", (thickness.veilAlpha + (1f - lens) * 0.24f).coerceAtMost(0.66f))
+                        shader.setFloatUniform("uRim", rim)
+                        shader.setFloatUniform("uIntensity", k)
+                        true
+                    }.onFailure { BackdropLens.logShaderFailureOnce("glass-uniforms", it) }.getOrDefault(false)
+                    if (ok) drawRect(brush, topLeft = Offset.Zero, size = size) else drawGlassLayers(layers)
                 }
             }
         )
     }
     return this.then(
-        Modifier.drawWithContent {
-            drawContent()
-            if (!AppBackdrop.isCapturing) {
-                drawGlassLayers(tint, thickness, glowBoost)
+        Modifier.drawWithCache {
+            val layers = GlassLayerBrushes(tint, thickness, glowBoost, size)
+            onDrawWithContent {
+                drawContent()
+                if (!AppBackdrop.isCapturing) {
+                    drawGlassLayers(layers)
+                }
             }
         }
     )
 }
 
-/** Sculptural 3-band Liquid Glass fallback for Medium tier & API < 33. */
-private fun DrawScope.drawGlassLayers(
-    tint: Color,
-    thickness: ImmersiveThickness = ImmersiveThickness.REGULAR,
-    glowBoost: Float = 0f
-) {
-    val w = size.width
-    val h = size.height
-    val topAlpha = (0.10f + thickness.specStrength * 0.08f + glowBoost * 0.08f).coerceAtMost(0.32f)
-    val botAlpha = (0.06f + thickness.veilAlpha * 0.48f).coerceAtMost(0.30f)
-    drawRect(
-        Brush.verticalGradient(
+/** Pre-built gradient brushes for the 3-band fallback (built once per size in drawWithCache). */
+private class GlassLayerBrushes(tint: Color, thickness: ImmersiveThickness, glowBoost: Float, size: Size) {
+    val sheen: Brush
+    val pool: Brush
+    val hairline: Brush
+    val hairSize: Size = Size(size.width, 2.2f)
+
+    init {
+        val w = size.width
+        val h = size.height
+        val topAlpha = (0.10f + thickness.specStrength * 0.08f + glowBoost * 0.08f).coerceAtMost(0.32f)
+        val botAlpha = (0.06f + thickness.veilAlpha * 0.48f).coerceAtMost(0.30f)
+        sheen = Brush.verticalGradient(
             0f to Color.White.copy(alpha = topAlpha),
             0.26f to Color.White.copy(alpha = topAlpha * 0.22f),
             0.60f to Color.Transparent,
             0.90f to Color.Black.copy(alpha = botAlpha),
             1f to Color.White.copy(alpha = topAlpha * 0.38f)
         )
-    )
-    drawRect(
-        Brush.radialGradient(
+        pool = Brush.radialGradient(
             listOf(tint.copy(alpha = (tint.alpha * 0.9f).coerceAtMost(0.28f)), Color.Transparent),
             center = Offset(w * 0.22f, h * 0.08f),
-            radius = maxOf(w, h) * 0.85f
+            radius = maxOf(maxOf(w, h) * 0.85f, 1f)
         )
-    )
-    val rim = Color.White.copy(alpha = (0.20f + thickness.specStrength * 0.16f + glowBoost * 0.12f).coerceAtMost(0.55f))
-    drawRect(
-        Brush.linearGradient(0f to rim, 0.55f to Color.Transparent),
-        size = Size(w, 2.2f)
-    )
+        val rim = Color.White.copy(alpha = (0.20f + thickness.specStrength * 0.16f + glowBoost * 0.12f).coerceAtMost(0.55f))
+        hairline = Brush.linearGradient(0f to rim, 0.55f to Color.Transparent)
+    }
+}
+
+/** Sculptural 3-band Liquid Glass fallback for Medium tier & API < 33. Specular scales with intensity. */
+private fun DrawScope.drawGlassLayers(layers: GlassLayerBrushes) {
+    val k = GlassStyle.effectiveIntensity
+    drawRect(layers.sheen, alpha = (0.80f + 0.30f * k).coerceAtMost(1f))
+    drawRect(layers.pool)
+    drawRect(layers.hairline, size = layers.hairSize, alpha = (0.75f + 0.35f * k).coerceAtMost(1f))
 }
 
 /**
@@ -243,7 +265,9 @@ fun Modifier.harmonyGlass(
             light = light
         )
     } else {
-        val baseAlpha = (0.26f + thickness.veilAlpha * 1.15f).coerceIn(0.28f, 0.78f)
+        // Continuous intensity: the lower end of the Medium range fades towards a solid tint.
+        val tintUp = (1f - GlassStyle.layerAmount) * 0.34f
+        val baseAlpha = (0.26f + thickness.veilAlpha * 1.15f + tintUp).coerceIn(0.28f, 0.94f)
         base
             .background(fallbackBg.copy(alpha = baseAlpha))
             .glassSurface(
@@ -258,19 +282,41 @@ fun Modifier.harmonyGlass(
     }
 
     // Crisp dual-stop studio Fresnel border (top-left bright white -> mid clear -> bottom-right cool bounce)
-    return surfaceMod.drawWithContent {
-        if (AppBackdrop.isCapturing) return@drawWithContent
-        drawContent()
+    // v0.7.0 (iOS 27): plus a thin darkened inner rim for legibility; both scale with glass intensity.
+    return surfaceMod.drawWithCache {
         val cr = minOf(radiusPx, minOf(size.width, size.height) * 0.5f)
-        drawRoundRect(
-            brush = Brush.linearGradient(
-                0f to Color.White.copy(alpha = rimAlpha),
-                0.35f to Color.White.copy(alpha = rimAlpha * 0.28f),
-                0.68f to Color.White.copy(alpha = rimAlpha * 0.12f),
-                1f to Color(0xFFD6EAFF).copy(alpha = rimAlpha * 0.52f)
-            ),
-            cornerRadius = CornerRadius(cr, cr),
-            style = Stroke(width = 1.0.dp.toPx())
+        val rimBrush = Brush.linearGradient(
+            0f to Color.White.copy(alpha = rimAlpha),
+            0.35f to Color.White.copy(alpha = rimAlpha * 0.28f),
+            0.68f to Color.White.copy(alpha = rimAlpha * 0.12f),
+            1f to Color(0xFFD6EAFF).copy(alpha = rimAlpha * 0.52f)
         )
+        val rimStroke = Stroke(width = 1.0.dp.toPx())
+        val darkStroke = Stroke(width = 1.6.dp.toPx())
+        val inset = 1.3.dp.toPx()
+        val darkTopLeft = Offset(inset, inset)
+        val darkSize = Size((size.width - inset * 2f).coerceAtLeast(0f), (size.height - inset * 2f).coerceAtLeast(0f))
+        val darkCr = (cr - inset).coerceAtLeast(0f)
+        onDrawWithContent {
+            if (AppBackdrop.isCapturing) return@onDrawWithContent
+            drawContent()
+            val k = GlassStyle.effectiveIntensity
+            if (k > GlassStyle.OFF_BELOW && darkSize.width > 0f && darkSize.height > 0f) {
+                drawRoundRect(
+                    color = Color.Black,
+                    topLeft = darkTopLeft,
+                    size = darkSize,
+                    cornerRadius = CornerRadius(darkCr, darkCr),
+                    style = darkStroke,
+                    alpha = 0.08f + 0.16f * k
+                )
+            }
+            drawRoundRect(
+                brush = rimBrush,
+                cornerRadius = CornerRadius(cr, cr),
+                style = rimStroke,
+                alpha = (0.78f + 0.32f * k).coerceAtMost(1f)
+            )
+        }
     }
 }

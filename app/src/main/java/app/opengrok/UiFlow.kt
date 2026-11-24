@@ -55,38 +55,12 @@ import app.opengrok.ThemeAccentPale
 private fun fmtTime(ms: Long): String =
     if (ms <= 0) "—" else SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(ms))
 
-/** In-chat approval cards (permission broker): pending shell commands for this chat. */
+/** In-chat approval cards (permission broker): pending gated actions for this chat (v0.7.0: shared card). */
 @Composable
 fun ApprovalCards(store: Store, chatId: String) {
     store.pendingApprovals.filter { it.chatId == chatId }.forEach { ap ->
         Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)) {
-            BixScene(
-                action = BixAction.ApprovalGuard,
-                compact = true,
-                modifier = Modifier.align(Alignment.TopEnd).padding(end = 14.dp).offset(y = (-18).dp)
-            )
-        Column(
-            Modifier.fillMaxWidth().padding(top = 8.dp)
-                .harmonyGlass(thickness = ImmersiveThickness.THICK, radius = 16.dp, fallbackBg = BeePanelRaised)
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            val kindLabel = when (ap.toolName) {
-                "shizuku_shell" -> "待批准 Shizuku 命令"
-                "fs_delete" -> "待批准删除文件"
-                else -> "待批准命令"
-            }
-            val displayCmd = if (ap.toolName == "fs_delete" && ap.command.contains("|")) {
-                val parts = ap.command.split("|", limit = 2)
-                "[${parts[0]}] ${parts[1]}"
-            } else ap.command
-            Text("$kindLabel · ${store.botName(ap.botId)}", color = ThemeAccentPale, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-            Text(displayCmd, color = Fg, fontSize = 13.sp, fontFamily = HiveFonts.Mono, maxLines = 5, overflow = TextOverflow.Ellipsis)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PillButton("执行", modifier = Modifier.weight(1f)) { store.executeApproval(ap) }
-                PillButton("拒绝", filled = false, modifier = Modifier.weight(1f)) { store.rejectApproval(ap) }
-            }
-        }
+            ApprovalItemCard(store, ap, showChat = false)
         }
     }
 }
@@ -118,17 +92,27 @@ fun EditSkillScreen(store: Store, skillId: String?, go: (Screen) -> Unit) {
     val old = store.skills.firstOrNull { it.id == skillId }
     var name by remember { mutableStateOf(old?.name ?: "") }
     var content by remember { mutableStateOf(old?.content ?: "") }
+    var description by remember { mutableStateOf(old?.description ?: "") }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { go(Screen.Settings) }) { Icon(Ic.Back, null, tint = Fg) }
-            Text(if (old == null) "新建技能包" else "编辑技能包", style = HiveSerif.SheetTitle())
+            Text(if (old == null) "新建技能包" else "编辑技能包", style = HiveSerif.SheetTitle(), modifier = Modifier.weight(1f))
+            BixScene(action = BixAction.Teaching, compact = true)
         }
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Field("名称", name, { name = it })
+            // v0.7.0: the description tells Bots WHEN to load this skill (list_skills / use_skill).
+            Field("一句话说明什么时候用(Bot 靠它判断要不要调用)", description, { description = it }, singleLine = false, minLines = 2)
             Field("内容(会拼进启用它的 Bot 的 System Prompt)", content, { content = it }, singleLine = false, minLines = 8)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SmallChip("插入六段式模板") {
+                    content = if (content.isBlank()) SKILL_TEMPLATE else content.trimEnd() + "\n\n" + SKILL_TEMPLATE
+                }
+            }
+            BixTip("好技能写清六件事:何时使用、需要的输入与权限、步骤、如何验证、输出什么、哪些操作要批准。", BixAction.Teaching)
             Text("例子:「做数学题时只许用初二上册学过的方法,禁用勾股定理与三角函数。」或某个项目的代码规范、写作风格。", color = Sub, fontSize = 12.sp)
             Spacer(Modifier.height(4.dp))
         }
@@ -136,7 +120,7 @@ fun EditSkillScreen(store: Store, skillId: String?, go: (Screen) -> Unit) {
             PillButton("保存", modifier = Modifier.fillMaxWidth()) {
                 if (name.isNotBlank()) {
                     val id = old?.id ?: UUID.randomUUID().toString().take(8)
-                    store.saveSkill(Skill(id, name.trim(), content))
+                    store.saveSkill(Skill(id, name.trim(), content, description.trim()))
                     go(Screen.Settings)
                 }
             }
@@ -374,8 +358,10 @@ fun StopButton(onStop: () -> Unit) {
 /** Round send button shared by every composer: luminous white pill when ready, crystal glass otherwise. */
 @Composable
 fun SendButton(enabled: Boolean, onClick: () -> Unit) {
+    // v0.7.0: Bix-style acknowledgement — a tiny bounce + haptic the moment a message is sent.
+    val (ackMod, ack) = rememberAckBounce()
     Box(
-        Modifier.size(40.dp).pressBounce(enabled = enabled, onClick = onClick)
+        Modifier.size(40.dp).then(ackMod).pressBounce(enabled = enabled, onClick = { ack(); onClick() })
             .then(
                 if (enabled) Modifier.clip(androidx.compose.foundation.shape.CircleShape).background(PillWhite)
                 else Modifier.harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = PILL)
@@ -411,7 +397,7 @@ fun ChatComposer(
     val focused = keyboard
     val expanded by animateFloatAsState(
         targetValue = if (focused) 1f else 0f,
-        animationSpec = tween(if (tier.motion) GlassMotion.ms(220) else 0),
+        animationSpec = tween(if (GlassStyle.motionEnabled) GlassMotion.ms(220) else 0),
         label = "composer-morph"
     )
     val radius = lerp(26.dp, 24.dp, expanded)

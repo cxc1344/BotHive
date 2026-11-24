@@ -170,12 +170,12 @@ fun AgentChatScreen(store: Store, go: (Screen) -> Unit) {
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().topScrollFade(104.dp),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 118.dp, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             items(msgs, key = { it.id }) { m ->
-                if (GlassStyle.tier.value.motion) {
+                if (GlassStyle.motionEnabled) {
                     var appeared by remember(m.id) { mutableStateOf(false) }
                     LaunchedEffect(m.id) { appeared = true }
                     androidx.compose.animation.AnimatedVisibility(
@@ -270,6 +270,20 @@ fun AgentChatScreen(store: Store, go: (Screen) -> Unit) {
                 Spacer(Modifier.width(6.dp))
                 Box(Modifier.size(36.dp).harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = Card)) {
                     IconButton(onClick = { go(Screen.AgentSettings) }, modifier = Modifier.fillMaxSize()) { Icon(Ic.Tune, null, tint = Fg, modifier = Modifier.size(18.dp)) }
+                }
+            }
+            // v0.7.0: live phone-control progress (phone_task steps / screen actions) with Bix.
+            if (AgentProgress.active.value) {
+                val stuck = AgentProgress.stuck.value
+                val step = AgentProgress.step.intValue
+                val max = AgentProgress.maxSteps.intValue
+                Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                    BixTip(
+                        (if (stuck) "好像卡住了 · " else "正在操作手机 · ") +
+                            (if (max > 0) "第 $step/$max 步" else "") +
+                            AgentProgress.label.value.let { if (it.isBlank()) "" else " · $it" },
+                        if (stuck) BixAction.Dizzy else BixAction.Coding
+                    )
                 }
             }
             ApprovalCards(store, AGENT_ID)
@@ -600,7 +614,11 @@ fun AgentPermissions(store: Store) {
         // Poll the real system state: the in-memory flag alone made this card claim "未开启"
         // whenever the app process had been restarted while the service stayed enabled.
         var a11yTick by remember { mutableStateOf(0) }
-        LaunchedEffect(Unit) {
+        // v0.7.0 (F8): poll only while the screen is actually visible.
+        val a11yResumed = rememberIsResumed()
+        LaunchedEffect(a11yResumed) {
+            if (!a11yResumed) return@LaunchedEffect
+            a11yTick++
             while (true) {
                 kotlinx.coroutines.delay(2_000)
                 a11yTick++
@@ -642,7 +660,9 @@ fun AgentPermissions(store: Store) {
         // Poll instead of checking once: the binder can come up (or die) while this page is open,
         // and a stale snapshot is exactly what made the card disagree with reality.
         var szTick by remember { mutableStateOf(0) }
-        LaunchedEffect(Unit) {
+        val szResumed = rememberIsResumed()
+        LaunchedEffect(szResumed) {
+            if (!szResumed) return@LaunchedEffect
             while (true) {
                 ShizukuTools.refresh()
                 szTick++

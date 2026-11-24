@@ -61,6 +61,25 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.ui.composed
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.unit.Dp
 
 /**
  * Floating Liquid Glass "Browser Task" pill displayed near the top of the app whenever the AI
@@ -71,14 +90,19 @@ import androidx.compose.ui.viewinterop.AndroidView
  *  - Expands for 3.5s on start or new browser action, then auto-collapses into a compact
  *    Bix-working orb docked below the sub-header on the right edge (never blocking Agent settings!).
  *  - Tapping the compact Bix orb re-expands the full bar for 4s before auto-collapsing again.
+ *  - v0.7.0: tapping morphs the pill into the watch panel (shared bounds + corner radius), a status halo
+ *    tracks AiBrowser (Working while the AI acts, Waiting/amber during user takeover), Bix rides the
+ *    page-loading line, and Bix switches to the Handoff pose while the user is in control.
  */
 @Composable
 fun AiBrowserTaskPill(modifier: Modifier = Modifier) {
     val active = AiBrowser.active
     val sheetOpen = AiBrowser.sheetOpen
     val actionKey = AiBrowser.lastActionLabel
+    val pulseKey = AiBrowser.cursorPulseMs
     var expanded by remember { mutableStateOf(true) }
     var expandTick by remember { mutableIntStateOf(0) }
+    var working by remember { mutableStateOf(false) }
 
     // Auto-expand briefly when a browser task starts or performs a new action, then collapse to compact Bix orb
     LaunchedEffect(active, sheetOpen, actionKey, expandTick) {
@@ -87,14 +111,32 @@ fun AiBrowserTaskPill(modifier: Modifier = Modifier) {
         delay(if (expandTick > 0) 4000L else 3500L)
         expanded = false
     }
+    // "Working" while the AI performed an action in the last ~2.5 s (synced with AiBrowser state).
+    LaunchedEffect(active, actionKey, pulseKey) {
+        if (!active) { working = false; return@LaunchedEffect }
+        working = true
+        delay(2500L)
+        working = false
+    }
 
     AnimatedVisibility(
         visible = active && !sheetOpen,
         modifier = modifier,
-        enter = fadeIn(tween(200)) + slideInVertically(tween(220)) { -it },
-        exit = fadeOut(tween(160)) + slideOutVertically(tween(180)) { -it }
+        enter = fadeIn(tween(GlassMotion.ms(200))) + slideInVertically(tween(GlassMotion.ms(220))) { -it },
+        // Quick fade: the panel morphs out of this pill's bounds at the same time.
+        exit = fadeOut(tween(GlassMotion.ms(140)))
     ) {
         val takeover = AiBrowser.userTakeover
+        val halo = when {
+            takeover -> HaloState.Waiting
+            working -> HaloState.Working
+            else -> HaloState.Thinking
+        }
+        val bixPose = when {
+            takeover -> BixAction.Handoff
+            working -> BixAction.Searching
+            else -> BixAction.Coding
+        }
         Box(
             Modifier
                 .statusBarsPadding()
@@ -111,6 +153,9 @@ fun AiBrowserTaskPill(modifier: Modifier = Modifier) {
                 Row(
                     Modifier
                         .fillMaxWidth()
+                        .onGloballyPositioned { BrowserMorph.pillBounds = it.boundsInRoot() }
+                        .statusHalo(halo, cornerRadius = 20.dp, gap = 2.dp, bixWings = false)
+                        .bixLoadingRide(takeover)
                         .pressBounce { AiBrowser.sheetOpen = true }
                         .harmonyGlass(
                             thickness = ImmersiveThickness.THICK,
@@ -121,10 +166,7 @@ fun AiBrowserTaskPill(modifier: Modifier = Modifier) {
                         .padding(horizontal = 12.dp, vertical = 9.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    BixScene(
-                        action = if (takeover) BixAction.ApprovalGuard else BixAction.Coding,
-                        compact = true
-                    )
+                    BixScene(action = bixPose, compact = true)
                     Spacer(Modifier.width(8.dp))
                     Column(Modifier.weight(1f)) {
                         Text(
@@ -164,6 +206,8 @@ fun AiBrowserTaskPill(modifier: Modifier = Modifier) {
                 // Compact floating Bix-working orb: zero obstruction to Agent settings & chat!
                 Box(
                     Modifier
+                        .onGloballyPositioned { BrowserMorph.pillBounds = it.boundsInRoot() }
+                        .statusHalo(halo, cornerRadius = 999.dp, gap = 2.dp)
                         .pressBounce { expandTick++ }
                         .harmonyGlass(
                             thickness = ImmersiveThickness.THICK,
@@ -175,10 +219,7 @@ fun AiBrowserTaskPill(modifier: Modifier = Modifier) {
                     contentAlignment = Alignment.Center
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                        BixScene(
-                            action = if (takeover) BixAction.ApprovalGuard else BixAction.Coding,
-                            compact = true
-                        )
+                        BixScene(action = bixPose, compact = true)
                         Box(
                             Modifier
                                 .size(6.dp)
@@ -189,6 +230,100 @@ fun AiBrowserTaskPill(modifier: Modifier = Modifier) {
                 }
             }
         }
+    }
+}
+
+/** Bounds shared by the pill and the panel for the morph (plain fields: only read in the draw phase). */
+private object BrowserMorph {
+    var pillBounds: Rect = Rect.Zero
+    var panelBounds: Rect = Rect.Zero
+}
+
+/**
+ * Draws the page-loading progress as a thin line along the bottom edge of the pill with a tiny Bix
+ * riding its head (only while 1..99 % and not in takeover). Reads AiBrowser state in the draw phase.
+ */
+private fun Modifier.bixLoadingRide(takeover: Boolean): Modifier = composed {
+    val motion = GlassStyle.motionEnabled
+    val phase: State<Float> = if (motion) {
+        val inf = rememberInfiniteTransition(label = "bix-ride")
+        inf.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(900, easing = LinearEasing), RepeatMode.Restart),
+            label = "bix-ride-phase"
+        )
+    } else {
+        remember { mutableFloatStateOf(0.25f) }
+    }
+    val accent = ThemeAccent
+    Modifier.drawWithCache {
+        val lineH = 2.dp.toPx()
+        val inset = 14.dp.toPx()
+        val spriteH = 14.dp.toPx()
+        val spriteW = spriteH * (36f / 28f)
+        val track = Size((size.width - inset * 2f).coerceAtLeast(0f), lineH)
+        val trackTopLeft = Offset(inset, size.height - lineH - 1.dp.toPx())
+        onDrawWithContent {
+            drawContent()
+            val pct = AiBrowser.loadingProgress
+            if (takeover || pct !in 1..99 || track.width <= 0f) return@onDrawWithContent
+            val f = pct / 100f
+            drawRect(color = Color.White, topLeft = trackTopLeft, size = track, alpha = 0.10f)
+            drawRect(color = accent, topLeft = trackTopLeft, size = Size(track.width * f, lineH), alpha = 0.95f)
+            val hx = trackTopLeft.x + track.width * f - spriteW * 0.5f
+            val hy = trackTopLeft.y - spriteH + lineH * 0.5f
+            drawBixSprite(BixAction.Searching, phase.value, hx, hy, spriteW, spriteH)
+        }
+    }
+}
+
+/**
+ * Reveal-morph: clips the content to a rounded rect interpolated from the pill's bounds (p = 0) to the
+ * full bounds (p = 1), corner radius from the pill's capsule radius to [endRadius]. Zero allocations per
+ * frame (one cached android Path, reset each frame).
+ */
+private fun Modifier.morphReveal(progress: () -> Float, endRadius: Dp): Modifier = this.drawWithCache {
+    val path = android.graphics.Path()
+    val endR = endRadius.toPx()
+    val fallbackH = 48.dp.toPx()
+    onDrawWithContent {
+        val p = progress().coerceIn(0f, 1f)
+        if (p >= 0.999f) {
+            drawContent()
+            return@onDrawWithContent
+        }
+        val panel = BrowserMorph.panelBounds
+        val pill = BrowserMorph.pillBounds
+        val w = size.width
+        val h = size.height
+        var fl: Float
+        var ft: Float
+        var fw: Float
+        var fh: Float
+        if (pill.width > 0f && panel.width > 0f) {
+            fw = pill.width.coerceAtMost(w)
+            fh = pill.height.coerceAtMost(h)
+            fl = (pill.left - panel.left).coerceIn(0f, (w - fw).coerceAtLeast(0f))
+            ft = (pill.top - panel.top).coerceIn(0f, (h - fh).coerceAtLeast(0f))
+        } else {
+            fw = w * 0.6f
+            fh = fallbackH.coerceAtMost(h)
+            fl = w * 0.2f
+            ft = 0f
+        }
+        val l = fl + (0f - fl) * p
+        val t = ft + (0f - ft) * p
+        val r = (fl + fw) + (w - (fl + fw)) * p
+        val b = (ft + fh) + (h - (ft + fh)) * p
+        val rad = (fh / 2f) + (endR - fh / 2f) * p
+        path.reset()
+        path.addRoundRect(l, t, r, b, rad, rad, android.graphics.Path.Direction.CW)
+        val c = drawContext.canvas.nativeCanvas
+        val save = c.save()
+        c.clipPath(path)
+        drawContent()
+        c.restoreToCount(save)
     }
 }
 
@@ -205,16 +340,38 @@ fun AiBrowserSheetOverlay() {
     val ctx = LocalContext.current
     BackHandler(open) { AiBrowser.sheetOpen = false }
 
-    AnimatedVisibility(
-        visible = open,
-        enter = fadeIn(tween(180)) + slideInVertically(tween(240, easing = FastOutSlowInEasing)) { it / 3 },
-        exit = fadeOut(tween(150)) + slideOutVertically(tween(200, easing = FastOutSlowInEasing)) { it / 3 }
-    ) {
+    // v0.7.0: the panel morphs out of the task pill (reveal from the pill's bounds) instead of sliding up.
+    val morph = remember { Animatable(if (open) 1f else 0f) }
+    LaunchedEffect(open) {
+        val target = if (open) 1f else 0f
+        if (!GlassStyle.motionEnabled) {
+            morph.snapTo(target)
+        } else if (open) {
+            morph.animateTo(1f, spring(dampingRatio = 0.86f, stiffness = 420f))
+        } else {
+            morph.animateTo(0f, tween(GlassMotion.ms(240).coerceAtLeast(1), easing = FastOutSlowInEasing))
+        }
+    }
+    val shown by remember { derivedStateOf { morph.value > 0.001f } }
+    var sheetWorking by remember { mutableStateOf(false) }
+    LaunchedEffect(open, AiBrowser.lastActionLabel, AiBrowser.cursorPulseMs) {
+        if (!open) { sheetWorking = false; return@LaunchedEffect }
+        sheetWorking = true
+        delay(2500L)
+        sheetWorking = false
+    }
+
+    if (open || shown) {
         val takeover = AiBrowser.userTakeover
+        val panelHalo = when {
+            takeover -> HaloState.Waiting
+            sheetWorking -> HaloState.Working
+            else -> HaloState.Idle
+        }
         Box(
             Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.52f))
+                .drawBehind { drawRect(Color.Black, alpha = 0.52f * morph.value.coerceIn(0f, 1f)) }
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
@@ -227,6 +384,10 @@ fun AiBrowserSheetOverlay() {
                     .fillMaxHeight(0.88f)
                     .padding(start = 8.dp, end = 8.dp, bottom = 8.dp)
                     .navigationBarsPadding()
+                    .onGloballyPositioned { BrowserMorph.panelBounds = it.boundsInRoot() }
+                    .graphicsLayer { alpha = (0.30f + 0.70f * morph.value).coerceIn(0f, 1f) }
+                    .morphReveal({ morph.value }, 24.dp)
+                    .statusHalo(panelHalo, cornerRadius = 24.dp, gap = 0.dp, bixWings = false)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null
@@ -282,10 +443,11 @@ fun AiBrowserSheetOverlay() {
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    val wv = remember { AiBrowser.ensureWebView(ctx) }
-                    SmallChip("后退") { if (wv.canGoBack()) wv.goBack() }
-                    SmallChip("前进") { if (wv.canGoForward()) wv.goForward() }
-                    SmallChip("刷新") { wv.reload() }
+                    // Resolve the WebView at click time: closeSession() destroys the old instance,
+                    // and a remembered reference would keep driving a destroyed WebView.
+                    SmallChip("后退") { AiBrowser.ensureWebView(ctx).let { if (it.canGoBack()) it.goBack() } }
+                    SmallChip("前进") { AiBrowser.ensureWebView(ctx).let { if (it.canGoForward()) it.goForward() } }
+                    SmallChip("刷新") { AiBrowser.ensureWebView(ctx).reload() }
                     SmallChip(if (AiBrowser.desktopMode) "桌面版 ✓" else "手机版") {
                         AiBrowser.toggleDesktopMode(ctx)
                     }
@@ -318,7 +480,9 @@ fun AiBrowserSheetOverlay() {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Box(
-                        Modifier.size(7.dp).clip(CircleShape)
+                        Modifier.size(7.dp)
+                            .statusHalo(if (takeover) HaloState.Waiting else if (sheetWorking) HaloState.Working else HaloState.Idle, gap = 2.dp, bixWings = false)
+                            .clip(CircleShape)
                             .background(if (takeover) ThemeAccent else BeeGreen)
                     )
                     Spacer(Modifier.width(8.dp))

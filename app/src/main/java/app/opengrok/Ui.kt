@@ -46,6 +46,7 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -109,6 +110,13 @@ sealed interface Screen {
     data object NewGroup : Screen
     data object Settings : Screen
     data object Search : Screen
+    // v0.7.0「蜂巢自治」
+    data object Approvals : Screen
+    data object Policy : Screen
+    data object Routines : Screen
+    data object Usage : Screen
+    data object Activity : Screen
+    data object HiveCenter : Screen
 }
 
 @Composable
@@ -128,7 +136,35 @@ fun App(store: Store) {
         true
     }
     BackHandler(drawer) { drawer = false }
-    BackHandler(!drawer && screen != Screen.Home) { screen = Screen.Home }
+    // v0.7.0: predictive back. While the system back gesture is in progress the current page
+    // shrinks and slides toward the gesture edge; releasing goes back, cancelling restores it.
+    var backProgress by remember { mutableFloatStateOf(0f) }
+    var backFromLeft by remember { mutableStateOf(true) }
+    androidx.activity.compose.PredictiveBackHandler(enabled = !drawer && screen != Screen.Home) { progress ->
+        try {
+            progress.collect { e ->
+                backFromLeft = e.swipeEdge == androidx.activity.BackEventCompat.EDGE_LEFT
+                backProgress = e.progress
+            }
+            backProgress = 0f
+            screen = parentOf(screen)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            backProgress = 0f
+            throw e
+        }
+    }
+    // A notification asked to open a chat (Notify → MainActivity → store.openRequest).
+    val openReq = store.openRequest.value
+    LaunchedEffect(openReq) {
+        val id = openReq ?: return@LaunchedEffect
+        store.openRequest.value = null
+        drawer = false
+        screen = when {
+            id == AGENT_ID -> Screen.AgentChat
+            id == "approvals" -> Screen.Approvals
+            else -> Screen.Chat(id)
+        }
+    }
     LaunchedEffect(screen) {
         when (val s = screen) {
             is Screen.Chat -> UiState.touch(s.id)
@@ -157,7 +193,21 @@ fun App(store: Store) {
                 androidx.compose.material3.LocalTextStyle.current
         ) {
             val glassTier = GlassStyle.tier.value
-            val enableLiveCapture = glassTier.shader && BackdropLens.supported()
+            // v0.7.0 (F21): the GPU readback only runs while the activity is resumed.
+            val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+            var resumed by remember { mutableStateOf(true) }
+            DisposableEffect(lifecycleOwner) {
+                val obs = androidx.lifecycle.LifecycleEventObserver { _, ev ->
+                    when (ev) {
+                        androidx.lifecycle.Lifecycle.Event.ON_RESUME -> resumed = true
+                        androidx.lifecycle.Lifecycle.Event.ON_PAUSE -> resumed = false
+                        else -> {}
+                    }
+                }
+                lifecycleOwner.lifecycle.addObserver(obs)
+                onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
+            }
+            val enableLiveCapture = glassTier.shader && BackdropLens.supported() && resumed && !GlassStyle.capped
             val captureLayer = rememberGraphicsLayer()
 
             // Async GPU readback loop: completely idle when static (dirtySeq unchanged);
@@ -178,7 +228,8 @@ fun App(store: Store) {
                         if (bmp != null) {
                             AppBackdrop.publishLiveFrame(bmp, rw, rh)
                         }
-                        delay(33L)
+                        // ~20 fps is plenty for a blurred lens and halves the readback cost.
+                        delay(50L)
                     } else {
                         delay(48L)
                     }
@@ -198,7 +249,8 @@ fun App(store: Store) {
                         val rootW = size.width.toInt()
                         val rootH = size.height.toInt()
                         if (enableLiveCapture && rootW > 0 && rootH > 0) {
-                            val s = AppBackdrop.CAPTURE_SCALE
+                            // v0.7.0 (F21): the lens is blurred anyway; capture at a third of the size.
+                            val s = (AppBackdrop.CAPTURE_SCALE * 0.66f).coerceAtLeast(0.25f)
                             val capW = (rootW * s).toInt().coerceAtLeast(1)
                             val capH = (rootH * s).toInt().coerceAtLeast(1)
                             AppBackdrop.isCapturing = true
@@ -220,13 +272,21 @@ fun App(store: Store) {
                     StudioOpticalBackdrop(Modifier.fillMaxSize())
                     HoneycombBackdrop(Modifier.fillMaxSize(), alpha = .28f)
                 }
-                Box(Modifier.fillMaxSize().systemBarsPadding().imePadding()) {
+                Box(
+                    Modifier.fillMaxSize().systemBarsPadding().imePadding().graphicsLayer {
+                        val p = if (GlassStyle.motionEnabled) backProgress else 0f
+                        val sc = 1f - 0.08f * p
+                        scaleX = sc
+                        scaleY = sc
+                        translationX = (if (backFromLeft) 1f else -1f) * size.width * 0.06f * p
+                        alpha = 1f - 0.15f * p
+                    }
+                ) {
                     ScreenHost(screen, store, nav)
                 }
                 AiBrowserTaskPill(Modifier.align(Alignment.TopEnd))
                 AppDrawer(store, drawer, screen, { drawer = false }, nav)
                 AiBrowserSheetOverlay()
-                SixSevenOverlay()
             }
         }
     }
@@ -243,8 +303,8 @@ fun App(store: Store) {
  */
 @Composable
 private fun ScreenHost(screen: Screen, store: Store, nav: (Screen) -> Unit) {
-    // Off tier renders screens directly with no transition.
-    if (!GlassStyle.tier.value.motion) {
+    // Off tier (or system "remove animations") renders screens directly with no transition.
+    if (!GlassStyle.motionEnabled) {
         when (screen) {
             Screen.Home -> HomeScreen(store, nav)
             Screen.BotMode -> {}
@@ -262,6 +322,12 @@ private fun ScreenHost(screen: Screen, store: Store, nav: (Screen) -> Unit) {
             Screen.NewGroup -> NewGroupScreen(store, nav)
             Screen.Settings -> SettingsScreen(store, nav)
             Screen.Search -> SearchScreen(store, nav)
+            Screen.Approvals -> ApprovalInboxScreen(store, nav)
+            Screen.Policy -> PolicyScreen(store, nav)
+            Screen.Routines -> RoutinesScreen(store, nav)
+            Screen.Usage -> UsageScreen(store, nav)
+            Screen.Activity -> ActivityScreen(store, nav)
+            Screen.HiveCenter -> HiveCenterScreen(store, nav)
         }
         return
     }
@@ -309,8 +375,23 @@ private fun ScreenHost(screen: Screen, store: Store, nav: (Screen) -> Unit) {
             Screen.NewGroup -> NewGroupScreen(store, nav)
             Screen.Settings -> SettingsScreen(store, nav)
             Screen.Search -> SearchScreen(store, nav)
+            Screen.Approvals -> ApprovalInboxScreen(store, nav)
+            Screen.Policy -> PolicyScreen(store, nav)
+            Screen.Routines -> RoutinesScreen(store, nav)
+            Screen.Usage -> UsageScreen(store, nav)
+            Screen.Activity -> ActivityScreen(store, nav)
+            Screen.HiveCenter -> HiveCenterScreen(store, nav)
         }
     }
+}
+
+/** Where system back goes from [s]: editors return to their list, everything else to Home. */
+private fun parentOf(s: Screen): Screen = when (s) {
+    is Screen.EditWorkflow -> Screen.Workflows
+    Screen.Policy, Screen.Usage -> Screen.Settings
+    is Screen.EditProvider, is Screen.EditMcp, is Screen.EditSkill -> Screen.Settings
+    Screen.EditAgent, Screen.AgentSettings -> Screen.AgentChat
+    else -> Screen.Home
 }
 
 /** Navigation depth used to pick the slide direction. */
@@ -324,6 +405,8 @@ private fun screenDepth(s: Screen): Int = when (s) {
     is Screen.EditMcp, is Screen.EditSkill -> 2
     Screen.BotMode -> 1
     Screen.BotHub -> 1
+    Screen.Approvals, Screen.Routines, Screen.Activity, Screen.HiveCenter -> 1
+    Screen.Policy, Screen.Usage -> 2
 }
 
 @Composable
@@ -377,7 +460,8 @@ fun ChatScreen(store: Store, id: String, go: (Screen) -> Unit) {
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize(),
+            // v0.7.0 (iOS 27.3-style scroll edge): text fades out softly under the floating top bar.
+            modifier = Modifier.fillMaxSize().topScrollFade(104.dp),
             contentPadding = PaddingValues(
                 start = 16.dp, end = 16.dp,
                 top = 118.dp,
@@ -386,7 +470,7 @@ fun ChatScreen(store: Store, id: String, go: (Screen) -> Unit) {
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             items(msgs, key = { it.id }) { m ->
-                if (GlassStyle.tier.value.motion) {
+                if (GlassStyle.motionEnabled) {
                     var appeared by remember(m.id) { mutableStateOf(false) }
                     LaunchedEffect(m.id) { appeared = true }
                     RowEnter(appeared) {
@@ -819,9 +903,8 @@ private fun AssistantActions(store: Store, chatId: String, m: Msg) {
     ) {
         Box(
             Modifier.size(32.dp).pressBounce {
-                val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                cm.setPrimaryClip(android.content.ClipData.newPlainText("message", cleanAnswer))
-                android.widget.Toast.makeText(ctx, "已复制", android.widget.Toast.LENGTH_SHORT).show()
+                // v0.7.0 (F16): replies often quote tool output (tokens, keys) — hide from clipboard preview.
+                copySensitive(ctx, "message", cleanAnswer)
             }.harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = PILL),
             contentAlignment = Alignment.Center
         ) { Icon(Ic.Copy, "复制", tint = Sub, modifier = Modifier.size(15.dp)) }
@@ -836,6 +919,22 @@ private fun AssistantActions(store: Store, chatId: String, m: Msg) {
                     .harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = PILL),
                 contentAlignment = Alignment.Center
             ) { Icon(Ic.Close, "删除这条回复", tint = Sub, modifier = Modifier.size(14.dp)) }
+        }
+        // v0.7.0: feedback. Thumbs are stored on the message; "整理反馈" in the memory sheet turns
+        // them into rule suggestions the user approves before they take effect.
+        if (m.from != null && chatId.isNotEmpty()) {
+            val up = m.feedback > 0
+            val down = m.feedback < 0
+            Box(
+                Modifier.size(32.dp).pressBounce { store.setFeedback(chatId, m.id, if (up) 0 else 1) }
+                    .harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = if (up) ThemeAccent.copy(alpha = 0.28f) else PILL),
+                contentAlignment = Alignment.Center
+            ) { Icon(Ic.ThumbUp, "有帮助", tint = if (up) ThemeAccentPale else Sub, modifier = Modifier.size(14.dp)) }
+            Box(
+                Modifier.size(32.dp).pressBounce { store.setFeedback(chatId, m.id, if (down) 0 else -1) }
+                    .harmonyGlass(thickness = ImmersiveThickness.ULTRA_THIN, radius = 999.dp, fallbackBg = if (down) BeeDanger.copy(alpha = 0.22f) else PILL),
+                contentAlignment = Alignment.Center
+            ) { Icon(Ic.ThumbDown, "没帮助", tint = if (down) BeeDanger else Sub, modifier = Modifier.size(14.dp)) }
         }
         if (m.time > 0) {
             Spacer(Modifier.width(4.dp))
@@ -1136,11 +1235,8 @@ private fun ToolActionRow(t: ToolCall, a: ToolActions) {
         (a.chatId.startsWith("bot:") || a.chatId.startsWith("group:") || a.chatId == AGENT_ID)
     var ask by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        SmallChip("复制" + if (t.name == "shell") "命令" else "参数") {
-            val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-            cm.setPrimaryClip(android.content.ClipData.newPlainText("tool", copyText(t)))
-            android.widget.Toast.makeText(ctx, "已复制", android.widget.Toast.LENGTH_SHORT).show()
-        }
+        SmallChip("复制" + if (t.name == "shell") "命令" else "参数") { copySensitive(ctx, "tool", copyText(t)) }
+        if (t.output.isNotBlank()) SmallChip("复制输出") { copySensitive(ctx, "tool output", t.output) }
         if (canRerun) SmallChip("重跑") { ask = true }
     }
     if (ask) {

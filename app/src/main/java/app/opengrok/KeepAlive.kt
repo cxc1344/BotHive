@@ -16,6 +16,7 @@ import android.os.IBinder
 import android.os.PowerManager
 import android.os.SystemClock
 import android.provider.Settings
+import androidx.compose.runtime.mutableStateOf
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 
@@ -41,11 +42,20 @@ object KeepAlive {
         if (on) start(ctx) else runCatching { ctx.stopService(Intent(ctx, KeepAliveService::class.java)) }
     }
 
-    fun start(ctx: Context) {
-        try {
+    /** v0.7.0 (F6): true only while the service is actually started (set by the service itself). */
+    val running = mutableStateOf(false)
+
+    /**
+     * Requests the foreground service. Returns false when the system refused the start (some ROMs
+     * refuse background FGS starts; the next app open retries). A true result means the request
+     * was accepted; [running] turns true once the service is really up.
+     */
+    fun start(ctx: Context): Boolean {
+        return try {
             ContextCompat.startForegroundService(ctx, Intent(ctx, KeepAliveService::class.java))
+            true
         } catch (_: Exception) {
-            // Some ROMs refuse background FGS starts; the next app open retries.
+            false
         }
     }
 
@@ -92,16 +102,28 @@ class KeepAliveService : Service() {
         )
         val notif = NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(android.R.drawable.stat_notify_sync)
-            .setContentTitle("BotHive 正在后台待命")
-            .setContentText("例行任务与主动消息通道保持运行")
+            .setContentTitle(BixVoice.KEEP_ALIVE_TITLE)
+            .setContentText(BixVoice.KEEP_ALIVE_TEXT)
             .setContentIntent(open)
             .setOngoing(true)
             .build()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
-        } else {
-            startForeground(NOTIF_ID, notif)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+            } else {
+                startForeground(NOTIF_ID, notif)
+            }
+            KeepAlive.running.value = true
+        } catch (_: Exception) {
+            // ForegroundServiceStartNotAllowedException (12+) and similar: report honestly and stop.
+            KeepAlive.running.value = false
+            stopSelf()
         }
+    }
+
+    override fun onDestroy() {
+        KeepAlive.running.value = false
+        super.onDestroy()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
@@ -110,7 +132,10 @@ class KeepAliveService : Service() {
         // Swiped away from recents: ask the alarm clock to bring the service back shortly.
         try {
             val am = getSystemService(AlarmManager::class.java)
-            val pi = PendingIntent.getService(
+            // v0.7.0: getService() uses startService(), which Android 8+ refuses for a background
+            // app, so the "swipe away and it comes back" restart never worked. An exact alarm may
+            // start a foreground service from the background, so use getForegroundService().
+            val pi = PendingIntent.getForegroundService(
                 this, 7, Intent(this, KeepAliveService::class.java),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )

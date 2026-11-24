@@ -10,14 +10,14 @@ android {
     defaultConfig {
         applicationId = "app.opengrok"
         minSdk = 26
-        targetSdk = 34
-        versionCode = 67
-        versionName = "0.6.7.6.7"
+        targetSdk = 35
+        versionCode = 68
+        versionName = "0.7.0"
     }
-    // Fixed signing for CI builds: when KEYSTORE_FILE is present in the environment,
-    // builds are signed with the project keystore (provided through CI secrets) so a
-    // new build installs over the previous one. Without it the default debug key is used.
-    val ciKeystore = System.getenv("KEYSTORE_FILE")
+    // Fixed signing for CI builds: when KEYSTORE_FILE points at an existing file, builds are
+    // signed with the project keystore (provided through CI secrets) so a new build installs
+    // over the previous one. Without it (forks, local builds) the default debug key is used.
+    val ciKeystore = System.getenv("KEYSTORE_FILE")?.takeIf { it.isNotBlank() && file(it).exists() }
     if (ciKeystore != null) {
         signingConfigs {
             create("ci") {
@@ -34,7 +34,7 @@ android {
         }
         release {
             isMinifyEnabled = false
-            if (ciKeystore != null) signingConfig = signingConfigs.getByName("ci")
+            signingConfig = if (ciKeystore != null) signingConfigs.getByName("ci") else signingConfigs.getByName("debug")
         }
     }
     compileOptions {

@@ -63,14 +63,47 @@ object AiBrowser {
     @Volatile
     private var takeoverGate: CompletableDeferred<Unit>? = null
 
+    /** v0.7.0: the Bot that currently drives the browser (one at a time); null = free. */
+    var ownerId by mutableStateOf<String?>(null)
+        private set
+    var ownerName by mutableStateOf("")
+        private set
+    @Volatile
+    private var ownerLastUseMs = 0L
+    private const val OWNER_IDLE_MS = 10 * 60_000L
+
+    /**
+     * v0.7.0: claims the browser for [botId]. Returns null when [botId] may drive it, or a neutral
+     * message for the model when another Bot holds it (released on close or after 10 idle minutes).
+     */
+    fun claim(botId: String, botName: String): String? {
+        val now = System.currentTimeMillis()
+        val cur = ownerId
+        if (cur != null && cur != botId && active && now - ownerLastUseMs < OWNER_IDLE_MS) {
+            return "AI 浏览器正在被「$ownerName」使用,同一时间只能有一个 Bot 操作它。请等对方用完(关闭浏览器)后再试,或请用户在浏览器面板里结束当前任务。"
+        }
+        ownerId = botId
+        ownerName = botName
+        ownerLastUseMs = now
+        return null
+    }
+
+    fun isOwnedByOther(botId: String): Boolean {
+        val cur = ownerId ?: return false
+        return cur != botId && active && System.currentTimeMillis() - ownerLastUseMs < OWNER_IDLE_MS
+    }
+
     private const val DESKTOP_UA =
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 
     @SuppressLint("SetJavaScriptEnabled")
     fun ensureWebView(context: Context): WebView {
         webView?.let { return it }
+        // v0.7.0: wrap the APPLICATION context. The Activity is swapped in only while the WebView
+        // is attached to the sheet (attachTo) and swapped back out on detach, so a tool call that
+        // creates the WebView first can no longer keep a destroyed Activity alive.
         val appCtx = context.applicationContext
-        val wrapper = MutableContextWrapper(context)
+        val wrapper = MutableContextWrapper(appCtx)
         ctxWrapper = wrapper
         val wv = WebView(wrapper).apply {
             isFocusable = true
@@ -175,6 +208,8 @@ object AiBrowser {
         lastActionLabel = "已关闭"
         takeoverGate?.complete(Unit)
         takeoverGate = null
+        ownerId = null
+        ownerName = ""
         val wv = webView
         webView = null
         ctxWrapper = null
@@ -184,6 +219,50 @@ object AiBrowser {
                 wv.stopLoading()
                 wv.destroy()
             }
+        }
+        // v0.7.0: optional privacy mode: forget logins and site data when the browser closes.
+        if (Policy.clearBrowserOnClose) {
+            runCatching {
+                val cm = android.webkit.CookieManager.getInstance()
+                cm.removeAllCookies(null)
+                cm.flush()
+                android.webkit.WebStorage.getInstance().deleteAllData()
+            }
+        }
+    }
+
+    /** v0.7.0: true when the current page looks like a payment / account-security page. */
+    fun onSensitivePage(): Boolean = active && Policy.isSensitivePage(currentUrl, pageTitle)
+
+    /**
+     * v0.7.0: types a Vault value into the focused input with the element's own native value
+     * setter. The value never enters a label, a log or the returned text, and no screenshot is
+     * taken. Returns a neutral result for the model.
+     */
+    suspend fun fillSecret(context: Context, value: String): String {
+        if (!active) return "AI 浏览器没有打开的页面,请先 browser_open。"
+        if (!awaitAiControl()) return "用户已结束独立浏览器任务。"
+        val wv = withContext(Dispatchers.Main) {
+            lastActionLabel = "填入保险箱凭据"
+            ensureWebView(context)
+        }
+        val res = evalJs(
+            wv,
+            """(function(){
+                var el = document.activeElement;
+                if (!el || el === document.body || !('value' in el)) return 'no-input';
+                var desc = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value');
+                var v = ${JSONObject.quote(value)};
+                if (desc && desc.set) { desc.set.call(el, v); } else { el.value = v; }
+                el.dispatchEvent(new Event('input', {bubbles:true}));
+                el.dispatchEvent(new Event('change', {bubbles:true}));
+                return (el.type === 'password') ? 'filled-password' : 'filled';
+            })()"""
+        )
+        return when {
+            res.contains("no-input") -> "没有聚焦的输入框:请先用 browser_mouse 点击要填写的输入框,再调用 browser_fill_secret。"
+            res.contains("filled") -> "已填入"
+            else -> "填入失败"
         }
     }
 
@@ -218,11 +297,14 @@ object AiBrowser {
             val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(bmp)
             wv.draw(canvas)
-            val out = File(cacheDir, "ai_browser_${System.currentTimeMillis()}.jpg")
+            val dir = File(cacheDir, "browser-shots").apply { mkdirs() }
+            val out = File(dir, "ai_browser_${System.currentTimeMillis()}.jpg")
             FileOutputStream(out).use { fos ->
                 bmp.compress(Bitmap.CompressFormat.JPEG, 82, fos)
             }
             bmp.recycle()
+            // Rolling history like the virtual screen: these used to pile up in cacheDir forever.
+            dir.listFiles()?.sortedByDescending { it.lastModified() }?.drop(20)?.forEach { it.delete() }
             out
         }.getOrNull()
     }
@@ -485,7 +567,7 @@ object AiBrowser {
         if (!awaitAiControl()) return "用户已结束独立浏览器任务。" to null
         val wv = withContext(Dispatchers.Main) {
             active = true
-            lastActionLabel = "输入文字：${text.take(18)}"
+            lastActionLabel = "输入文字：${LeakGuard.mask(text).take(18)}"
             ensureWebView(context)
         }
         val escaped = JSONObject.quote(text)
@@ -502,8 +584,10 @@ object AiBrowser {
                 if (el.isContentEditable) {
                     el.innerText = val;
                 } else {
-                    var proto = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')
-                        || Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value');
+                    // v0.7.0 (F9): pick the setter of the element's own prototype. The input setter was
+                    // used for <textarea> too, threw "Illegal invocation" and fell back to el.value,
+                    // which bypasses React/Vue value tracking so the text was silently dropped.
+                    var proto = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value');
                     if (proto && proto.set) { try { proto.set.call(el, val); } catch(e){ el.value = val; } }
                     else { el.value = val; }
                 }

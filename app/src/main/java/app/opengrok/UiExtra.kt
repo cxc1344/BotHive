@@ -119,6 +119,17 @@ fun SettingsScreen(store: Store, go: (Screen) -> Unit) {
             store.persistenceError.value?.let {
                 Text(it, color = BeeDanger, fontSize = 12.sp)
             }
+            store.loadNotice.value?.let {
+                Text(it, color = BeeDanger, fontSize = 12.sp)
+                SmallChip("知道了") { store.dismissLoadNotice() }
+            }
+            // v0.7.0「蜂巢自治」: every hub page has Bix in the matching pose.
+            Text("蜂巢自治", color = Fg, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+            HiveHubRow(BixAction.Sentinel, "权限与哨兵", "四档规则、哨兵蜂审查、受保护应用、凭据保险箱") { go(Screen.Policy) }
+            HiveHubRow(BixAction.Alarm, "例行任务", "定时 / 通知触发 / Webhook,测试与运行记录") { go(Screen.Routines) }
+            HiveHubRow(BixAction.Budget, "用量与预算", "每只 Bot 的 token 用量、每日预算、估算费用") { go(Screen.Usage) }
+            HiveHubRow(BixAction.Briefing, "蜂巢中枢", "总参谋、蜂巢早报、示教录制") { go(Screen.HiveCenter) }
+            SettingsDivider()
             GlassTierCard()
             SettingsDivider()
             ThemeColorCard()
@@ -147,7 +158,7 @@ fun SettingsScreen(store: Store, go: (Screen) -> Unit) {
                 SettingsRow(onClick = { go(Screen.EditSkill(sk.id)) }) {
                     Column(Modifier.weight(1f)) {
                         Text(sk.name, color = Fg, fontWeight = FontWeight.SemiBold)
-                        Text(sk.content, color = Sub, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(sk.description.ifBlank { sk.content }, color = Sub, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
                     Icon(Ic.Edit, null, tint = Sub)
                 }
@@ -169,36 +180,55 @@ fun SettingsScreen(store: Store, go: (Screen) -> Unit) {
             PillButton("添加 MCP 服务", filled = false, modifier = Modifier.fillMaxWidth()) { go(Screen.EditMcp(null)) }
             SettingsDivider()
             Text("例行任务", color = Fg, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-            Text("Bot 与 Agent 用 schedule_task 工具给自己派的定时任务会出现在这里。注意:任务在 App 进程活着时触发,App 被系统杀掉期间到点的任务会顺延到下次打开。", color = Sub, fontSize = 12.sp)
-            if (store.routines.isEmpty()) Text("暂无例行任务", color = Sub)
-            store.routines.sortedBy { it.nextRunMs }.forEach { r ->
-                Column(Modifier.fillMaxWidth().harmonyGlass(thickness = ImmersiveThickness.REGULAR, radius = 12.dp, fallbackBg = Card).padding(12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("${store.botName(r.ownerId)} · ${fmt.format(Date(r.nextRunMs))}${if (r.repeatDaily) " · 每天" else ""} · 由 ${r.createdBy} 创建",
-                            color = Sub, fontSize = 12.sp, modifier = Modifier.weight(1f))
-                        Text("删除", color = Sub, modifier = Modifier.clickable { store.deleteRoutine(r.id) }.padding(6.dp))
-                    }
-                    Text(r.task, color = Fg, fontSize = 13.sp, modifier = Modifier.padding(top = 4.dp))
-                    if (r.lastResult.isNotBlank()) Text("上次结果:${r.lastResult}", color = Sub, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
-                }
-            }
+            Text("共 ${store.routines.size} 个,其中 ${store.routines.count { it.paused }} 个已暂停。任务在 App 进程活着时触发,被系统杀掉期间到点的任务会顺延到下次打开;建议同时开启下面的后台保活。", color = Sub, fontSize = 12.sp)
+            PillButton("管理例行任务", filled = false, modifier = Modifier.fillMaxWidth()) { go(Screen.Routines) }
             SettingsDivider()
             Text("后台保活", color = Fg, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
             Text("开启后会有一个常驻通知的前台服务守着进程:例行任务能按时触发、主动消息通道不断线;被划掉后台时会自动尝试拉起,重启手机后也会自启。最终能不能活下来还要看系统放行——vivo 等机型请再给下面两项权限。", color = Sub, fontSize = 12.sp)
             run {
                 val ctx = LocalContext.current
                 var kaOn by remember { mutableStateOf(KeepAlive.isEnabled(ctx)) }
-                var notifGranted by remember {
-                    mutableStateOf(
-                        Build.VERSION.SDK_INT < 33 ||
-                            ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-                    )
+                fun notifOk() = Build.VERSION.SDK_INT < 33 ||
+                    ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+                var notifGranted by remember { mutableStateOf(notifOk()) }
+                var batteryExempt by remember { mutableStateOf(KeepAlive.isBatteryExempt(ctx)) }
+                // v0.7.0 (F5): grants made in system settings show up as soon as the user comes back.
+                val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+                DisposableEffect(lifecycleOwner) {
+                    val obs = androidx.lifecycle.LifecycleEventObserver { _, ev ->
+                        if (ev == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                            notifGranted = notifOk()
+                            batteryExempt = KeepAlive.isBatteryExempt(ctx)
+                            kaOn = KeepAlive.isEnabled(ctx)
+                        }
+                    }
+                    lifecycleOwner.lifecycle.addObserver(obs)
+                    onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
                 }
-                val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { g -> notifGranted = g }
+                val notifLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { g ->
+                    notifGranted = g
+                    // After a permanent denial the dialog no longer appears: send the user to settings.
+                    if (!g && Build.VERSION.SDK_INT >= 33) {
+                        val act = ctx as? android.app.Activity
+                        val canAsk = act?.shouldShowRequestPermissionRationale(android.Manifest.permission.POST_NOTIFICATIONS) ?: false
+                        if (!canAsk) runCatching {
+                            ctx.startActivity(
+                                android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                                    .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, ctx.packageName)
+                            )
+                        }
+                    }
+                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("保活服务", color = Fg, fontSize = 15.sp)
-                        Text(if (kaOn) "运行中(常驻通知可见)" else "未开启", color = Sub, fontSize = 12.sp)
+                        // v0.7.0 (F6): report what the service actually does, not what the switch says.
+                        val status = when {
+                            !kaOn -> "未开启"
+                            KeepAlive.running.value -> "运行中 · " + BixVoice.KEEP_ALIVE_TITLE
+                            else -> "已开启但系统没让它启动,请给下面两项权限后重开 App"
+                        }
+                        Text(status, color = if (kaOn && !KeepAlive.running.value) BeeDanger else Sub, fontSize = 12.sp)
                     }
                     LiquidSwitch(checked = kaOn, onCheckedChange = { on ->
                         kaOn = on
@@ -206,7 +236,7 @@ fun SettingsScreen(store: Store, go: (Screen) -> Unit) {
                     })
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PillButton(if (KeepAlive.isBatteryExempt(ctx)) "电池豁免 ✓" else "电池优化豁免", filled = false, modifier = Modifier.weight(1f)) {
+                    PillButton(if (batteryExempt) "电池豁免 ✓" else "电池优化豁免", filled = false, modifier = Modifier.weight(1f)) {
                         runCatching { ctx.startActivity(KeepAlive.batteryExemptIntent(ctx)) }
                     }
                     PillButton("自启动设置", filled = false, modifier = Modifier.weight(1f)) {
@@ -269,7 +299,7 @@ fun SettingsScreen(store: Store, go: (Screen) -> Unit) {
                 }
             }
             Spacer(Modifier.height(8.dp))
-            Text("BotHive 0.6.7.6.7 · 点我重回 67 宇宙", color = ThemeAccentPale, fontSize = 12.sp, modifier = Modifier.clickable { SixSevenState.active = true })
+            Text("BotHive 0.6.5", color = Sub, fontSize = 12.sp)
             Spacer(Modifier.height(16.dp))
         }
         Row(
@@ -308,6 +338,20 @@ private fun SettingsDivider() {
 }
 
 /** One tappable settings row on a #20201E card with generous padding (STUDY §2.8). */
+/** v0.7.0: settings entry to a「蜂巢自治」page, fronted by Bix in the matching pose. */
+@Composable
+private fun HiveHubRow(bix: BixAction, title: String, subtitle: String, onClick: () -> Unit) {
+    SettingsRow(onClick = onClick) {
+        BixScene(action = bix, compact = true)
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, color = Fg, fontWeight = FontWeight.SemiBold)
+            Text(subtitle, color = Sub, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+        Icon(Ic.Chevron, null, tint = Sub, modifier = Modifier.size(16.dp))
+    }
+}
+
 @Composable
 private fun SettingsRow(onClick: () -> Unit, content: @Composable RowScope.() -> Unit) {
     Row(
@@ -319,36 +363,104 @@ private fun SettingsRow(onClick: () -> Unit, content: @Composable RowScope.() ->
 }
 
 /**
- * "视觉效果" tier picker (the iOS-27-style intensity control): 关 / 中等 / 最高.
- *
- * The Highest tier is a promise, not a suggestion: it never silently downgrades. The GPU shader
- * path only engages where the platform can run it (API 33+); everything else — liquid switch,
- * glass layers, spring motion — runs at full spec regardless of device, because the user chose it.
+ * "视觉效果" picker, v0.7.0: an iOS-27-style continuous glass intensity slider (纯色 → 极透) with
+ * three quick presets (不要 / 中等 / 最高) and a live preview. The tier used by existing callers is
+ * derived from the slider. Battery saver / system "remove animations" temporarily cap the intensity.
  */
 @Composable
 fun GlassTierCard() {
     val context = LocalContext.current
     val tier = GlassStyle.tier.value
+    val userValue = GlassStyle.intensity.floatValue
     Column(
         Modifier.fillMaxWidth().harmonyGlass(thickness = ImmersiveThickness.REGULAR, radius = UiTokens.RadiusCard, fallbackBg = Card).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("视觉效果", color = Fg, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-        Text(
-            "界面玻璃与动画强度,按手机性能自选。",
-            color = Sub, fontSize = 12.sp
-        )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("视觉效果", color = Fg, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                Text("玻璃通透度与动画强度,拖动滑块连续调节。", color = Sub, fontSize = 12.sp)
+            }
+            BixScene(action = if (tier == GlassTier.Off) BixAction.Sleeping else if (tier == GlassTier.Highest) BixAction.Done else BixAction.Idle, compact = true)
+        }
         val tiers = listOf(GlassTier.Off, GlassTier.Medium, GlassTier.Highest)
         LiquidSegmented(
             options = listOf("不要", "中等", "最高"),
-            selected = tiers.indexOf(tier),
+            selected = tiers.indexOf(GlassStyle.userTier()),
             onSelect = { i -> GlassStyle.set(context, tiers[i]) },
             modifier = Modifier.fillMaxWidth(), height = 44.dp
         )
+        // Continuous intensity slider (iOS 27 transparency slider): left = solid tint, right = clear lens.
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("纯色", color = Sub, fontSize = 11.sp)
+            androidx.compose.material3.Slider(
+                value = userValue,
+                onValueChange = { v -> GlassStyle.setIntensity(context, v, persist = false) },
+                onValueChangeFinished = { GlassStyle.setIntensity(context, GlassStyle.intensity.floatValue, persist = true) },
+                valueRange = 0f..1f,
+                modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                colors = androidx.compose.material3.SliderDefaults.colors(
+                    thumbColor = ThemeAccent,
+                    activeTrackColor = ThemeAccent,
+                    inactiveTrackColor = Color.White.copy(alpha = 0.14f)
+                )
+            )
+            Text("通透", color = Sub, fontSize = 11.sp)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "强度 ${(userValue * 100f).roundToInt()}% · ${GlassStyle.intensityLabel(userValue)}",
+                color = Fg, fontSize = 12.sp, fontWeight = FontWeight.Medium, modifier = Modifier.weight(1f)
+            )
+            Text(
+                when (tier) { GlassTier.Off -> "扁平"; GlassTier.Medium -> "渐变玻璃"; GlassTier.Highest -> "实时透镜" },
+                color = ThemeAccentPale, fontSize = 11.sp
+            )
+        }
+        // Live preview: honey stripes behind a glass capsule rendered with the current intensity.
+        Box(
+            Modifier.fillMaxWidth().height(64.dp).clip(RoundedCornerShape(16.dp))
+                .drawWithContent {
+                    val stripe = size.width / 8f
+                    var i = 0
+                    while (i < 8) {
+                        drawRect(
+                            color = if (i % 2 == 0) ThemeAccent.copy(alpha = 0.55f) else Color(0xFF1B1E24),
+                            topLeft = androidx.compose.ui.geometry.Offset(i * stripe, 0f),
+                            size = androidx.compose.ui.geometry.Size(stripe, size.height)
+                        )
+                        i++
+                    }
+                    drawContent()
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Row(
+                Modifier
+                    .harmonyGlass(thickness = ImmersiveThickness.REGULAR, radius = 999.dp, fallbackBg = Card)
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                BixScene(action = BixAction.Idle, compact = true)
+                Spacer(Modifier.width(6.dp))
+                Text("液态玻璃实时预览", color = Fg, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+            }
+        }
+        if (GlassStyle.capped) {
+            val why = when {
+                GlassStyle.powerSave.value && GlassStyle.reduceMotion.value -> "省电模式与「移除动画」已开启"
+                GlassStyle.powerSave.value -> "系统省电模式已开启"
+                else -> "系统已开启「移除动画」"
+            }
+            BixTip(
+                text = "$why,玻璃强度暂时限制在 ${(GlassStyle.cap * 100f).roundToInt()}%,关闭后自动恢复。",
+                action = BixAction.Sleeping
+            )
+        }
         val tip = when (tier) {
             GlassTier.Off -> "已关闭所有玻璃与动画,纯扁平配色。"
-            GlassTier.Medium -> "玻璃层用渐变材质模拟,动画标准速度,老设备也流畅。"
-            GlassTier.Highest -> "物理级液态玻璃：16-tap Vogel 散景磨砂 + 全内反射暗槽(TIR) + 棚拍镜面高光 + 实时 RGB 色散折射(Android 13+,低版本自动优雅回退)。"
+            GlassTier.Medium -> "玻璃层用渐变材质模拟,越往左越接近纯色,老设备也流畅。"
+            GlassTier.Highest -> "物理级液态玻璃：散景磨砂 + 暗边轮廓 + 棚拍高光 + 实时色散折射(Android 13+,低版本自动优雅回退)。越往右越通透。"
         }
         Text(tip, color = ThemeAccentPale, fontSize = 11.sp, lineHeight = 15.sp)
         // A live LiquidSwitch so the user sees the effect immediately on this very card (plus Bix rapid-toggle easter egg!).

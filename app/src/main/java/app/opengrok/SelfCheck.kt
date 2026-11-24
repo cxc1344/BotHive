@@ -16,13 +16,15 @@ object SelfCheck {
         .build()
 
     /** Each result: (passed, message). */
-    suspend fun run(store: Store, bot: Bot): List<Pair<Boolean, String>> = withContext(Dispatchers.IO) {
+    suspend fun run(store: Store, rawBot: Bot): List<Pair<Boolean, String>> = withContext(Dispatchers.IO) {
+        // v0.7.0: check the effective connection (a linked Provider preset wins), like real chats do.
+        val bot = store.resolved(rawBot)
         val out = mutableListOf<Pair<Boolean, String>>()
         if (bot.apiKey.isBlank()) out.add(false to "未填写 API Key")
 
         try {
             val req = Request.Builder().url(ApiEndpoint.validate(bot) + "/models")
-                .header("Authorization", "Bearer ${bot.apiKey}").build()
+                .header("Authorization", "Bearer ${RetryPolicy.firstKey(bot.apiKey)}").build()
             val t0 = System.currentTimeMillis()
             http.newCall(req).execute().use { r ->
                 val s = r.body?.string().orEmpty()
@@ -76,7 +78,8 @@ object ModelsApi {
         withContext(Dispatchers.IO) {
             val probe = Bot("_probe", "_probe", "", baseUrl, apiKey, "_probe", allowInsecureHttp = allowInsecureHttp)
             val req = Request.Builder().url(ApiEndpoint.validate(probe) + "/models")
-                .header("Authorization", "Bearer $apiKey").build()
+                // A multi-line key pool must never go into one header (OkHttp rejects the newline).
+                .header("Authorization", "Bearer ${RetryPolicy.firstKey(apiKey)}").build()
             http.newCall(req).execute().use { r ->
                 val s = r.body?.string().orEmpty()
                 if (!r.isSuccessful) throw Exception("HTTP ${r.code}:${s.take(160)}")

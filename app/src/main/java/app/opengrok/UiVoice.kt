@@ -1,6 +1,7 @@
 package app.opengrok
 
 import android.app.Activity
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.speech.RecognizerIntent
 import android.widget.Toast
@@ -49,12 +50,24 @@ fun VoiceInputButton(
                         RecognizerIntent.EXTRA_LANGUAGE_MODEL,
                         RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
                     )
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+                    // v0.7.0 (F23): EXTRA_LANGUAGE is a BCP-47 *string*; a Locale object was ignored.
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
                     putExtra(RecognizerIntent.EXTRA_PROMPT, "直接说出你的任务，Bix 帮你转文字…")
                 }
-                val ok = runCatching { launcher.launch(intent) }.isSuccess
-                if (!ok) {
-                    Toast.makeText(ctx, "当前系统未安装语音识别服务", Toast.LENGTH_SHORT).show()
+                // Resolvable only with the <queries> entry in the manifest on Android 11+.
+                val available = intent.resolveActivity(ctx.packageManager) != null
+                val failure = if (!available) "missing" else try {
+                    launcher.launch(intent)
+                    null
+                } catch (_: ActivityNotFoundException) {
+                    "missing"
+                } catch (e: Exception) {
+                    e.message ?: e.javaClass.simpleName
+                }
+                when (failure) {
+                    null -> {}
+                    "missing" -> Toast.makeText(ctx, "Bix 没找到语音识别服务:请安装或启用系统的语音输入(如 Google 语音服务)", Toast.LENGTH_LONG).show()
+                    else -> Toast.makeText(ctx, "语音输入启动失败:$failure", Toast.LENGTH_SHORT).show()
                 }
             }
             .harmonyGlass(

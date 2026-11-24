@@ -9,6 +9,12 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.animation.core.Animatable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.draw.drawWithCache
+import kotlinx.coroutines.delay
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
@@ -113,41 +119,108 @@ fun PixelBeeAvatar(
     }
 }
 
-/** A low-contrast honeycomb layer suitable for placing behind a page or card. */
+/**
+ * A low-contrast honeycomb layer suitable for placing behind a page or card.
+ * v0.7.0: the hexagon grid is built once per size (one cached Path), and when the glass intensity is in
+ * the lens range a few pollen grains occasionally drift across it (short bursts every ~10 s; nothing is
+ * redrawn between bursts). Pollen is off on reduce motion / battery saver / lower intensities.
+ */
 @Composable
 fun HoneycombBackdrop(
     modifier: Modifier = Modifier,
-    alpha: Float = 1f
+    alpha: Float = 1f,
+    pollen: Boolean = true
 ) {
-    Canvas(modifier = modifier) {
-        val opacity = alpha.coerceIn(0f, 1f)
-        if (opacity == 0f || this.size.minDimension <= 0f) return@Canvas
-
-        val radius = 18.dp.toPx()
-        val columnStep = radius * 1.732f
-        val rowStep = radius * 1.5f
-        val columns = (this.size.width / columnStep).toInt() + 3
-        val rows = (this.size.height / rowStep).toInt() + 3
-        val stroke = Stroke(width = 1.dp.toPx())
-        val lineColor = BeeHoneyGold.copy(alpha = opacity * 0.16f)
-        val dotColor = BeeHoneyGlow.copy(alpha = opacity * 0.14f)
-
-        for (row in -1..rows) {
-            val y = row * rowStep
-            val rowOffset = if (row % 2 == 0) 0f else columnStep / 2f
-            for (column in -1..columns) {
-                val center = Offset(column * columnStep + rowOffset, y)
-                drawPath(pixelHexagon(center, radius), color = lineColor, style = stroke)
-                if ((row + column) % 3 == 0) {
-                    drawRect(
-                        color = dotColor,
-                        topLeft = Offset(center.x - 1.2.dp.toPx(), center.y - 1.2.dp.toPx()),
-                        size = Size(2.4.dp.toPx(), 2.4.dp.toPx())
-                    )
+    val opacity = alpha.coerceIn(0f, 1f)
+    Box(modifier) {
+        Spacer(
+            Modifier.matchParentSize().drawWithCache {
+                val radius = 18.dp.toPx()
+                val columnStep = radius * 1.732f
+                val rowStep = radius * 1.5f
+                val columns = (size.width / columnStep).toInt() + 3
+                val rows = (size.height / rowStep).toInt() + 3
+                val stroke = Stroke(width = 1.dp.toPx())
+                val grid = Path()
+                val dots = ArrayList<Offset>()
+                if (size.minDimension > 0f) {
+                    for (row in -1..rows) {
+                        val y = row * rowStep
+                        val rowOffset = if (row % 2 == 0) 0f else columnStep / 2f
+                        for (column in -1..columns) {
+                            val c = Offset(column * columnStep + rowOffset, y)
+                            addPixelHexagon(grid, c, radius)
+                            if ((row + column) % 3 == 0) dots.add(c)
+                        }
+                    }
+                }
+                val lineColor = BeeHoneyGold.copy(alpha = opacity * 0.16f)
+                val dotColor = BeeHoneyGlow.copy(alpha = opacity * 0.14f)
+                val half = 1.2.dp.toPx()
+                val dotSize = Size(half * 2f, half * 2f)
+                onDrawBehind {
+                    if (opacity == 0f || size.minDimension <= 0f) return@onDrawBehind
+                    drawPath(grid, color = lineColor, style = stroke)
+                    for (i in 0 until dots.size) {
+                        val d = dots[i]
+                        drawRect(color = dotColor, topLeft = Offset(d.x - half, d.y - half), size = dotSize)
+                    }
                 }
             }
+        )
+        val pollenOn = pollen && opacity > 0f && GlassStyle.motionEnabled && !GlassStyle.powerSave.value &&
+            GlassStyle.effectiveIntensity >= GlassStyle.SHADER_FROM
+        if (pollenOn) {
+            val drift = remember { Animatable(0f) }
+            LaunchedEffect(Unit) {
+                var seed = 0
+                while (true) {
+                    delay(8_000L + (seed % 5) * 1_300L)
+                    drift.snapTo(0f)
+                    drift.animateTo(1f, tween(3_600, easing = LinearEasing))
+                    drift.snapTo(0f)
+                    seed++
+                }
+            }
+            Spacer(
+                Modifier.matchParentSize().drawWithCache {
+                    val grain = 2.6.dp.toPx()
+                    val grainSize = Size(grain, grain)
+                    val rise = 46.dp.toPx()
+                    val sway = 10.dp.toPx()
+                    onDrawBehind {
+                        val p = drift.value
+                        if (p <= 0f || p >= 1f) return@onDrawBehind
+                        val fade = kotlin.math.sin(p * Math.PI).toFloat()
+                        for (i in 0 until POLLEN_X.size) {
+                            val x = size.width * POLLEN_X[i] + kotlin.math.sin((p * 2f + i * 0.37f) * Math.PI).toFloat() * sway
+                            val y = size.height * POLLEN_Y[i] - rise * p * (0.6f + 0.1f * i)
+                            drawRect(
+                                color = if (i % 2 == 0) BeeHoneyGlow else BeeHoneyGold,
+                                topLeft = Offset(x, y),
+                                size = grainSize,
+                                alpha = (fade * opacity * 0.55f).coerceIn(0f, 1f)
+                            )
+                        }
+                    }
+                }
+            )
         }
     }
+}
+
+/** Fixed pollen spawn points (fractions of the backdrop size). */
+private val POLLEN_X = floatArrayOf(0.12f, 0.31f, 0.52f, 0.68f, 0.83f, 0.94f)
+private val POLLEN_Y = floatArrayOf(0.78f, 0.55f, 0.88f, 0.40f, 0.70f, 0.30f)
+
+private fun addPixelHexagon(path: Path, center: Offset, radius: Float) {
+    path.moveTo(center.x, center.y - radius)
+    path.lineTo(center.x + radius * 0.866f, center.y - radius * 0.5f)
+    path.lineTo(center.x + radius * 0.866f, center.y + radius * 0.5f)
+    path.lineTo(center.x, center.y + radius)
+    path.lineTo(center.x - radius * 0.866f, center.y + radius * 0.5f)
+    path.lineTo(center.x - radius * 0.866f, center.y - radius * 0.5f)
+    path.close()
 }
 
 private fun DrawScope.drawBeePetShadow() {

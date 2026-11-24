@@ -32,7 +32,7 @@ internal object LinuxRuntime {
     private const val MAX_ROOTFS_ARCHIVE_BYTES = 64L * 1024L * 1024L
     private const val DOWNLOAD_DEADLINE_MS = 300_000L
     private const val TOTAL_STEPS = 9
-    private const val USER_AGENT = "BotHive-Android/0.6.7.6.7"
+    private const val USER_AGENT = "BotHive-Android/0.7.0"
 
     /** First-run provisioning inside the fresh rootfs; failure is soft (install still succeeds). */
     private const val PROVISION_CMD =
@@ -73,7 +73,8 @@ internal object LinuxRuntime {
         rootfs: File,
         workspace: File,
         command: String,
-        timeoutSec: Long
+        timeoutSec: Long,
+        extraBinds: List<Pair<String, String>> = emptyList()
     ): String {
         val abi = supported.firstOrNull { it.android in Build.SUPPORTED_ABIS }
             ?: throw LinuxSetupException(
@@ -100,7 +101,7 @@ internal object LinuxRuntime {
                 throw IOException("Linux 并发任务已满，请稍后重试")
             }
             try {
-                return runProot(context, botId, proot, loader, rootfs, workspace, command, timeoutSec)
+                return runProot(context, botId, proot, loader, rootfs, workspace, command, timeoutSec, extraBinds)
             } finally {
                 processSlots.release()
             }
@@ -393,6 +394,21 @@ internal object LinuxRuntime {
 
     // ---- running commands ----
 
+    /**
+     * SIGTERM first so PRoot's --kill-on-exit can take its tracees down with it; SIGKILL after 2 s.
+     * Safe to call from an interrupted thread: the interrupt flag is restored afterwards.
+     */
+    private fun terminate(process: Process) {
+        val interrupted = Thread.interrupted()
+        try {
+            process.destroy()
+            val exited = try { process.waitFor(2, TimeUnit.SECONDS) } catch (_: InterruptedException) { false }
+            if (!exited) process.destroyForcibly()
+        } finally {
+            if (interrupted) Thread.currentThread().interrupt()
+        }
+    }
+
     private data class ProotRun(val text: String, val exit: Int, val timedOut: Boolean, val limit: Long)
 
     private fun render(r: ProotRun): String {
@@ -419,12 +435,13 @@ internal object LinuxRuntime {
         rootfs: File,
         workspace: File,
         command: String,
-        timeoutSec: Long
+        timeoutSec: Long,
+        extraBinds: List<Pair<String, String>> = emptyList()
     ): String {
-        val first = runProotOnce(context, botId, proot, loader, rootfs, workspace, command, timeoutSec, seccompDisabled)
+        val first = runProotOnce(context, botId, proot, loader, rootfs, workspace, command, timeoutSec, seccompDisabled, extraBinds = extraBinds)
         if (!seccompDisabled && looksSeccompRelated(first)) {
             // Some kernels/ROMs reject PRoot's seccomp acceleration; retry once without it (the guest command never ran).
-            val second = runProotOnce(context, botId, proot, loader, rootfs, workspace, command, timeoutSec, true)
+            val second = runProotOnce(context, botId, proot, loader, rootfs, workspace, command, timeoutSec, true, extraBinds = extraBinds)
             if (!prootItselfFailed(second)) {
                 seccompDisabled = true
                 return render(second) + "\n[PRoot 已自动改用 PROOT_NO_SECCOMP=1]"
@@ -444,10 +461,12 @@ internal object LinuxRuntime {
         command: String,
         timeoutSec: Long,
         noSeccomp: Boolean,
-        capSec: Long = 180
+        capSec: Long = 180,
+        extraBinds: List<Pair<String, String>> = emptyList()
     ): ProotRun {
         val temp = File(context.cacheDir, "proot-tmp/$botId").apply { mkdirs() }
-        val args = ProotArgs.build(proot.absolutePath, rootfs.absolutePath, workspace.canonicalPath, command)
+        for ((host, _) in extraBinds) runCatching { File(host).mkdirs() }
+        val args = ProotArgs.build(proot.absolutePath, rootfs.absolutePath, workspace.canonicalPath, command, extraBinds)
         val pb = ProcessBuilder(args).directory(workspace).redirectErrorStream(true)
         pb.environment().apply {
             clear() // Do not leak unrelated Android process environment into the guest.
@@ -492,12 +511,18 @@ internal object LinuxRuntime {
         val limit = timeoutSec.coerceIn(1, capSec)
         var timedOut = false
         var exit = -1
-        if (!process.waitFor(limit, TimeUnit.SECONDS)) {
-            timedOut = true
-            process.destroy()
-            if (!process.waitFor(2, TimeUnit.SECONDS)) process.destroyForcibly()
-        } else {
-            exit = process.exitValue()
+        try {
+            if (!process.waitFor(limit, TimeUnit.SECONDS)) {
+                timedOut = true
+                terminate(process)
+            } else {
+                exit = process.exitValue()
+            }
+        } catch (e: InterruptedException) {
+            // v0.7.0: the Stop button interrupts this thread (runInterruptible). Previously the
+            // exception escaped here and the PRoot process kept running in the background.
+            terminate(process)
+            throw e
         }
         reader.join(1_000)
         return ProotRun(synchronized(output) { output.toString() }, exit, timedOut, limit)

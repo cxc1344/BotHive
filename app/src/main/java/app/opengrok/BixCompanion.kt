@@ -46,6 +46,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -57,7 +59,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -93,7 +99,24 @@ enum class BixAction {
     DrillingSquad,
     ApprovalGuard,
     Done,
-    Dizzy
+    Dizzy,
+    // v0.7.0: Bix is the face of every new feature.
+    /** Guard cap + magnifying glass sweeping across (sentinel review, vault). */
+    Sentinel,
+    /** Crossed arms + red X (sentinel rejected / blocked action). */
+    Blocked,
+    /** Holding out a key to the user (HANDOFF policy, browser user takeover). */
+    Handoff,
+    /** Reading a newspaper (hive morning brief / chief of staff). */
+    Briefing,
+    /** Camera + blinking REC dot (teach mode recording). */
+    Teaching,
+    /** Hugging a honey jar that drains with the budget (usage & budget); see BixScene(fill). */
+    Budget,
+    /** Zzz (paused routines, auto-pause). */
+    Sleeping,
+    /** Ringing a bell (event triggers, notifications, webhooks). */
+    Alarm
 }
 
 /** User-selectable 8-bit pixel accessories synced across every Bix appearance in the app. */
@@ -168,7 +191,32 @@ fun classifyToolBixAction(toolName: String): BixAction = when (toolName) {
     "ask_bot", "run_workflow", "schedule_task" -> BixAction.DrillingSquad
     "screen_shot", "screen_dump", "fs_scan", "fs_list", "recall",
     "list_apps", "recent_notifications", "app_usage" -> BixAction.Searching
+    // v0.7.0 tools
+    "team_status" -> BixAction.Briefing
+    "browser_fill_secret", "secret_list" -> BixAction.Sentinel
+    "use_skill", "list_skills" -> BixAction.Thinking
+    "remember" -> BixAction.Thinking
+    "notify", "post_notification" -> BixAction.Alarm
     else -> BixAction.Coding
+}
+
+/**
+ * Maps an approval's sentinel verdict ("" | "pending" | "ok" | "warn" | "block" | "error") to a Bix pose.
+ */
+fun bixForSentinelVerdict(verdict: String): BixAction = when (verdict.trim().lowercase()) {
+    "ok" -> BixAction.Done
+    "block", "error" -> BixAction.Blocked
+    "" -> BixAction.ApprovalGuard
+    else -> BixAction.Sentinel
+}
+
+/** Maps a PolicyLevel / ActionClass-ish name to a Bix pose (string based so it never depends on A's enums). */
+fun bixForPolicyLevel(levelName: String): BixAction = when (levelName.trim().uppercase()) {
+    "AUTO" -> BixAction.Coding
+    "EXPLICIT" -> BixAction.Thinking
+    "ASK" -> BixAction.ApprovalGuard
+    "HANDOFF" -> BixAction.Handoff
+    else -> BixAction.Idle
 }
 
 /**
@@ -395,66 +443,166 @@ private val BixCapRed = Color(0xFFD94A38)
 private val BixGlassCyan = Color(0xFF8BE9FD)
 private val BixHatYellow = Color(0xFFFFD60A)
 private val BixHeadsetBlue = Color(0xFF74A6E6)
+private val BixGuardNavy = Color(0xFF2E4A7A)
+private val BixPaper = Color(0xFFF4EEDC)
+private val BixPaperInk = Color(0xFF8A8577)
+private val BixSleepBlue = Color(0xFFBFD4FF)
+// Hoisted constant tables: the draw functions run every animation frame and must not allocate.
+private val BixCodeLineWidths = floatArrayOf(4.2f, 5.6f, 3.1f, 4.9f)
+private val BixMiniColors = arrayOf(Color(0xFF74A6E6), BixCoral, BixCodeVolt)
 
 /**
  * Renders Bix performing the requested [action] in crisp 8-bit pixel style.
  * Automatically renders the user's chosen [BixPrefs.accessory] across the entire app!
+ *
+ * v0.7.0: [fill] (0..1) drives the honey level of [BixAction.Budget]; other poses ignore it.
+ * Motion follows [GlassStyle.motionEnabled] (glass tier + system "remove animations").
  */
 @Composable
 fun BixScene(
     action: BixAction,
     compact: Boolean = false,
     accessoryOverride: BixAccessory? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    fill: Float = 1f
 ) {
-    val motion = GlassStyle.tier.value.motion
+    val motion = GlassStyle.motionEnabled
     val acc = accessoryOverride ?: BixPrefs.accessory
-    val inf = rememberInfiniteTransition(label = "bix-scene")
-    val tick by inf.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(
-                durationMillis = when (action) {
-                    BixAction.Coding -> 520
-                    BixAction.DrillingSquad -> 900
-                    BixAction.Searching -> 1150
-                    BixAction.Thinking -> 1400
-                    BixAction.ApprovalGuard -> 760
-                    BixAction.Dizzy -> 900
-                    else -> 1300
-                },
-                easing = LinearEasing
+    // No frame clock at all when motion is off (reduce motion / tier Off).
+    val tick: State<Float> = if (motion) {
+        val inf = rememberInfiniteTransition(label = "bix-scene")
+        inf.animateFloat(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(
+                    durationMillis = bixCycleMs(action),
+                    easing = LinearEasing
+                ),
+                repeatMode = RepeatMode.Restart
             ),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "bix-tick"
-    )
-    val phase = if (motion) tick else 0.25f
-
-    val width: Dp
-    val height: Dp
-    when {
-        action == BixAction.DrillingSquad && compact -> { width = 48.dp; height = 28.dp }
-        action == BixAction.DrillingSquad && !compact -> { width = 136.dp; height = 56.dp }
-        action == BixAction.Coding && compact -> { width = 38.dp; height = 28.dp }
-        action == BixAction.Coding && !compact -> { width = 92.dp; height = 54.dp }
-        action == BixAction.Searching && compact -> { width = 36.dp; height = 28.dp }
-        action == BixAction.Searching && !compact -> { width = 88.dp; height = 54.dp }
-        compact -> { width = 30.dp; height = 28.dp }
-        else -> { width = 76.dp; height = 54.dp }
+            label = "bix-tick"
+        )
+    } else {
+        remember { mutableFloatStateOf(0.25f) }
     }
+    val dims = bixSceneSize(action, compact)
+    val f = fill.coerceIn(0f, 1f)
 
-    Canvas(modifier = modifier.size(width, height)) {
-        when (action) {
-            BixAction.Coding -> drawBixCoding(phase, compact, acc)
-            BixAction.Thinking -> drawBixThinking(phase, compact, acc)
-            BixAction.Searching -> drawBixSearching(phase, compact, acc)
-            BixAction.DrillingSquad -> drawBixDrillingSquad(phase, compact, acc)
-            BixAction.ApprovalGuard -> drawBixApprovalGuard(phase, compact, acc)
-            BixAction.Dizzy -> drawBixDizzy(phase, compact, acc)
-            BixAction.Done -> drawBixDone(phase, compact, acc)
-            BixAction.Idle -> drawBixIdle(phase, compact, acc)
+    // The phase is read in the draw phase only: no recomposition per animation frame.
+    Canvas(modifier = modifier.size(dims.first, dims.second)) {
+        val phase = if (motion) tick.value else 0.25f
+        drawBixPose(action, phase, compact, acc, f)
+    }
+}
+
+/** Loop length of each pose's animation cycle. */
+fun bixCycleMs(action: BixAction): Int = when (action) {
+    BixAction.Coding -> 520
+    BixAction.DrillingSquad -> 900
+    BixAction.Searching -> 1150
+    BixAction.Thinking -> 1400
+    BixAction.ApprovalGuard -> 760
+    BixAction.Dizzy -> 900
+    BixAction.Sentinel -> 1150
+    BixAction.Blocked -> 700
+    BixAction.Handoff -> 1200
+    BixAction.Briefing -> 1600
+    BixAction.Teaching -> 1000
+    BixAction.Budget -> 1800
+    BixAction.Sleeping -> 2400
+    BixAction.Alarm -> 420
+    else -> 1300
+}
+
+/** Canvas size of a pose (width, height). */
+fun bixSceneSize(action: BixAction, compact: Boolean): Pair<Dp, Dp> = when {
+    action == BixAction.DrillingSquad && compact -> 48.dp to 28.dp
+    action == BixAction.DrillingSquad -> 136.dp to 56.dp
+    action == BixAction.Coding && compact -> 38.dp to 28.dp
+    action == BixAction.Coding -> 92.dp to 54.dp
+    action == BixAction.Searching && compact -> 36.dp to 28.dp
+    action == BixAction.Searching -> 88.dp to 54.dp
+    bixHasProp(action) && compact -> 40.dp to 28.dp
+    bixHasProp(action) -> 92.dp to 54.dp
+    compact -> 30.dp to 28.dp
+    else -> 76.dp to 54.dp
+}
+
+private fun bixHasProp(action: BixAction): Boolean = when (action) {
+    BixAction.Sentinel, BixAction.Blocked, BixAction.Handoff, BixAction.Briefing,
+    BixAction.Teaching, BixAction.Budget, BixAction.Sleeping, BixAction.Alarm -> true
+    else -> false
+}
+
+/**
+ * Draws one frame of a pose into the current DrawScope (its size defines the pixel unit).
+ * Shared by [BixScene], [BixSprite] (plain android Canvas) and the motion helpers in UiMotion.kt.
+ */
+fun DrawScope.drawBixPose(
+    action: BixAction,
+    phase: Float,
+    compact: Boolean,
+    acc: BixAccessory = BixPrefs.accessory,
+    fill: Float = 1f
+) {
+    when (action) {
+        BixAction.Coding -> drawBixCoding(phase, compact, acc)
+        BixAction.Thinking -> drawBixThinking(phase, compact, acc)
+        BixAction.Searching -> drawBixSearching(phase, compact, acc)
+        BixAction.DrillingSquad -> drawBixDrillingSquad(phase, compact, acc)
+        BixAction.ApprovalGuard -> drawBixApprovalGuard(phase, compact, acc)
+        BixAction.Dizzy -> drawBixDizzy(phase, compact, acc)
+        BixAction.Done -> drawBixDone(phase, compact, acc)
+        BixAction.Idle -> drawBixIdle(phase, compact, acc)
+        BixAction.Sentinel -> drawBixSentinel(phase, compact, acc)
+        BixAction.Blocked -> drawBixBlocked(phase, compact, acc)
+        BixAction.Handoff -> drawBixHandoff(phase, compact, acc)
+        BixAction.Briefing -> drawBixBriefing(phase, compact, acc)
+        BixAction.Teaching -> drawBixTeaching(phase, compact, acc)
+        BixAction.Budget -> drawBixBudget(phase, compact, acc, fill)
+        BixAction.Sleeping -> drawBixSleeping(phase, compact, acc)
+        BixAction.Alarm -> drawBixAlarm(phase, compact, acc)
+    }
+}
+
+/**
+ * Draws Bix poses into a plain [android.graphics.Canvas] (overlay windows, custom Views) by reusing the
+ * Compose pixel renderer through one cached [CanvasDrawScope]. No bitmaps; the Compose canvas wrapper is
+ * only re-created when the platform hands the View a different recording canvas instance.
+ */
+class BixSprite(density: Float) {
+    private val scope = CanvasDrawScope()
+    private val dens = Density(density)
+    private var wrapped: android.graphics.Canvas? = null
+    private var composeCanvas: androidx.compose.ui.graphics.Canvas? = null
+
+    var action: BixAction = BixAction.Idle
+    /** null = the user's chosen accessory. */
+    var accessory: BixAccessory? = null
+    var fill: Float = 1f
+    /** Mirror horizontally (e.g. when riding the left screen edge). */
+    var mirrored: Boolean = false
+
+    fun draw(canvas: android.graphics.Canvas, left: Float, top: Float, width: Float, height: Float, phase: Float, compact: Boolean = true) {
+        if (width <= 0f || height <= 0f) return
+        val cached = composeCanvas
+        val cc = if (cached != null && wrapped === canvas) cached else {
+            androidx.compose.ui.graphics.Canvas(canvas).also { wrapped = canvas; composeCanvas = it }
+        }
+        val save = canvas.save()
+        try {
+            canvas.translate(left, top)
+            if (mirrored) canvas.scale(-1f, 1f, width / 2f, height / 2f)
+            val a = action
+            val acc = accessory ?: BixPrefs.accessory
+            val f = fill.coerceIn(0f, 1f)
+            scope.draw(density = dens, layoutDirection = LayoutDirection.Ltr, canvas = cc, size = Size(width, height)) {
+                drawBixPose(a, phase, compact, acc, f)
+            }
+        } catch (_: Throwable) {
+        } finally {
+            canvas.restoreToCount(save)
         }
     }
 }
@@ -479,7 +627,8 @@ private fun DrawScope.drawCoreBix(
     face: Int = 0, // 0=cheer, 1=focused, 2=happy, 3=dizzy, 4=alert
     commanderCap: Boolean = false,
     accessory: BixAccessory = BixAccessory.None,
-    accentGlow: Color? = null
+    accentGlow: Color? = null,
+    guardCap: Boolean = false
 ) {
     fun p(x: Float, y: Float, w: Float = 1f, h: Float = 1f, c: Color) =
         px(x, y, w, h, unit, originX, originY, c)
@@ -497,6 +646,13 @@ private fun DrawScope.drawCoreBix(
 
     // Headgear: Commander Cap takes precedence in DrillingSquad; otherwise user accessory
     when {
+        guardCap -> {
+            // Sentinel guard cap: navy crown, gold badge, dark visor
+            p(3f, 0.1f, 8f, 2.1f, BixGuardNavy)
+            p(6.2f, 0.4f, 1.6f, 1.3f, BixGold)
+            p(6.6f, 0.7f, 0.8f, 0.6f, BixGoldLight)
+            p(2f, 2.2f, 11f, 0.9f, BixOutline)
+        }
         commanderCap -> {
             p(3f, 0f, 8f, 2f, BixCapRed)
             p(4f, 0f, 6f, 1f, BixGold)
@@ -556,6 +712,22 @@ private fun DrawScope.drawCoreBix(
             p(8.0f, 6.0f, 1.4f, 1.4f, BixStopRed)
             p(6.0f, 8.0f, 2.0f, 0.8f, BixOutline)
         }
+        5 -> {
+            // asleep: closed eyes + small round mouth
+            p(4.5f, 6.6f, 1.6f, 0.5f, BixOutline)
+            p(7.9f, 6.6f, 1.6f, 0.5f, BixOutline)
+            p(6.5f, 8.1f, 1.0f, 0.7f, BixOutline)
+        }
+        6 -> {
+            // stern: inward brows + flat mouth
+            p(4.3f, 5.2f, 1.3f, 0.6f, BixOutline)
+            p(5.4f, 5.7f, 0.8f, 0.5f, BixOutline)
+            p(8.4f, 5.2f, 1.3f, 0.6f, BixOutline)
+            p(7.8f, 5.7f, 0.8f, 0.5f, BixOutline)
+            p(4.8f, 6.4f, 1.2f, 1.1f, BixOutline)
+            p(8.0f, 6.4f, 1.2f, 1.1f, BixOutline)
+            p(5.8f, 8.2f, 2.4f, 0.6f, BixOutline)
+        }
         4 -> {
             p(4.6f, 5.8f, 1.3f, 1.7f, BixOutline)
             p(8.1f, 5.8f, 1.3f, 1.7f, BixOutline)
@@ -614,7 +786,7 @@ private fun DrawScope.drawBixCoding(phase: Float, compact: Boolean, acc: BixAcce
     px(3.2f, 1.2f, 7.1f, 5.1f, u, ox, oy, BixScreenBg)
 
     val scroll = (phase * 4f).toInt()
-    val lineWidths = floatArrayOf(4.2f, 5.6f, 3.1f, 4.9f)
+    val lineWidths = BixCodeLineWidths
     for (i in 0..2) {
         val w = lineWidths[(i + scroll) % lineWidths.size]
         val c = if ((i + scroll) % 3 == 0) BixCodeVolt else BixCodeGreen
@@ -697,7 +869,7 @@ private fun DrawScope.drawBixDrillingSquad(phase: Float, compact: Boolean, acc: 
         px(14.4f, 3.4f, 1.0f, 0.7f, u, startX, baseY, BixGold)
     }
 
-    val miniColors = listOf(Color(0xFF74A6E6), BixCoral, BixCodeVolt)
+    val miniColors = BixMiniColors
     val mu = u * 0.56f
     for (i in 0..2) {
         val mx = startX + (16.4f + i * 4.3f) * u
@@ -769,6 +941,198 @@ private fun DrawScope.drawBixIdle(phase: Float, compact: Boolean, acc: BixAccess
     val bx = (size.width - 14f * u) * 0.5f
     val by = size.height - 13.5f * u + bob
     drawCoreBix(bx, by, u, wingUp = phase < 0.5f, face = 0, accessory = acc)
+}
+
+/** 8-bit magnifying glass (6x7 logical px) at (mx, my). */
+private fun DrawScope.drawPixelMagnifier(mx: Float, my: Float, u: Float, lensAlpha: Float = 0.55f) {
+    px(1f, 0f, 4f, 1f, u, mx, my, BixLaptopEdge)
+    px(1f, 5f, 4f, 1f, u, mx, my, BixLaptopEdge)
+    px(0f, 1f, 1f, 4f, u, mx, my, BixLaptopEdge)
+    px(5f, 1f, 1f, 4f, u, mx, my, BixLaptopEdge)
+    px(1f, 1f, 4f, 4f, u, mx, my, BixGlassCyan.copy(alpha = lensAlpha))
+    px(1.5f, 1.5f, 1.2f, 1.2f, u, mx, my, Color.White.copy(alpha = 0.90f))
+    px(4.8f, 5.2f, 1.2f, 1.2f, u, mx, my, BixStripe)
+    px(5.8f, 6.2f, 1.4f, 1.4f, u, mx, my, BixOutline)
+}
+
+/** Scene 8 (v0.7.0): Sentinel Bix in a guard cap sweeping a magnifying glass with a green scan beam. */
+private fun DrawScope.drawBixSentinel(phase: Float, compact: Boolean, acc: BixAccessory) {
+    val u = if (compact) size.height / 14f else size.height / 17f
+    val s = sin(phase * 2f * PI).toFloat()
+    val sweep = s * 1.6f * u
+    val bx = if (compact) 0.6f * u else (size.width - 21f * u) * 0.5f
+    val by = size.height - 13.5f * u
+    drawCoreBix(bx, by, u, wingUp = (phase * 2f).toInt() % 2 == 0, face = 1, accessory = acc, guardCap = true)
+    val mx = bx + 12.0f * u + sweep
+    val my = by + 3.2f * u
+    // Scan beam fanning down from the lens
+    val beam = 0.28f + 0.22f * kotlin.math.abs(s)
+    px(1.0f, 6.0f, 4.0f, 0.6f, u, mx, my, BixCodeGreen.copy(alpha = beam))
+    px(0.4f, 6.8f, 5.2f, 0.5f, u, mx, my, BixCodeGreen.copy(alpha = beam * 0.6f))
+    drawPixelMagnifier(mx, my, u)
+}
+
+/** Scene 9 (v0.7.0): Blocked Bix with crossed arms, stern face and a pulsing red X. */
+private fun DrawScope.drawBixBlocked(phase: Float, compact: Boolean, acc: BixAccessory) {
+    val u = if (compact) size.height / 14f else size.height / 17f
+    val shake = if (phase < 0.3f && ((phase * 20f).toInt() % 2 == 0)) 0.35f * u else 0f
+    val bx = (if (compact) 0.5f * u else (size.width - 21f * u) * 0.5f) + shake
+    val by = size.height - 13.5f * u
+    drawCoreBix(bx, by, u, wingUp = false, face = 6, accessory = acc)
+    // Crossed arms over the belly
+    px(3.4f, 8.1f, 7.0f, 1.0f, u, bx, by, BixGold)
+    px(4.0f, 8.9f, 6.0f, 0.9f, u, bx, by, BixGoldLight)
+    px(3.2f, 8.0f, 0.9f, 1.0f, u, bx, by, BixOutline)
+    px(9.9f, 8.8f, 0.9f, 1.0f, u, bx, by, BixOutline)
+    // Red X
+    val a = (0.72f + 0.28f * sin(phase * 2f * PI).toFloat()).coerceIn(0f, 1f)
+    val xx = bx + 14.4f * u
+    val xy = by + 2.6f * u
+    for (i in 0..4) {
+        px(i.toFloat(), i.toFloat(), 1.25f, 1.25f, u, xx, xy, BixStopRed.copy(alpha = a))
+        px(4f - i, i.toFloat(), 1.25f, 1.25f, u, xx, xy, BixStopRed.copy(alpha = a))
+    }
+}
+
+/** Scene 10 (v0.7.0): Handoff Bix holding a golden key out to the user. */
+private fun DrawScope.drawBixHandoff(phase: Float, compact: Boolean, acc: BixAccessory) {
+    val u = if (compact) size.height / 14f else size.height / 17f
+    val s = sin(phase * 2f * PI).toFloat()
+    val reach = (0.5f + 0.5f * s) * 1.1f
+    val bx = if (compact) 0.4f * u else (size.width - 22f * u) * 0.5f
+    val by = size.height - 13.5f * u
+    drawCoreBix(bx, by, u, wingUp = phase < 0.5f, face = 2, accessory = acc)
+    val ax = bx + 11.4f * u
+    val ay = by + 7.2f * u
+    px(0f, 0f, 1.6f + reach, 1.0f, u, ax, ay, BixGold)
+    val kx = ax + (1.6f + reach) * u
+    // Key: bow (ring) + shaft + teeth
+    px(0f, -1.0f, 2.6f, 2.6f, u, kx, ay, BixHatYellow)
+    px(0.8f, -0.2f, 1.0f, 1.0f, u, kx, ay, BixOutline)
+    px(2.6f, 0.0f, 3.4f, 0.8f, u, kx, ay, BixHatYellow)
+    px(4.4f, 0.8f, 0.7f, 0.9f, u, kx, ay, BixHatYellow)
+    px(5.4f, 0.8f, 0.6f, 0.7f, u, kx, ay, BixHatYellow)
+    px(0.2f, -0.8f, 0.7f, 0.5f, u, kx, ay, Color.White.copy(alpha = 0.8f))
+    if (s > 0.6f) {
+        px(6.4f, -1.6f, 0.8f, 0.8f, u, kx, ay, BixGoldLight)
+        px(6.0f, -1.3f, 1.6f, 0.3f, u, kx, ay, Color.White.copy(alpha = 0.85f))
+    }
+}
+
+/** Scene 11 (v0.7.0): Briefing Bix reading the hive morning paper. */
+private fun DrawScope.drawBixBriefing(phase: Float, compact: Boolean, acc: BixAccessory) {
+    val u = if (compact) size.height / 14f else size.height / 17f
+    val bob = sin(phase * 2f * PI).toFloat() * 0.3f * u
+    val bx = if (compact) 0.4f * u else (size.width - 20f * u) * 0.5f
+    val by = size.height - 13.5f * u + bob
+    drawCoreBix(bx, by, u, wingUp = phase < 0.5f, face = 1, accessory = acc)
+    val nx = bx + 10.0f * u
+    val ny = by + 3.8f * u
+    val flip = (phase * 2f).toInt()
+    px(0f, 0f, 7f, 6.2f, u, nx, ny, BixOutline)
+    px(0.4f, 0.4f, 6.2f, 5.4f, u, nx, ny, BixPaper)
+    px(0.9f, 0.9f, 4.2f, 0.9f, u, nx, ny, BixStopRed)
+    for (i in 0..2) {
+        val w = if ((i + flip) % 2 == 0) 5.0f else 3.6f
+        px(0.9f, 2.3f + i * 1.1f, w, 0.5f, u, nx, ny, BixPaperInk)
+    }
+    px(3.4f, 0.4f, 0.25f, 5.4f, u, nx, ny, BixPaperInk.copy(alpha = 0.45f))
+    px(-0.6f, 4.4f, 1.4f, 1.0f, u, nx, ny, BixGold)
+}
+
+/** Scene 12 (v0.7.0): Teaching Bix filming with a pixel camera and a blinking REC dot. */
+private fun DrawScope.drawBixTeaching(phase: Float, compact: Boolean, acc: BixAccessory) {
+    val u = if (compact) size.height / 14f else size.height / 17f
+    val bx = if (compact) 0.4f * u else (size.width - 20f * u) * 0.5f
+    val by = size.height - 13.5f * u
+    drawCoreBix(bx, by, u, wingUp = (phase * 2f).toInt() % 2 == 0, face = 4, accessory = acc)
+    val cx = bx + 11.2f * u
+    val cy = by + 4.4f * u
+    px(1.0f, 0.2f, 2.0f, 1.0f, u, cx, cy, BixLaptopEdge)
+    px(0f, 1.0f, 6.2f, 4.2f, u, cx, cy, BixLaptopBody)
+    px(0.3f, 1.3f, 5.6f, 0.4f, u, cx, cy, BixLaptopEdge)
+    px(1.9f, 1.9f, 2.4f, 2.4f, u, cx, cy, BixGlassCyan)
+    px(2.4f, 2.3f, 0.8f, 0.8f, u, cx, cy, Color.White.copy(alpha = 0.9f))
+    px(-0.7f, 3.4f, 1.2f, 1.0f, u, cx, cy, BixGold)
+    if (phase < 0.55f) {
+        px(5.0f, -1.4f, 1.3f, 1.3f, u, cx, cy, BixStopRed)
+        px(6.6f, -1.3f, 1.6f, 0.4f, u, cx, cy, BixStopRed.copy(alpha = 0.85f))
+        px(6.6f, -0.7f, 1.1f, 0.4f, u, cx, cy, BixStopRed.copy(alpha = 0.85f))
+    }
+}
+
+/** Scene 13 (v0.7.0): Budget Bix hugging a honey jar whose level follows [fill] (0..1). */
+private fun DrawScope.drawBixBudget(phase: Float, compact: Boolean, acc: BixAccessory, fill: Float) {
+    val u = if (compact) size.height / 14f else size.height / 17f
+    val f = fill.coerceIn(0f, 1f)
+    val bob = sin(phase * 2f * PI).toFloat() * 0.3f * u
+    val bx = if (compact) 0.3f * u else (size.width - 18f * u) * 0.5f
+    val by = size.height - 13.5f * u + bob
+    drawCoreBix(bx, by, u, wingUp = phase < 0.5f, face = if (f < 0.2f) 4 else 2, accessory = acc)
+    val jx = bx + 10.4f * u
+    val jy = by + 3.2f * u
+    px(0.7f, 0f, 5.0f, 1.2f, u, jx, jy, BixStripe)
+    px(0.2f, 1.2f, 6.0f, 0.5f, u, jx, jy, BixOutline)
+    px(0f, 1.7f, 6.4f, 7.2f, u, jx, jy, BixOutline)
+    px(0.5f, 2.1f, 5.4f, 6.4f, u, jx, jy, BixWing.copy(alpha = 0.30f))
+    val inner = 6.4f
+    val h = inner * f
+    if (h > 0.05f) {
+        px(0.5f, 2.1f + inner - h, 5.4f, h, u, jx, jy, BixGold)
+        px(0.5f, 2.1f + inner - h, 5.4f, minOf(0.5f, h), u, jx, jy, BixGoldLight)
+    }
+    px(1.0f, 2.6f, 0.6f, 2.2f, u, jx, jy, Color.White.copy(alpha = 0.45f))
+    if (f in 0.02f..0.98f) {
+        px(5.0f, 8.9f + phase * 2.2f, 0.6f, 0.8f, u, jx, jy, BixGold.copy(alpha = (1f - phase).coerceIn(0f, 1f)))
+    }
+    px(-0.7f, 4.4f, 1.4f, 1.2f, u, jx, jy, BixGold)
+    px(-0.7f, 6.6f, 1.4f, 1.0f, u, jx, jy, BixGoldLight)
+}
+
+/** Pixel "Z" glyph (3 x 2.3 logical px at unit [s]). */
+private fun DrawScope.drawPixelZ(zx: Float, zy: Float, s: Float, color: Color) {
+    px(0f, 0f, 3f, 0.7f, s, zx, zy, color)
+    px(1.5f, 0.7f, 0.9f, 0.5f, s, zx, zy, color)
+    px(0.7f, 1.1f, 0.9f, 0.5f, s, zx, zy, color)
+    px(0f, 1.6f, 3f, 0.7f, s, zx, zy, color)
+}
+
+/** Scene 14 (v0.7.0): Sleeping Bix with rising Zzz (paused routines / auto-pause). */
+private fun DrawScope.drawBixSleeping(phase: Float, compact: Boolean, acc: BixAccessory) {
+    val u = if (compact) size.height / 14f else size.height / 17f
+    val bob = sin(phase * 2f * PI).toFloat() * 0.35f * u
+    val bx = if (compact) 0.4f * u else (size.width - 20f * u) * 0.5f
+    val by = size.height - 13.5f * u + bob
+    drawCoreBix(bx, by, u, wingUp = false, face = 5, accessory = acc)
+    for (k in 0..2) {
+        val t = (phase + k / 3f) % 1f
+        val zx = bx + (11.6f + k * 1.5f + t * 0.8f) * u
+        val zy = by + (4.0f - t * 4.2f) * u
+        val s = u * (0.55f + 0.2f * k)
+        val a = sin(t * PI).toFloat().coerceIn(0f, 1f)
+        drawPixelZ(zx, zy, s, BixSleepBlue.copy(alpha = a * 0.9f))
+    }
+}
+
+/** Scene 15 (v0.7.0): Alarm Bix ringing a swinging bell (event triggers / notifications). */
+private fun DrawScope.drawBixAlarm(phase: Float, compact: Boolean, acc: BixAccessory) {
+    val u = if (compact) size.height / 14f else size.height / 17f
+    val s = sin(phase * 2f * PI).toFloat()
+    val bx = if (compact) 0.4f * u else (size.width - 20f * u) * 0.5f
+    val by = size.height - 13.5f * u
+    drawCoreBix(bx, by, u, wingUp = (phase * 4f).toInt() % 2 == 0, face = 4, accessory = acc)
+    val gx = bx + 12.0f * u
+    val gy = by + 1.6f * u
+    val sw = s * 0.6f
+    px(1.6f + sw * 0.2f, 0f, 1.2f, 0.7f, u, gx, gy, BixOutline)
+    px(1.0f + sw * 0.4f, 0.7f, 2.4f, 1.0f, u, gx, gy, BixHatYellow)
+    px(0.5f + sw * 0.7f, 1.7f, 3.4f, 1.6f, u, gx, gy, BixHatYellow)
+    px(0.0f + sw, 3.3f, 4.4f, 0.9f, u, gx, gy, BixGold)
+    px(1.0f + sw * 0.4f, 0.9f, 0.6f, 1.6f, u, gx, gy, Color.White.copy(alpha = 0.7f))
+    px(1.8f + sw * 1.6f, 4.2f, 0.9f, 0.9f, u, gx, gy, BixOutline)
+    val ring = if (s > 0f) 0.85f else 0.35f
+    px(-1.3f, 1.0f, 0.5f, 2.0f, u, gx, gy, Color.White.copy(alpha = ring))
+    px(5.3f, 1.0f, 0.5f, 2.0f, u, gx, gy, Color.White.copy(alpha = 1.2f - ring))
 }
 
 // ============================================================
@@ -1124,7 +1488,13 @@ fun BixBadgeCard() {
     val ctx = LocalContext.current
     val current = BixPrefs.accessory
     var previewMode by remember { mutableIntStateOf(0) }
-    val previewActions = listOf(BixAction.Idle, BixAction.Coding, BixAction.Searching, BixAction.DrillingSquad)
+    val previewActions = remember {
+        listOf(
+            BixAction.Idle, BixAction.Coding, BixAction.Searching, BixAction.DrillingSquad,
+            BixAction.Sentinel, BixAction.Handoff, BixAction.Briefing, BixAction.Teaching,
+            BixAction.Budget, BixAction.Alarm, BixAction.Sleeping, BixAction.Blocked
+        )
+    }
 
     Column(
         Modifier
@@ -1207,5 +1577,112 @@ fun BixThemePollenBadge(modifier: Modifier = Modifier) {
             drawRect(accent.copy(alpha = 0.85f), Offset(size.width - 5.dp.toPx(), y2), Size(ps, ps))
         }
         BixScene(action = BixAction.Idle, compact = true)
+    }
+}
+
+// ============================================================
+// v0.7.0: Bix as the face of every new feature
+// ============================================================
+
+/**
+ * Friendly empty state for lists: Bix pose on a small glass plinth + title + hint.
+ * e.g. no approvals -> BixEmptyState(BixAction.Done, "都处理完啦", "有需要你拍板的操作会出现在这里");
+ * no routines -> Sleeping; empty activity -> Idle.
+ */
+@Composable
+fun BixEmptyState(action: BixAction, title: String, hint: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 28.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Box(
+            Modifier
+                .harmonyGlass(thickness = ImmersiveThickness.THIN, radius = 22.dp, fallbackBg = PILL)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            BixScene(action = action, compact = false)
+        }
+        Spacer(Modifier.height(2.dp))
+        Text(title, color = Fg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
+        if (hint.isNotBlank()) {
+            Text(hint, color = Sub, fontSize = 12.sp, lineHeight = 17.sp, textAlign = TextAlign.Center)
+        }
+    }
+}
+
+/**
+ * Inline speech-bubble tip: compact Bix + a glass bubble with a pixel tail.
+ * [onDismiss] != null shows a small close button.
+ */
+@Composable
+fun BixTip(
+    text: String,
+    action: BixAction = BixAction.Idle,
+    modifier: Modifier = Modifier,
+    onDismiss: (() -> Unit)? = null
+) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        BixScene(action = action, compact = true)
+        Spacer(Modifier.width(4.dp))
+        // Stepped 8-bit bubble tail pointing at Bix
+        Canvas(Modifier.size(6.dp, 10.dp)) {
+            val q = size.width / 3f
+            val h = size.height
+            drawRect(BixTipFill, Offset(q * 2f, 0f), Size(q, h))
+            drawRect(BixTipFill, Offset(q, h * 0.2f), Size(q, h * 0.6f))
+            drawRect(BixTipFill, Offset(0f, h * 0.4f), Size(q, h * 0.2f))
+        }
+        Row(
+            Modifier
+                .weight(1f, fill = false)
+                .clip(RoundedCornerShape(14.dp))
+                .background(BixTipFill)
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(text, color = Fg, fontSize = 12.sp, lineHeight = 17.sp, modifier = Modifier.weight(1f, fill = false))
+            if (onDismiss != null) {
+                Spacer(Modifier.width(8.dp))
+                Box(
+                    Modifier.size(20.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.10f))
+                        .clickable { onDismiss() },
+                    contentAlignment = Alignment.Center
+                ) { Icon(Ic.Close, "关闭提示", tint = Sub, modifier = Modifier.size(11.dp)) }
+            }
+        }
+    }
+}
+
+private val BixTipFill = Color(0xFF23262E)
+
+/**
+ * Transient Bix toast (slides up + fades). The caller owns [visible] and hides it after a delay, e.g.
+ * `LaunchedEffect(msg) { delay(2200); msg = null }`.
+ */
+@Composable
+fun BixToast(
+    visible: Boolean,
+    text: String,
+    action: BixAction = BixAction.Done,
+    modifier: Modifier = Modifier
+) {
+    AnimatedVisibility(
+        visible = visible,
+        modifier = modifier,
+        enter = fadeIn(tween(GlassMotion.ms(200))) + slideInVertically(tween(GlassMotion.ms(240), easing = FastOutSlowInEasing)) { it / 2 },
+        exit = fadeOut(tween(GlassMotion.ms(160))) + slideOutVertically(tween(GlassMotion.ms(200))) { it / 2 }
+    ) {
+        Row(
+            Modifier
+                .harmonyGlass(thickness = ImmersiveThickness.THICK, radius = 999.dp, tint = SheetGlassTint, fallbackBg = Card)
+                .padding(start = 8.dp, end = 16.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            BixScene(action = action, compact = true)
+            Spacer(Modifier.width(6.dp))
+            Text(text, color = Fg, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
     }
 }
