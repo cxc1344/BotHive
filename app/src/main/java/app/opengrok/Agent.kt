@@ -148,6 +148,31 @@ object Agent {
             JSONObject().put("action", str("back / forward / reload / snapshot")), "action"))
         put(fn("browser_screenshot", "截取当前独立 AI 浏览器的最新画面并返回给视觉模型(用于查看页面状态、定位 0-1000 坐标后执行点击/拖动等操作)。", JSONObject()))
         put(fn("browser_close", "关闭独立 AI 浏览器并结束浏览器任务。", JSONObject()))
+        put(fn("ticket_create", "创建一张持久化 Super-Agent 任务工单(与聊天窗口解耦,支持断点续跑和 Fast Path 事件直通)。",
+            JSONObject()
+                .put("title", str("简短工单标题"))
+                .put("goal", str("详细目标与验收标准"))
+                .put("owner_bot_id", str("责任 Worker 的 botId 或 agent,可选,默认自己"))
+                .put("source_key", str("可选 Fast Path 订阅键,如 App 包名或关键词")),
+            "title", "goal"))
+        put(fn("ticket_update", "更新持久化 Super-Agent 工单状态或记录检查点(checkpoint),防止长任务中断丢进度。",
+            JSONObject()
+                .put("id", str("工单 ID,如 tk_xxxxxx"))
+                .put("status", str("可选: queued / running / blocked / paused / done / failed"))
+                .put("checkpoint", str("可选: 刚刚完成的关键里程碑说明")),
+            "id"))
+        put(fn("ticket_list", "列出当前所有持久化 Super-Agent 工单及检查点进度。", JSONObject()))
+        put(fn("board_write", "往跨 Bot 共享黑板贴一条结构化键值对结论(全部 Bot 和设备 Agent 立即可读,适合协作共享调研结果、参数或辩论论点)。",
+            JSONObject().put("key", str("简短词条名")).put("value", str("内容")).put("tag", str("可选标签,如 调研/决策/辩论赛")), "key", "value"))
+        put(fn("board_read", "读取跨 Bot 共享黑板上的词条(不传参数列出全部,可按 key 或 tag 筛选)。",
+            JSONObject().put("key", str("可选关键词")).put("tag", str("可选标签"))))
+        put(fn("recall_spill", "链式召回(Chain of Recall):按 Spill ID 读取被 Inline & Spill 折叠的超长工具输出,支持关键词检索或按行分页。",
+            JSONObject()
+                .put("id", str("Spill ID,如 sp_xxxxxxxx"))
+                .put("query", str("可选: 按关键词精准检索匹配行"))
+                .put("start_line", JSONObject().put("type", "integer").put("description", "可选: 起始行号(从1开始)"))
+                .put("max_lines", JSONObject().put("type", "integer").put("description", "可选: 最多返回行数(10-200,默认80)")),
+            "id"))
         if (isAgent) {
             put(fn("fs_list", "列出任意目录的内容(绝对路径,如 /sdcard/Download)。channel 通道:auto(默认,普通优先、自动回退 Shizuku)/ standard(普通文件权限,需用户给了所有文件访问)/ shizuku(shell 身份,能到 /data/local/tmp 等)/ root(root 身份,能进其他应用的 /data 私有目录,需 Shizuku 以 root 运行或有 su)。",
                 JSONObject().put("path", str("绝对路径")).put("channel", str("通道,可选,默认 auto")), "path"))
@@ -166,6 +191,8 @@ object Agent {
                 JSONObject().put("query", str("应用名或包名")), "query"))
             put(fn("open_url", "用浏览器打开一个网址链接。",
                 JSONObject().put("url", str("完整网址,如 https://example.com")), "url"))
+            put(fn("open_deeplink", "优先通过系统 Deep Link / URI Scheme 直达目标 App 页面(如 weixin://、taobao://、bilibili://、baidumap://、mailto: 等),比看屏点击更快更稳。",
+                JSONObject().put("uri", str("完整 Deep Link URI")), "uri"))
             put(fn("recent_notifications", "查看手机最近的通知(应用、标题、内容、时间)。需要用户已开启「通知使用权」。", JSONObject()))
             put(fn("shizuku_shell", "通过 Shizuku 以 shell 身份执行命令(需要 Shizuku 已激活并授权)。可做 input tap/swipe/keyevent(点击滑动按键)、screencap 截屏到文件、dumpsys 查看系统状态、pm/am 管理应用等系统级操作。",
                 JSONObject().put("command", str("要执行的 shell 命令")), "command"))
@@ -226,7 +253,7 @@ object Agent {
         // were silently resolved against stale training-date assumptions.
         val now = java.text.SimpleDateFormat("yyyy-MM-dd EEEE HH:mm", java.util.Locale.CHINA)
             .format(java.util.Date())
-        val clockSuffix = "\n\n当前时间:$now(用户时区,24 小时制)。涉及「今天/明天/本周」等相对时间时以此为准。"
+        val clockSuffix = "\n\n当前时间:$now(用户时区,24 小时制)。涉及「今天/明天/本周」等相对时间时以此为准。" + "\nSuper-Agent 协作纪律：①复杂/长程任务可用 ticket_create 立单、推进关键步骤用 ticket_update 写检查点防中断；②若工具输出被自动折叠并附带 [Spill ID: sp_xxx]，必须用 recall_spill 按关键词或行号精准查阅，绝不凭空猜测；③手机端打开特定 App 页面时优先用 open_deeplink 直达，走不通再兜底 screen_shot + tap_at。"
         val sys = if (isAgent) {
             bot.prompt + clockSuffix + "\n\n你叫「${bot.name}」,是运行在用户安卓手机上的设备 Agent,有一台自己的 Ubuntu 沙盒可用 shell 干活。" +
                 (if (others.isNotEmpty()) "云端 Bot 同伴:$others,可用 ask_bot 私信求助或给他们派活。" else "") +
@@ -317,7 +344,10 @@ object Agent {
                     tools.add(ToolCall(c.getString("id"), name, argStr, ""))
                     onTools(tools.toList())
                     // v0.7.0: defence in depth: a Vault value never travels back to the model or the UI.
-                    val out = Vault.redact(runTool(store, bot, name, argStr, depth, chatId))
+                    val rawOut = Vault.redact(runTool(store, bot, name, argStr, depth, chatId))
+                    // v0.7.1: Inline & Spill oversized outputs to disk + record Watchdog heartbeat.
+                    val (out, spillId) = if (name == "recall_spill") rawOut to null else ContextSpill.inlineOrSpill(name, rawOut)
+                    if (chatId.isNotBlank()) SuperAgent.heartbeatByChat(chatId, spillId)
                     // screen_shot AND browser_* calls carry a live screenshot for the model AND a thumbnail for the UI.
                     val shot = pendingShots.remove(bot.id)
                     val carriesShot = shot != null && (name == "screen_shot" || name.startsWith("browser_"))
@@ -872,6 +902,71 @@ object Agent {
                 if (shot != null) pendingShots[bot.id] = shot
                 "$info\n已截取最新浏览器画面并附带截图,请结合 0-1000 坐标继续操作。"
                 }
+            "ticket_create" -> {
+                val title = a.optString("title").trim()
+                val goal = a.optString("goal").trim()
+                if (goal.isBlank()) "请提供工单 goal。"
+                else {
+                    val owner = a.optString("owner_bot_id").trim().ifBlank { bot.id }
+                    val t = SuperAgent.createTicket(title.ifBlank { goal.take(24) }, goal, owner, source = "router", sourceKey = a.optString("source_key"))
+                    "已创建持久化工单 ${t.id}（「${t.title}」，责任 Worker：$owner）。"
+                }
+            }
+            "ticket_update" -> {
+                val tid = a.optString("id").trim()
+                val st = a.optString("status").trim().uppercase().takeIf { it.isNotBlank() }?.let {
+                    runCatching { TicketStatus.valueOf(it) }.getOrNull()
+                }
+                val cp = a.optString("checkpoint").trim()
+                val updated = SuperAgent.updateTicket(tid, status = st, checkpoint = cp)
+                if (updated == null) "未找到工单 $tid。"
+                else "工单 ${updated.id} 已更新（状态：${updated.status.label}，检查点数：${updated.checkpoints.size}）。"
+            }
+            "ticket_list" -> {
+                val list = SuperAgent.tickets.take(20)
+                if (list.isEmpty()) "当前没有持久化 Super-Agent 工单。"
+                else list.joinToString("\n") { t ->
+                    "${t.id} [${t.status.label}] ${t.title} (Worker:${t.ownerBotId}, 检查点:${t.checkpoints.size})"
+                }
+            }
+            "board_write" -> {
+                val k = a.optString("key").trim()
+                val v = a.optString("value").trim()
+                if (k.isBlank() || v.isBlank()) "请提供 key 和 value。"
+                else {
+                    val n = HiveBlackboard.write(k, v, a.optString("tag", "通用"), bot.id)
+                    "已写入蜂巢共享黑板：[${n.tag}] ${n.key}"
+                }
+            }
+            "board_read" -> {
+                val list = HiveBlackboard.read(a.optString("key"), a.optString("tag"))
+                if (list.isEmpty()) "蜂巢共享黑板上暂无匹配词条。"
+                else list.take(25).joinToString("\n\n") { n -> "[${n.tag}] ${n.key} (by ${n.authorBotId}):\n${n.value}" }
+            }
+            "recall_spill" -> {
+                ContextSpill.recall(
+                    id = a.optString("id"),
+                    query = a.optString("query"),
+                    startLine = a.optInt("start_line", 1),
+                    maxLines = a.optInt("max_lines", 80)
+                )
+            }
+            "open_deeplink" -> {
+                if (bot.id != AGENT_ID) return "该工具只有设备 Agent 可用。"
+                val uriStr = a.optString("uri").trim()
+                if (uriStr.isBlank() || !uriStr.contains("://") && !uriStr.startsWith("mailto:") && !uriStr.startsWith("tel:")) {
+                    "请提供合法的 Deep Link URI（如 weixin://、bilibili://、baidumap://）。"
+                } else {
+                    val ok = runCatching {
+                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(uriStr)).apply {
+                            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        store.appContext().startActivity(intent)
+                        true
+                    }.getOrDefault(false)
+                    if (ok) "已通过系统 Deep Link 直达：$uriStr" else "没有可处理该 Deep Link 的已安装应用：$uriStr（可改用 screen_shot + tap_at 兜底）"
+                }
+            }
             "browser_close" -> {
                 withContext(Dispatchers.Main) { AiBrowser.closeSession() }
                 "独立 AI 浏览器已关闭。"

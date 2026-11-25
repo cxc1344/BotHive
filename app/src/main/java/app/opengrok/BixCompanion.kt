@@ -116,7 +116,20 @@ enum class BixAction {
     /** Zzz (paused routines, auto-pause). */
     Sleeping,
     /** Ringing a bell (event triggers, notifications, webhooks). */
-    Alarm
+    Alarm,
+    // v0.7.1 Super-Agent poses:
+    /** Beaming signal arcs from an 8-bit radio tower (SuperRouter / Hive Topology). */
+    Router,
+    /** Checking off green pixel ticks on a clipboard (Persistent Ticket engine). */
+    Ticket,
+    /** Pulling glowing cyan data packets out of a scroll drawer (Inline & Spill recall). */
+    Spill,
+    /** Sweeping emerald radar dish + ECG heartbeat pulse (External HiveWatchdog). */
+    Watchdog,
+    /** Scribbling glowing sticky notes with pixel chalk on a slate board (Hive Blackboard). */
+    Blackboard,
+    /** Pounding a pixel wooden gavel with sparks (Multi-Bot Debate Arena). */
+    Debate
 }
 
 /** User-selectable 8-bit pixel accessories synced across every Bix appearance in the app. */
@@ -197,6 +210,12 @@ fun classifyToolBixAction(toolName: String): BixAction = when (toolName) {
     "use_skill", "list_skills" -> BixAction.Thinking
     "remember" -> BixAction.Thinking
     "notify", "post_notification" -> BixAction.Alarm
+    // v0.7.1 Super-Agent tools
+    "ticket_create", "ticket_list" -> BixAction.Router
+    "ticket_update" -> BixAction.Ticket
+    "recall_spill" -> BixAction.Spill
+    "board_write", "board_read" -> BixAction.Blackboard
+    "open_deeplink" -> BixAction.Handoff
     else -> BixAction.Coding
 }
 
@@ -281,6 +300,13 @@ fun humanToolSummary(t: ToolCall): String {
         }
         "browser_screenshot" -> "截取独立浏览器画面"
         "browser_close" -> "关闭独立 AI 浏览器"
+        "ticket_create" -> "创建持久化超级工单"
+        "ticket_update" -> "更新工单进度检查点"
+        "ticket_list" -> "查看全部超级工单"
+        "recall_spill" -> "链式召回 Spill 上下文片段"
+        "open_deeplink" -> "通过 Deep Link 直达目标页面"
+        "board_write" -> "写入蜂巢共享黑板"
+        "board_read" -> "查阅蜂巢共享黑板"
         "open_url" -> {
             val u = arg("url")
             if (u.isNotBlank()) "打开网页 ${u.take(28)}" else "打开网页链接"
@@ -512,6 +538,12 @@ fun bixCycleMs(action: BixAction): Int = when (action) {
     BixAction.Budget -> 1800
     BixAction.Sleeping -> 2400
     BixAction.Alarm -> 420
+    BixAction.Router -> 900
+    BixAction.Ticket -> 1200
+    BixAction.Spill -> 980
+    BixAction.Watchdog -> 1050
+    BixAction.Blackboard -> 880
+    BixAction.Debate -> 640
     else -> 1300
 }
 
@@ -531,7 +563,9 @@ fun bixSceneSize(action: BixAction, compact: Boolean): Pair<Dp, Dp> = when {
 
 private fun bixHasProp(action: BixAction): Boolean = when (action) {
     BixAction.Sentinel, BixAction.Blocked, BixAction.Handoff, BixAction.Briefing,
-    BixAction.Teaching, BixAction.Budget, BixAction.Sleeping, BixAction.Alarm -> true
+    BixAction.Teaching, BixAction.Budget, BixAction.Sleeping, BixAction.Alarm,
+    BixAction.Router, BixAction.Ticket, BixAction.Spill, BixAction.Watchdog,
+    BixAction.Blackboard, BixAction.Debate -> true
     else -> false
 }
 
@@ -563,6 +597,12 @@ fun DrawScope.drawBixPose(
         BixAction.Budget -> drawBixBudget(phase, compact, acc, fill)
         BixAction.Sleeping -> drawBixSleeping(phase, compact, acc)
         BixAction.Alarm -> drawBixAlarm(phase, compact, acc)
+        BixAction.Router -> drawBixRouter(phase, compact, acc)
+        BixAction.Ticket -> drawBixTicket(phase, compact, acc)
+        BixAction.Spill -> drawBixSpill(phase, compact, acc)
+        BixAction.Watchdog -> drawBixWatchdog(phase, compact, acc)
+        BixAction.Blackboard -> drawBixBlackboard(phase, compact, acc)
+        BixAction.Debate -> drawBixDebate(phase, compact, acc)
     }
 }
 
@@ -1135,6 +1175,134 @@ private fun DrawScope.drawBixAlarm(phase: Float, compact: Boolean, acc: BixAcces
     px(5.3f, 1.0f, 0.5f, 2.0f, u, gx, gy, Color.White.copy(alpha = 1.2f - ring))
 }
 
+
+/** v0.7.1 Router: Bix next to an 8-bit signal tower beaming gold & acid-volt arcs. */
+private fun DrawScope.drawBixRouter(phase: Float, compact: Boolean, acc: BixAccessory) {
+    val u = if (compact) size.height / 14f else size.height / 17f
+    val bx = if (compact) 0.4f * u else (size.width - 21f * u) * 0.5f
+    val by = size.height - 13.5f * u
+    drawCoreBix(bx, by, u, wingUp = (phase * 4f).toInt() % 2 == 0, face = 1, accessory = acc)
+    val tx = bx + 12.6f * u
+    val ty = by + 1.0f * u
+    // Signal tower mast + base
+    px(2.6f, 3.0f, 1.0f, 7.2f, u, tx, ty, BixLaptopEdge)
+    px(1.2f, 9.6f, 3.8f, 1.2f, u, tx, ty, BixLaptopBody)
+    // Glowing antenna beacon
+    val step = (phase * 3f).toInt()
+    px(2.3f, 2.0f, 1.6f, 1.4f, u, tx, ty, if (step == 0) BixCodeVolt else BixGold)
+    // Animated outbound signal arcs
+    val a1 = if (step >= 0) 0.95f else 0.25f
+    val a2 = if (step >= 1) 0.85f else 0.20f
+    val a3 = if (step >= 2) 0.75f else 0.15f
+    px(0.8f, 1.5f, 0.7f, 2.0f, u, tx, ty, BixCodeVolt.copy(alpha = a1))
+    px(4.7f, 1.5f, 0.7f, 2.0f, u, tx, ty, BixCodeVolt.copy(alpha = a1))
+    px(-0.2f, 0.8f, 0.7f, 3.2f, u, tx, ty, BixGold.copy(alpha = a2))
+    px(5.7f, 0.8f, 0.7f, 3.2f, u, tx, ty, BixGold.copy(alpha = a2))
+    px(6.7f, 0.2f, 0.6f, 4.2f, u, tx, ty, BixGlassCyan.copy(alpha = a3))
+}
+
+/** v0.7.1 Ticket: Bix holding an 8-bit clipboard with animated green checkmarks ticking off. */
+private fun DrawScope.drawBixTicket(phase: Float, compact: Boolean, acc: BixAccessory) {
+    val u = if (compact) size.height / 14f else size.height / 17f
+    val bob = sin(phase * 2f * PI).toFloat() * 0.4f * u
+    val bx = if (compact) 0.4f * u else (size.width - 21f * u) * 0.5f
+    val by = size.height - 13.5f * u + bob
+    drawCoreBix(bx, by, u, wingUp = phase < 0.5f, face = 2, accessory = acc)
+    val cx = bx + 12.2f * u
+    val cy = by + 1.8f * u
+    // Clipboard frame + clip
+    px(0.4f, 0.8f, 6.2f, 8.6f, u, cx, cy, BixStripe)
+    px(1.1f, 1.6f, 4.8f, 7.0f, u, cx, cy, Color(0xFFF6F1E3))
+    px(2.2f, 0.2f, 2.6f, 1.1f, u, cx, cy, BixGold)
+    // 3 task lines + ticking green checks
+    val ticked = (phase * 4f).toInt()
+    for (i in 0..2) {
+        val ly = 2.6f + i * 2.0f
+        px(1.6f, ly, 1.0f, 1.0f, u, cx, cy, if (i < ticked) BixCodeGreen else BixLaptopEdge)
+        px(3.0f, ly + 0.2f, 2.4f, 0.6f, u, cx, cy, BixOutline.copy(alpha = 0.75f))
+    }
+}
+
+/** v0.7.1 Spill: Bix pulling glowing cyan pixel data packets from an archived scroll drawer. */
+private fun DrawScope.drawBixSpill(phase: Float, compact: Boolean, acc: BixAccessory) {
+    val u = if (compact) size.height / 14f else size.height / 17f
+    val bx = if (compact) 0.4f * u else (size.width - 21f * u) * 0.5f
+    val by = size.height - 13.5f * u
+    drawCoreBix(bx, by, u, wingUp = (phase * 3f).toInt() % 2 == 0, face = 1, accessory = acc)
+    val dx = bx + 12.2f * u
+    val dy = by + 2.2f * u
+    // Filing drawer / scroll vault
+    px(0.5f, 4.4f, 6.6f, 4.8f, u, dx, dy, BixLaptopBody)
+    px(0.5f, 4.4f, 6.6f, 0.8f, u, dx, dy, BixLaptopEdge)
+    px(2.6f, 6.4f, 2.4f, 0.8f, u, dx, dy, BixGold)
+    // Rising cyan & volt data packets
+    val lift1 = (phase * 3.8f) % 3.8f
+    val lift2 = ((phase + 0.5f) * 3.8f) % 3.8f
+    px(1.6f, 3.6f - lift1, 1.4f, 1.4f, u, dx, dy, BixGlassCyan.copy(alpha = (1f - lift1 / 4.2f).coerceIn(0.2f, 1f)))
+    px(4.2f, 3.8f - lift2, 1.3f, 1.3f, u, dx, dy, BixCodeVolt.copy(alpha = (1f - lift2 / 4.2f).coerceIn(0.2f, 1f)))
+}
+
+/** v0.7.1 Watchdog: Bix monitoring an emerald radar sweep & ECG heartbeat line. */
+private fun DrawScope.drawBixWatchdog(phase: Float, compact: Boolean, acc: BixAccessory) {
+    val u = if (compact) size.height / 14f else size.height / 17f
+    val bx = if (compact) 0.4f * u else (size.width - 21f * u) * 0.5f
+    val by = size.height - 13.5f * u
+    drawCoreBix(bx, by, u, wingUp = phase < 0.5f, face = 4, accessory = acc)
+    val rx = bx + 12.2f * u
+    val ry = by + 2.0f * u
+    // Radar monitor screen
+    px(0.2f, 1.2f, 7.2f, 6.2f, u, rx, ry, BixLaptopEdge)
+    px(0.8f, 1.8f, 6.0f, 5.0f, u, rx, ry, BixScreenBg)
+    // Animated ECG heartbeat spike sweeping across monitor
+    val beatX = (phase * 5.2f) % 5.2f
+    px(1.0f, 4.4f, 5.4f, 0.5f, u, rx, ry, BixCodeGreen.copy(alpha = 0.45f))
+    px(1.0f + beatX, 2.6f, 0.8f, 2.3f, u, rx, ry, BixCodeGreen)
+    px(1.6f + beatX.coerceAtMost(4.4f), 4.0f, 0.8f, 1.6f, u, rx, ry, BixCodeVolt)
+}
+
+/** v0.7.1 Blackboard: Bix scribbling glowing sticky notes on an 8-bit slate board. */
+private fun DrawScope.drawBixBlackboard(phase: Float, compact: Boolean, acc: BixAccessory) {
+    val u = if (compact) size.height / 14f else size.height / 17f
+    val bx = if (compact) 0.4f * u else (size.width - 22f * u) * 0.5f
+    val by = size.height - 13.5f * u
+    drawCoreBix(bx, by, u, wingUp = (phase * 4f).toInt() % 2 == 0, face = 1, accessory = acc)
+    val sx = bx + 12.0f * u
+    val sy = by + 1.2f * u
+    // Slate blackboard frame
+    px(0.6f, 0.6f, 8.0f, 6.8f, u, sx, sy, BixStripe)
+    px(1.2f, 1.2f, 6.8f, 5.6f, u, sx, sy, Color(0xFF17332A))
+    // Sticky note squares + animated chalk scribble
+    px(1.8f, 1.8f, 2.2f, 2.0f, u, sx, sy, BixGold)
+    px(4.8f, 1.8f, 2.2f, 2.0f, u, sx, sy, BixGlassCyan)
+    val chalkW = 1.0f + ((phase * 4.6f) % 4.6f)
+    px(1.8f, 4.8f, chalkW, 0.7f, u, sx, sy, Color.White)
+    // Chalk piece tip
+    px(1.8f + chalkW, 4.6f, 0.8f, 0.9f, u, sx, sy, BixCodeVolt)
+}
+
+/** v0.7.1 Debate: Judge Bix pounding a wooden pixel gavel with impact sparks! */
+private fun DrawScope.drawBixDebate(phase: Float, compact: Boolean, acc: BixAccessory) {
+    val u = if (compact) size.height / 14f else size.height / 17f
+    val bx = if (compact) 0.4f * u else (size.width - 21f * u) * 0.5f
+    val by = size.height - 13.5f * u
+    drawCoreBix(bx, by, u, wingUp = phase < 0.5f, face = 1, accessory = acc)
+    val gx = bx + 12.0f * u
+    val gy = by + 1.4f * u
+    val strike = phase > 0.55f
+    // Sound block at bottom
+    px(1.0f, 7.6f, 5.6f, 1.4f, u, gx, gy, BixStripe)
+    // Gavel head & handle (raised vs struck down)
+    val gyOff = if (strike) 3.4f else 0.4f
+    px(1.2f, 2.2f + gyOff, 3.6f, 1.8f, u, gx, gy, BixCoral)
+    px(2.6f, 3.8f + gyOff, 1.0f, 2.8f, u, gx, gy, BixGold)
+    // Impact sparks when gavel hits!
+    if (strike) {
+        px(0.2f, 6.2f, 0.9f, 0.9f, u, gx, gy, BixCodeVolt)
+        px(5.8f, 6.2f, 0.9f, 0.9f, u, gx, gy, BixGoldLight)
+        px(3.2f, 5.4f, 0.8f, 0.8f, u, gx, gy, Color.White)
+    }
+}
+
 // ============================================================
 // 3. Physical Bounce-Up & Roof-Landing Stage (半弹出摘要框顶栖息)
 // ============================================================
@@ -1492,7 +1660,9 @@ fun BixBadgeCard() {
         listOf(
             BixAction.Idle, BixAction.Coding, BixAction.Searching, BixAction.DrillingSquad,
             BixAction.Sentinel, BixAction.Handoff, BixAction.Briefing, BixAction.Teaching,
-            BixAction.Budget, BixAction.Alarm, BixAction.Sleeping, BixAction.Blocked
+            BixAction.Budget, BixAction.Alarm, BixAction.Sleeping, BixAction.Blocked,
+            BixAction.Router, BixAction.Ticket, BixAction.Spill, BixAction.Watchdog,
+            BixAction.Blackboard, BixAction.Debate
         )
     }
 

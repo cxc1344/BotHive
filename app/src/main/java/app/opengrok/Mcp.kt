@@ -149,7 +149,7 @@ object Mcp {
             val initParams = JSONObject()
                 .put("protocolVersion", "2024-11-05")
                 .put("capabilities", JSONObject())
-                .put("clientInfo", JSONObject().put("name", "BotHive").put("version", "0.7.0"))
+                .put("clientInfo", JSONObject().put("name", "BotHive").put("version", "0.7.1"))
             val resp = rpc(server, session, "initialize", initParams)
             if (resp != null && resp.has("error")) {
                 throw Exception("MCP initialize 被拒:${resp.getJSONObject("error").optString("message")}")

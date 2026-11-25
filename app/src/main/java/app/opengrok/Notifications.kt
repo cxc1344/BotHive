@@ -77,6 +77,7 @@ class OgNotificationListener : NotificationListenerService() {
             val store = (applicationContext as? OgApp)?.store ?: return
             Handler(Looper.getMainLooper()).post {
                 runCatching { store.onNotification(pkg, app, safeTitle, safeText) }
+                runCatching { SuperRouter.onIncomingNotification(store, pkg, app, safeTitle, safeText) }
             }
         } catch (_: Exception) {
         }

@@ -7,6 +7,13 @@ import android.content.Context
 import android.os.Build
 import android.os.PersistableBundle
 import android.widget.Toast
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -84,7 +91,19 @@ fun HivePageHeader(title: String, bix: BixAction, onBack: () -> Unit, trailing: 
             contentAlignment = Alignment.Center
         ) { Icon(Ic.Back, "返回", tint = Fg, modifier = Modifier.size(20.dp)) }
         Text(title, style = HiveSerif.SheetTitle(), modifier = Modifier.weight(1f), textAlign = TextAlign.Center)
-        if (trailing != null) trailing() else BixScene(action = bix, compact = true)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            AnimatedContent(
+                targetState = bix,
+                transitionSpec = {
+                    (scaleIn(initialScale = 0.72f, animationSpec = spring(dampingRatio = 0.55f, stiffness = 480f)) +
+                        fadeIn(tween(180))) togetherWith fadeOut(tween(120))
+                },
+                label = "header-bix"
+            ) { pose ->
+                BixScene(action = pose, compact = true)
+            }
+            if (trailing != null) trailing()
+        }
     }
 }
 
@@ -1009,6 +1028,15 @@ fun HiveCenterScreen(store: Store, go: (Screen) -> Unit) {
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            HiveSection(
+                "超级工单 · Super-Agent", BixAction.Router,
+                "持久化任务工单 + Fast Path 0-Token 事件路由 + Inline & Spill 链式召回 + 看门狗断点续跑。"
+            ) {
+                val activeCount = SuperAgent.tickets.count { it.status == TicketStatus.RUNNING || it.status == TicketStatus.QUEUED }
+                val pausedCount = SuperAgent.tickets.count { it.status == TicketStatus.PAUSED }
+                Text("活跃工单 $activeCount · 可续跑 $pausedCount · Fast Path 已过滤 ${SuperAgent.fastPathSavedCount.intValue} 次噪音", color = Sub, fontSize = 12.sp)
+                PillButton("打开超级工单中枢", modifier = Modifier.fillMaxWidth()) { go(Screen.SuperAgent) }
+            }
             HiveSection(
                 "总参谋", BixAction.Briefing,
                 "指定一只 Bot 统管全局。问它「今天有什么新情况」,它会用 team_status 汇总所有 Bot、待批事项和例行任务。"

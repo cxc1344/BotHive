@@ -12,6 +12,8 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -117,13 +119,14 @@ sealed interface Screen {
     data object Usage : Screen
     data object Activity : Screen
     data object HiveCenter : Screen
+    data object SuperAgent : Screen
 }
 
 @Composable
 fun App(store: Store) {
     val ctx = LocalContext.current
     remember { UiState.init(ctx) }
-    remember { ThemeColor.init(ctx); BixPrefs.init(ctx); ModelPrefs.init(ctx) }
+    remember { ThemeColor.init(ctx); BixPrefs.init(ctx); ModelPrefs.init(ctx); SuperAgent.init(ctx); HiveBlackboard.init(ctx); HiveWatchdog.start(store) }
     var screen by remember { mutableStateOf<Screen>(Screen.Home) }
     var drawer by remember { mutableStateOf(false) }
     val nav: (Screen) -> Unit = { s ->
@@ -286,6 +289,13 @@ fun App(store: Store) {
                 }
                 AiBrowserTaskPill(Modifier.align(Alignment.TopEnd))
                 AppDrawer(store, drawer, screen, { drawer = false }, nav)
+                BixScreenFlightOverlay(
+                    screen = screen,
+                    drawerOpen = drawer,
+                    backProgress = backProgress,
+                    backFromLeft = backFromLeft,
+                    modifier = Modifier.systemBarsPadding()
+                )
                 AiBrowserSheetOverlay()
             }
         }
@@ -328,6 +338,7 @@ private fun ScreenHost(screen: Screen, store: Store, nav: (Screen) -> Unit) {
             Screen.Usage -> UsageScreen(store, nav)
             Screen.Activity -> ActivityScreen(store, nav)
             Screen.HiveCenter -> HiveCenterScreen(store, nav)
+            Screen.SuperAgent -> SuperAgentScreen(store, nav)
         }
         return
     }
@@ -340,21 +351,55 @@ private fun ScreenHost(screen: Screen, store: Store, nav: (Screen) -> Unit) {
     AnimatedContent(
         targetState = screen,
         transitionSpec = {
-            // Bot <-> Agent: the page slides the same way the capsule's drop does.
             val modeSwitch = (initialState is Screen.Chat && targetState == Screen.AgentChat) ||
                 (initialState == Screen.AgentChat && targetState is Screen.Chat)
-            val dir = if (modeSwitch) (if (targetState == Screen.AgentChat) 1 else -1) else if (forward) 1 else -1
-            val dist = if (modeSwitch) 5 else 12
-            val enter = slideInHorizontally(
-                animationSpec = spring(dampingRatio = 0.88f, stiffness = 420f),
-                initialOffsetX = { full -> dir * (full / dist) }
-            ) + fadeIn(tween(GlassMotion.screenFade())) +
-                scaleIn(initialScale = 0.975f, animationSpec = spring(dampingRatio = 0.9f, stiffness = 420f))
-            val exit = slideOutHorizontally(
-                animationSpec = tween(GlassMotion.screenSlide(), easing = FastOutSlowInEasing),
-                targetOffsetX = { full -> -dir * (full / (dist + 4)) }
-            ) + fadeOut(tween(150))
-            enter togetherWith exit
+            val isHubEnter = targetState == Screen.SuperAgent || targetState == Screen.HiveCenter || targetState == Screen.BotHub
+            val isHubExit = initialState == Screen.SuperAgent || initialState == Screen.HiveCenter || initialState == Screen.BotHub
+            when {
+                targetState == Screen.Search -> {
+                    val enter = slideInVertically(
+                        animationSpec = spring(dampingRatio = 0.86f, stiffness = 460f),
+                        initialOffsetY = { full -> -(full / 16) }
+                    ) + fadeIn(tween(GlassMotion.screenFade()))
+                    val exit = fadeOut(tween(140)) + scaleOut(targetScale = 0.98f, animationSpec = tween(160))
+                    enter togetherWith exit
+                }
+                isHubEnter && !isHubExit -> {
+                    // Command hub dive: vertical lift + gentle zoom-in matching Bix's upward arc.
+                    val enter = slideInVertically(
+                        animationSpec = spring(dampingRatio = 0.86f, stiffness = 400f),
+                        initialOffsetY = { full -> full / 14 }
+                    ) + scaleIn(initialScale = 0.94f, animationSpec = spring(dampingRatio = 0.88f, stiffness = 400f)) +
+                        fadeIn(tween(GlassMotion.screenFade()))
+                    val exit = scaleOut(targetScale = 0.96f, animationSpec = tween(180)) + fadeOut(tween(150))
+                    enter togetherWith exit
+                }
+                isHubExit && targetState == Screen.Home -> {
+                    // Returning from command hub to Home: soft zoom-out settle.
+                    val enter = scaleIn(initialScale = 0.96f, animationSpec = spring(dampingRatio = 0.9f, stiffness = 420f)) +
+                        fadeIn(tween(GlassMotion.screenFade()))
+                    val exit = slideOutVertically(
+                        animationSpec = tween(GlassMotion.screenSlide(), easing = FastOutSlowInEasing),
+                        targetOffsetY = { full -> full / 16 }
+                    ) + fadeOut(tween(150))
+                    enter togetherWith exit
+                }
+                else -> {
+                    // Bot <-> Agent or standard forward/back depth slide.
+                    val dir = if (modeSwitch) (if (targetState == Screen.AgentChat) 1 else -1) else if (forward) 1 else -1
+                    val dist = if (modeSwitch) 5 else 11
+                    val enter = slideInHorizontally(
+                        animationSpec = spring(dampingRatio = 0.86f, stiffness = 420f),
+                        initialOffsetX = { full -> dir * (full / dist) }
+                    ) + fadeIn(tween(GlassMotion.screenFade())) +
+                        scaleIn(initialScale = 0.97f, animationSpec = spring(dampingRatio = 0.9f, stiffness = 420f))
+                    val exit = slideOutHorizontally(
+                        animationSpec = tween(GlassMotion.screenSlide(), easing = FastOutSlowInEasing),
+                        targetOffsetX = { full -> -dir * (full / (dist + 4)) }
+                    ) + scaleOut(targetScale = 0.985f, animationSpec = tween(160)) + fadeOut(tween(150))
+                    enter togetherWith exit
+                }
+            }
         },
         label = "screen"
     ) { s ->
@@ -381,6 +426,7 @@ private fun ScreenHost(screen: Screen, store: Store, nav: (Screen) -> Unit) {
             Screen.Usage -> UsageScreen(store, nav)
             Screen.Activity -> ActivityScreen(store, nav)
             Screen.HiveCenter -> HiveCenterScreen(store, nav)
+            Screen.SuperAgent -> SuperAgentScreen(store, nav)
         }
     }
 }
@@ -405,7 +451,7 @@ private fun screenDepth(s: Screen): Int = when (s) {
     is Screen.EditMcp, is Screen.EditSkill -> 2
     Screen.BotMode -> 1
     Screen.BotHub -> 1
-    Screen.Approvals, Screen.Routines, Screen.Activity, Screen.HiveCenter -> 1
+    Screen.Approvals, Screen.Routines, Screen.Activity, Screen.HiveCenter, Screen.SuperAgent -> 1
     Screen.Policy, Screen.Usage -> 2
 }
 

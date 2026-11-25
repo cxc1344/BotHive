@@ -123,7 +123,7 @@ fun SettingsScreen(store: Store, go: (Screen) -> Unit) {
                 Text(it, color = BeeDanger, fontSize = 12.sp)
                 SmallChip("知道了") { store.dismissLoadNotice() }
             }
-            // v0.7.0「蜂巢自治」: every hub page has Bix in the matching pose.
+            // v0.7.1「蜂巢自治」: every hub page has Bix in the matching pose.
             Text("蜂巢自治", color = Fg, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
             HiveHubRow(BixAction.Sentinel, "权限与哨兵", "四档规则、哨兵蜂审查、受保护应用、凭据保险箱") { go(Screen.Policy) }
             HiveHubRow(BixAction.Alarm, "例行任务", "定时 / 通知触发 / Webhook,测试与运行记录") { go(Screen.Routines) }
@@ -192,7 +192,7 @@ fun SettingsScreen(store: Store, go: (Screen) -> Unit) {
                     ContextCompat.checkSelfPermission(ctx, android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
                 var notifGranted by remember { mutableStateOf(notifOk()) }
                 var batteryExempt by remember { mutableStateOf(KeepAlive.isBatteryExempt(ctx)) }
-                // v0.7.0 (F5): grants made in system settings show up as soon as the user comes back.
+                // v0.7.1 (F5): grants made in system settings show up as soon as the user comes back.
                 val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
                 DisposableEffect(lifecycleOwner) {
                     val obs = androidx.lifecycle.LifecycleEventObserver { _, ev ->
@@ -222,7 +222,7 @@ fun SettingsScreen(store: Store, go: (Screen) -> Unit) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("保活服务", color = Fg, fontSize = 15.sp)
-                        // v0.7.0 (F6): report what the service actually does, not what the switch says.
+                        // v0.7.1 (F6): report what the service actually does, not what the switch says.
                         val status = when {
                             !kaOn -> "未开启"
                             KeepAlive.running.value -> "运行中 · " + BixVoice.KEEP_ALIVE_TITLE
@@ -338,7 +338,7 @@ private fun SettingsDivider() {
 }
 
 /** One tappable settings row on a #20201E card with generous padding (STUDY §2.8). */
-/** v0.7.0: settings entry to a「蜂巢自治」page, fronted by Bix in the matching pose. */
+/** v0.7.1: settings entry to a「蜂巢自治」page, fronted by Bix in the matching pose. */
 @Composable
 private fun HiveHubRow(bix: BixAction, title: String, subtitle: String, onClick: () -> Unit) {
     SettingsRow(onClick = onClick) {
@@ -363,7 +363,7 @@ private fun SettingsRow(onClick: () -> Unit, content: @Composable RowScope.() ->
 }
 
 /**
- * "视觉效果" picker, v0.7.0: an iOS-27-style continuous glass intensity slider (纯色 → 极透) with
+ * "视觉效果" picker, v0.7.1: an iOS-27-style continuous glass intensity slider (纯色 → 极透) with
  * three quick presets (不要 / 中等 / 最高) and a live preview. The tier used by existing callers is
  * derived from the slider. Battery saver / system "remove animations" temporarily cap the intensity.
  */

@@ -32,7 +32,7 @@ internal object LinuxRuntime {
     private const val MAX_ROOTFS_ARCHIVE_BYTES = 64L * 1024L * 1024L
     private const val DOWNLOAD_DEADLINE_MS = 300_000L
     private const val TOTAL_STEPS = 9
-    private const val USER_AGENT = "BotHive-Android/0.7.0"
+    private const val USER_AGENT = "BotHive-Android/0.7.1"
 
     /** First-run provisioning inside the fresh rootfs; failure is soft (install still succeeds). */
     private const val PROVISION_CMD =
@@ -519,7 +519,7 @@ internal object LinuxRuntime {
                 exit = process.exitValue()
             }
         } catch (e: InterruptedException) {
-            // v0.7.0: the Stop button interrupts this thread (runInterruptible). Previously the
+            // v0.7.1: the Stop button interrupts this thread (runInterruptible). Previously the
             // exception escaped here and the PRoot process kept running in the background.
             terminate(process)
             throw e

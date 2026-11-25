@@ -1,4 +1,19 @@
+- **Bix 跨屏飞行与转场动效 (`BixTransitions.kt`)**：新增全屏贝塞尔弧线跨屏飞行叠加层（花粉像素尾迹、速度倾角、落地挤压回弹与星爆环）、侧边栏开关招手、系统预测性返回手势边缘探头，以及 Super-Agent 看板 5 选项卡 Bix 抛物线穿梭轨道与场景感知页面转场。
+
 # 更新日志
+
+## v0.7.1「Super-Agent 调度内核」— 2026-11-24
+
+基于 0.7.0「蜂巢自治」的安全与感知地基，v0.7.1 正式落地 DeepSeek Super-agent 核心工程架构，让每个小版本都堪比大版本：
+
+- **持久化 Ticket 工单引擎（`SuperAgent.kt`）**：任务生命周期彻底与聊天窗口解耦，独立持久化于 `tickets.json`（不污染 `state.json`）；支持 `QUEUED / RUNNING / BLOCKED / PAUSED / DONE / FAILED` 状态机与检查点（Checkpoint），新增 `ticket_create` / `ticket_update` / `ticket_list` 三个原生工具。
+- **Fast Path / Slow Path 双层路由（`SuperRouter`）**：低价值系统噪音事件 0 Token 确定性快筛过滤；已归属活跃工单的订阅事件直接直通责任 Worker 绕过总参谋 Router，大幅省额度、降延迟。
+- **Inline & Spill + 链式召回（`ContextSpill.kt`）**：超过 2,400 字的 Shell/文件/网页/MCP 输出自动溢写至 `files/spills/<id>.txt`，上下文仅保留首尾摘要与 Spill ID；新增 `recall_spill` 工具支持按关键词精准检索或按行分页翻阅，长任务绝不爆窗。
+- **外部 Watchdog 看门狗与断点续跑（`HiveWatchdog`）**：独立协程监控运行中工单心跳，进程重启自动将遗留 `RUNNING` 工单转为 `PAUSED`，一键「断点续跑」自动携带全部已完成检查点与 Spill IDs 无缝续跑。
+- **超级工单液态玻璃中枢（`UiSuperAgent.kt`）**：侧边栏与蜂巢中枢直达，实时展示 Router→Worker 遥测、Fast Path 拦截计数、四栏工单看板、看门狗日志与 Spill 原文查验。
+- **Deep Link 直达工具（`open_deeplink`）**：兑现 0.7.0 路线图，先走系统 URI Scheme / Deep Link 直达目标 App 页面，走不通再兜底看屏点击。
+- **新增 4 项 `SuperAgentTest` 单元测试**：覆盖 Inline & Spill 召回、工单重启自愈、Fast Path 直通路由与 Watchdog 心跳超时检测。
+
 
 ## v0.7.0「蜂巢自治」— 2026-11-24
 
