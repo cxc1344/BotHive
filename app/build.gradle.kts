@@ -61,4 +61,5 @@ dependencies {
     implementation("dev.rikka.shizuku:provider:13.1.5")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 }
