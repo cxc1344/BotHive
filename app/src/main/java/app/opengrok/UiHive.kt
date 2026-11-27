@@ -1038,19 +1038,6 @@ fun HiveCenterScreen(store: Store, go: (Screen) -> Unit) {
                 PillButton("打开超级工单中枢", modifier = Modifier.fillMaxWidth()) { go(Screen.SuperAgent) }
             }
             HiveSection(
-                "手机本地 Ubuntu 轻量桌面 (Fluxbox + noVNC)", BixAction.Coding,
-                "直接在手机本地 Ubuntu PRoot 中开启 1280×720 图形桌面供 AI 看屏操作，实时标示「（AI名）正在使用中」，随时一键人工接管。"
-            ) {
-                val ai = LinuxDesktop.activeAiOwner.value
-                val info = when {
-                    LinuxDesktop.userTakeover.value -> "状态：你已接管桌面"
-                    ai.isNotBlank() -> "状态：（$ai）正在使用中"
-                    else -> "状态：${LinuxDesktop.state.value.label}"
-                }
-                Text(info, color = if (ai.isNotBlank() || LinuxDesktop.state.value == DesktopState.RUNNING) BeeGreen else Sub, fontSize = 12.sp)
-                PillButton("打开 Ubuntu 轻量桌面", modifier = Modifier.fillMaxWidth()) { go(Screen.LinuxDesktop) }
-            }
-            HiveSection(
                 "Bix 灵动蜂巢岛 · 全局悬浮伴侣 (v0.7.2)", BixAction.Island,
                 "切出 App 到微信/浏览器时，原版像素 Bix 依然悬浮吸附在屏幕边缘实时播报工单与接力进度，轻点即发指令。"
             ) {

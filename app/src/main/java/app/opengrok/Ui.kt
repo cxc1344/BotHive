@@ -122,7 +122,6 @@ sealed interface Screen {
     data object SuperAgent : Screen
     // v0.7.2「蜂巢灵动觉醒 · Pure Android」
     data object PersonalHub : Screen
-    data object LinuxDesktop : Screen
 }
 
 @Composable
@@ -343,7 +342,6 @@ private fun ScreenHost(screen: Screen, store: Store, nav: (Screen) -> Unit) {
             Screen.HiveCenter -> HiveCenterScreen(store, nav)
             Screen.SuperAgent -> SuperAgentScreen(store, nav)
             Screen.PersonalHub -> PersonalHubScreen(store, nav)
-            Screen.LinuxDesktop -> LinuxDesktopScreen(store, nav)
         }
         return
     }
@@ -358,8 +356,8 @@ private fun ScreenHost(screen: Screen, store: Store, nav: (Screen) -> Unit) {
         transitionSpec = {
             val modeSwitch = (initialState is Screen.Chat && targetState == Screen.AgentChat) ||
                 (initialState == Screen.AgentChat && targetState is Screen.Chat)
-            val isHubEnter = targetState == Screen.SuperAgent || targetState == Screen.HiveCenter || targetState == Screen.BotHub || targetState == Screen.PersonalHub || targetState == Screen.LinuxDesktop
-            val isHubExit = initialState == Screen.SuperAgent || initialState == Screen.HiveCenter || initialState == Screen.BotHub || initialState == Screen.PersonalHub || initialState == Screen.LinuxDesktop
+            val isHubEnter = targetState == Screen.SuperAgent || targetState == Screen.HiveCenter || targetState == Screen.BotHub || targetState == Screen.PersonalHub
+            val isHubExit = initialState == Screen.SuperAgent || initialState == Screen.HiveCenter || initialState == Screen.BotHub || initialState == Screen.PersonalHub
             when {
                 targetState == Screen.Search -> {
                     val enter = slideInVertically(
@@ -433,7 +431,6 @@ private fun ScreenHost(screen: Screen, store: Store, nav: (Screen) -> Unit) {
             Screen.HiveCenter -> HiveCenterScreen(store, nav)
             Screen.SuperAgent -> SuperAgentScreen(store, nav)
             Screen.PersonalHub -> PersonalHubScreen(store, nav)
-            Screen.LinuxDesktop -> LinuxDesktopScreen(store, nav)
         }
     }
 }
@@ -458,7 +455,7 @@ private fun screenDepth(s: Screen): Int = when (s) {
     is Screen.EditMcp, is Screen.EditSkill -> 2
     Screen.BotMode -> 1
     Screen.BotHub -> 1
-    Screen.Approvals, Screen.Routines, Screen.Activity, Screen.HiveCenter, Screen.SuperAgent, Screen.PersonalHub, Screen.LinuxDesktop -> 1
+    Screen.Approvals, Screen.Routines, Screen.Activity, Screen.HiveCenter, Screen.SuperAgent, Screen.PersonalHub -> 1
     Screen.Policy, Screen.Usage -> 2
 }
 

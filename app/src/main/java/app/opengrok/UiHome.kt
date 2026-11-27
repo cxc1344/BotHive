@@ -476,8 +476,6 @@ private fun DrawerPanel(store: Store, current: Screen, onClose: () -> Unit, go: 
         DrawerNav("超级工单 · Super-Agent", Ic.Terminal) { go(Screen.SuperAgent) }
         val islandOn = BixFloatingIsland.active.value
         DrawerNav(if (islandOn) "关闭 Bix 灵动岛" else "开启 Bix 灵动岛", Ic.Phone) { BixFloatingIsland.toggle(store.appContext(), store) }
-        val deskAi = LinuxDesktop.activeAiOwner.value
-        DrawerNav(if (deskAi.isNotBlank()) "Ubuntu 桌面 · ${deskAi}使用中" else "Ubuntu 轻量桌面", Ic.Code) { go(Screen.LinuxDesktop) }
         DrawerNav("个人智能体中枢", Ic.Bolt) { go(Screen.PersonalHub) }
         DrawerNav("蜂巢中枢", Ic.Chart) { go(Screen.HiveCenter) }
         DrawerNav("搜索", Ic.Search) { go(Screen.Search) }

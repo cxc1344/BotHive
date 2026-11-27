@@ -179,20 +179,6 @@ object Agent {
                 .put("id", str("流水线 ID,如 pl_xxxxxx"))
                 .put("summary", str("本棒精炼产出摘要(将自动交接给下一棒)")),
             "id", "summary"))
-        put(fn("desktop_start", "在手机本地 Ubuntu PRoot 容器中启动轻量 Fluxbox + noVNC 桌面环境(1280x720, DISPLAY=:1)，供 AI 看屏操作与用户随时接管。", JSONObject()))
-        put(fn("desktop_screenshot", "截取手机本地 Ubuntu 轻量桌面(DISPLAY=:1)的实时画面(PNG 随结果附给你看)，同时向用户显示你正在使用桌面。", JSONObject()))
-        put(fn("desktop_click", "在本地 Ubuntu 桌面(DISPLAY=:1)执行鼠标点击(0-1000 归一化坐标，左上 0,0 右下 1000,1000)。",
-            JSONObject()
-                .put("x", JSONObject().put("type", "number").put("description", "横坐标 0-1000"))
-                .put("y", JSONObject().put("type", "number").put("description", "纵坐标 0-1000"))
-                .put("button", str("可选: left / right / double，默认 left")),
-            "x", "y"))
-        put(fn("desktop_type", "向本地 Ubuntu 桌面发送键盘文本输入或组合键(如 Return / ctrl+c / alt+F4)。",
-            JSONObject()
-                .put("text", str("可选: 要键入的文本"))
-                .put("key", str("可选: 组合键或功能键,如 Return / ctrl+c"))))
-        put(fn("desktop_open", "在本地 Ubuntu 桌面(DISPLAY=:1)启动图形应用(如 xterm / pcmanfm / python3 脚本)。",
-            JSONObject().put("app", str("要启动的命令,如 xterm 或 pcmanfm")), "app"))
         put(fn("memory_pod_save", "向用户的可溯源记忆档案舱写入一条结构化记忆(带分类与置信度,情绪吐槽请标为 mood 避免误判为目标)。",
             JSONObject()
                 .put("content", str("记忆内容"))
@@ -378,7 +364,7 @@ object Agent {
                     if (chatId.isNotBlank()) SuperAgent.heartbeatByChat(chatId, spillId)
                     // screen_shot AND browser_* calls carry a live screenshot for the model AND a thumbnail for the UI.
                     val shot = pendingShots.remove(bot.id)
-                    val carriesShot = shot != null && (name == "screen_shot" || name == "desktop_screenshot" || name.startsWith("browser_"))
+                    val carriesShot = shot != null && (name == "screen_shot" || name.startsWith("browser_"))
                     tools[idx] = tools[idx].copy(output = out, image = if (carriesShot) shot!!.absolutePath else "")
                     onTools(tools.toList())
                     msgs.put(JSONObject().put("role", "tool").put("tool_call_id", c.getString("id")).put("content", out))
@@ -984,30 +970,6 @@ object Agent {
                 if (pid.isBlank()) "请提供流水线 id。"
                 else HivePipeline.advanceStage(store, pid, a.optString("summary"))
             }
-            "desktop_start" -> LinuxDesktop.start(store.appContext())
-            "desktop_screenshot" -> {
-                val f = LinuxDesktop.screenshot(store.appContext(), bot.name)
-                if (f != null) {
-                    pendingShots[bot.id] = f
-                    "已截取本地 Ubuntu 轻量桌面实时画面（1280×720），画面已附在结果中。"
-                } else {
-                    "Ubuntu 桌面未运行或截屏失败，请先调用 desktop_start。"
-                }
-            }
-            "desktop_click" -> LinuxDesktop.click(
-                ctx = store.appContext(),
-                botName = bot.name,
-                xNorm = a.optDouble("x", 500.0),
-                yNorm = a.optDouble("y", 500.0),
-                button = a.optString("button", "left")
-            )
-            "desktop_type" -> LinuxDesktop.typeOrKey(
-                ctx = store.appContext(),
-                botName = bot.name,
-                text = a.optString("text"),
-                key = a.optString("key")
-            )
-            "desktop_open" -> LinuxDesktop.openApp(store.appContext(), bot.name, a.optString("app", "xterm"))
             "memory_pod_save" -> {
                 val content = a.optString("content").trim()
                 if (content.isBlank()) "请提供 content。"

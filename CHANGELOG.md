@@ -1,5 +1,7 @@
 ## 0.7.2 (2026-11-27) — 蜂巢灵动觉醒 · Pure Android
 
+> **同日晚间修订**：手机本地 Ubuntu 桌面经真机验证无法在当前沙箱架构下运行（沙箱命令为一次性执行，PRoot 退出即终止全部子进程，VNC/noVNC 守护进程无法驻留），已暂时移除，待 0.8.0「沙箱常驻会话」改造落地后回归。灵动蜂巢岛与 DAG 接力流水线不受影响。
+
 - **手机本地 Ubuntu 轻量桌面 (`LinuxDesktop.kt` / `UiLinuxDesktop.kt`)**：复用现有 Ubuntu 24.04 PRoot 一键启动 Fluxbox + TigerVNC + noVNC（1280×720）实时图形桌面，内置 WebView 直连预览；AI 调用 `desktop_start`/`desktop_screenshot`/`desktop_click`/`desktop_type`/`desktop_open` 时自动浮现「（AI名）正在使用中」液态玻璃横幅，并支持随时一键人工接管与交回。
 - **Bix 全局「灵动蜂巢岛」(`BixFloatingIsland.kt`)**：基于 Android 原生悬浮窗打造钛金液态玻璃灵动胶囊，内嵌原版 14×13 像素 Bix（同步配饰与扇翅动画），切出 App 也能实时播报活跃工单与接力进度；支持自由拖动磁吸贴边，轻点展开迷你指令舱跨 App 一键派发工单。
 - **Super-Agent DAG 多棒自动接力流水线 (`HivePipeline.kt` / `UiSuperAgent.kt`)**：内置 4 套三阶段接力模板（深度调研 / 代码重构 / 出行研学 / 多视角决策），前序 Worker 完成自动写共享黑板并唤醒下一棒 Worker；配套动态能量连线画布与 Bix 举接力棒冲刺动画，开放 `pipeline_advance` 工具。

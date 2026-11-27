@@ -383,7 +383,6 @@ object BixFloatingIsland {
         val activeTk = SuperAgent.tickets.count { it.status == TicketStatus.RUNNING || it.status == TicketStatus.QUEUED }
         val activePipe = HivePipeline.pipelines.count { p -> p.stages.any { it.status == StageStatus.RUNNING } }
         val label = when {
-            LinuxDesktop.activeAiOwner.value.isNotBlank() -> "（${LinuxDesktop.activeAiOwner.value}）正在用桌面"
             activePipe > 0 -> "接力流水线 $activePipe 进行中"
             activeTk > 0 -> "蜂巢活跃工单 $activeTk"
             else -> "Bix 蜂巢待命"

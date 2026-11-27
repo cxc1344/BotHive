@@ -51,8 +51,7 @@ internal object PolicyRules {
         tool == "fs_delete" -> ActionClass.DELETE
         tool == "shizuku_shell" -> ActionClass.PRIVILEGED
         tool == "browser_fill_secret" -> ActionClass.SENSITIVE_DATA
-        tool == "recall_spill" || tool == "ticket_list" || tool == "board_read" || tool == "memory_pod_query" || tool == "desktop_screenshot" -> ActionClass.READ
-        tool == "desktop_start" || tool == "desktop_click" || tool == "desktop_type" || tool == "desktop_open" -> ActionClass.SANDBOX
+        tool == "recall_spill" || tool == "ticket_list" || tool == "board_read" || tool == "memory_pod_query" -> ActionClass.READ
         tool == "open_deeplink" -> ActionClass.WEB
         tool == "browser_nav" -> {
             val act = arg("action").trim().lowercase()
