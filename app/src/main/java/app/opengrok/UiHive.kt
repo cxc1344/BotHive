@@ -1038,6 +1038,21 @@ fun HiveCenterScreen(store: Store, go: (Screen) -> Unit) {
                 PillButton("打开超级工单中枢", modifier = Modifier.fillMaxWidth()) { go(Screen.SuperAgent) }
             }
             HiveSection(
+                "Bot 专属电脑 · Hive PC (v0.7.2)", BixAction.DesktopPC,
+                "连接 BotHive Desktop PC 端（24×7 在线远程桌面、键鼠操控与后台守护进程），或使用本机工作站。"
+            ) {
+                val st = if (HiveComputer.connected.value) "已在线：${HiveComputer.hostName.value}" else "未连接 PC 端（支持 Windows / Mac / Linux）"
+                Text(st, color = if (HiveComputer.connected.value) BeeGreen else Sub, fontSize = 12.sp)
+                PillButton("打开 Bot 专属电脑", modifier = Modifier.fillMaxWidth()) { go(Screen.HiveComputer) }
+            }
+            HiveSection(
+                "个人智能体中枢 (v0.7.2)", BixAction.MemoryPod,
+                "主动目标 Check-in + 可溯源记忆档案舱（一键搬家）+ 通知隐私围栏 + Bot 预算信封。"
+            ) {
+                Text("目标 ${PersonalAgent.goals.size} · 记忆舱 ${MemoryPod.records.size} · 隐私围栏已拦 ${PersonalAgent.blockedCount.intValue} 条", color = Sub, fontSize = 12.sp)
+                PillButton("打开个人智能体中枢", modifier = Modifier.fillMaxWidth()) { go(Screen.PersonalHub) }
+            }
+            HiveSection(
                 "总参谋", BixAction.Briefing,
                 "指定一只 Bot 统管全局。问它「今天有什么新情况」,它会用 team_status 汇总所有 Bot、待批事项和例行任务。"
             ) {

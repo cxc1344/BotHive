@@ -173,6 +173,36 @@ object Agent {
                 .put("start_line", JSONObject().put("type", "integer").put("description", "可选: 起始行号(从1开始)"))
                 .put("max_lines", JSONObject().put("type", "integer").put("description", "可选: 最多返回行数(10-200,默认80)")),
             "id"))
+        // v0.7.2 Hive Computer (Remote PC) + Portable Memory Pod tools:
+        put(fn("pc_exec", "在已绑定的 24x7 BotHive Desktop 远程电脑上执行 Shell/PowerShell 命令。",
+            JSONObject()
+                .put("command", str("要执行的命令"))
+                .put("timeout", JSONObject().put("type", "integer").put("description", "超时秒数(3-120,默认30)")),
+            "command"))
+        put(fn("pc_screenshot", "截取已绑定远程 PC 的当前桌面画面(PNG 会随结果直接附给你看)。", JSONObject()))
+        put(fn("pc_action", "操控已绑定远程 PC 的鼠标或键盘(坐标使用 0-1000 归一化比例,左上 0,0 右下 1000,1000)。",
+            JSONObject()
+                .put("action", str("click / double_click / right_click / move / scroll / type / hotkey"))
+                .put("x", JSONObject().put("type", "number").put("description", "可选: 横坐标 0-1000"))
+                .put("y", JSONObject().put("type", "number").put("description", "可选: 纵坐标 0-1000"))
+                .put("text", str("可选: type 时输入的文本"))
+                .put("keys", str("可选: hotkey 组合键,如 ctrl+c 或 cmd+space"))
+                .put("delta", JSONObject().put("type", "integer").put("description", "可选: scroll 滚动格数")),
+            "action"))
+        put(fn("pc_daemon", "管理远程 PC 上的 24x7 后台常驻守护进程(list/start/stop)。",
+            JSONObject()
+                .put("op", str("list / start / stop"))
+                .put("name", str("守护进程名(start/stop 时必填)"))
+                .put("command", str("启动命令(start 时必填)")),
+            "op"))
+        put(fn("memory_pod_save", "向用户的可溯源记忆档案舱写入一条结构化记忆(带分类与置信度,情绪吐槽请标为 mood 避免误判为目标)。",
+            JSONObject()
+                .put("content", str("记忆内容"))
+                .put("category", str("fact / pref / goal / mood"))
+                .put("confidence", str("stated(用户明说) / inferred(模型推测)")),
+            "content"))
+        put(fn("memory_pod_query", "按当前 Bot 权限检索用户的可溯源记忆档案舱(自动遵守按 Bot 授权分区)。",
+            JSONObject().put("query", str("可选关键词"))))
         if (isAgent) {
             put(fn("fs_list", "列出任意目录的内容(绝对路径,如 /sdcard/Download)。channel 通道:auto(默认,普通优先、自动回退 Shizuku)/ standard(普通文件权限,需用户给了所有文件访问)/ shizuku(shell 身份,能到 /data/local/tmp 等)/ root(root 身份,能进其他应用的 /data 私有目录,需 Shizuku 以 root 运行或有 su)。",
                 JSONObject().put("path", str("绝对路径")).put("channel", str("通道,可选,默认 auto")), "path"))
@@ -350,7 +380,7 @@ object Agent {
                     if (chatId.isNotBlank()) SuperAgent.heartbeatByChat(chatId, spillId)
                     // screen_shot AND browser_* calls carry a live screenshot for the model AND a thumbnail for the UI.
                     val shot = pendingShots.remove(bot.id)
-                    val carriesShot = shot != null && (name == "screen_shot" || name.startsWith("browser_"))
+                    val carriesShot = shot != null && (name == "screen_shot" || name == "pc_screenshot" || name.startsWith("browser_"))
                     tools[idx] = tools[idx].copy(output = out, image = if (carriesShot) shot!!.absolutePath else "")
                     onTools(tools.toList())
                     msgs.put(JSONObject().put("role", "tool").put("tool_call_id", c.getString("id")).put("content", out))
@@ -950,6 +980,63 @@ object Agent {
                     startLine = a.optInt("start_line", 1),
                     maxLines = a.optInt("max_lines", 80)
                 )
+            }
+            "pc_exec" -> {
+                val cmd = a.optString("command").trim()
+                if (cmd.isBlank()) "请提供要执行的 command。"
+                else HiveComputer.exec(cmd, a.optInt("timeout", 30))
+            }
+            "pc_screenshot" -> {
+                val f = HiveComputer.captureScreenshot(store.appContext())
+                if (f != null) {
+                    pendingShots[bot.id] = f
+                    "已截取远程 PC 实时桌面画面（${HiveComputer.hostName.value.ifBlank { "PC" }} ${HiveComputer.screenInfo.value}），截图已附在本次工具结果中。"
+                } else {
+                    "PC 截屏失败：${HiveComputer.lastError.value.ifBlank { "请确认 BotHive Desktop 已在线绑定" }}"
+                }
+            }
+            "pc_action" -> {
+                val act = a.optString("action").trim()
+                val xVal = if (a.has("x")) a.optDouble("x") else null
+                val yVal = if (a.has("y")) a.optDouble("y") else null
+                HiveComputer.desktopAction(
+                    action = act,
+                    xNorm = xVal,
+                    yNorm = yVal,
+                    text = a.optString("text"),
+                    keys = a.optString("keys"),
+                    delta = a.optInt("delta", 0)
+                )
+            }
+            "pc_daemon" -> {
+                HiveComputer.manageDaemon(
+                    op = a.optString("op", "list"),
+                    name = a.optString("name"),
+                    command = a.optString("command")
+                )
+            }
+            "memory_pod_save" -> {
+                val content = a.optString("content").trim()
+                if (content.isBlank()) "请提供 content。"
+                else {
+                    val cat = when (a.optString("category").trim().lowercase()) {
+                        "pref" -> MemoryCategory.PREF
+                        "goal" -> MemoryCategory.GOAL
+                        "mood" -> MemoryCategory.MOOD
+                        else -> MemoryCategory.FACT
+                    }
+                    val conf = if (a.optString("confidence").trim().lowercase() == "inferred")
+                        MemoryConfidence.INFERRED else MemoryConfidence.STATED
+                    val rec = MemoryPod.add(content, cat, source = "Bot:${bot.name}", confidence = conf)
+                    "已写入个人记忆档案舱 ${rec.id}（[${rec.category.label}/${rec.confidence.label}]）。"
+                }
+            }
+            "memory_pod_query" -> {
+                val list = MemoryPod.queryForBot(bot.id, a.optString("query")).take(20)
+                if (list.isEmpty()) "记忆档案舱中暂无对当前 Bot 授权的匹配记录。"
+                else list.joinToString("\n") { r ->
+                    "• [${r.category.label}/${r.confidence.label}] ${r.content} (来源:${r.source})"
+                }
             }
             "open_deeplink" -> {
                 if (bot.id != AGENT_ID) return "该工具只有设备 Agent 可用。"

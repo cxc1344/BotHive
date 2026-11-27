@@ -474,6 +474,8 @@ private fun DrawerPanel(store: Store, current: Screen, onClose: () -> Unit, go: 
         DrawerNav("活动看板", Ic.Board) { go(Screen.Activity) }
         DrawerNav("例行任务", Ic.Bell) { go(Screen.Routines) }
         DrawerNav("超级工单 · Super-Agent", Ic.Terminal) { go(Screen.SuperAgent) }
+        DrawerNav("Bot 专属电脑 · Hive PC", Ic.Code) { go(Screen.HiveComputer) }
+        DrawerNav("个人智能体中枢", Ic.Bolt) { go(Screen.PersonalHub) }
         DrawerNav("蜂巢中枢", Ic.Chart) { go(Screen.HiveCenter) }
         DrawerNav("搜索", Ic.Search) { go(Screen.Search) }
         HorizontalDivider(color = Line, modifier = Modifier.padding(vertical = 12.dp))

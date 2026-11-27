@@ -1,3 +1,14 @@
+## 0.7.2 (2026-11-27) — 双端觉醒 · Hive Computer & Personal Agent
+
+- **BotHive Desktop PC 端伴侣 (`desktop/bothive_pc.py`)**：跨平台（Windows / macOS / Linux）24×7 在线 PC 端，自带 Titanium Liquid Glass Web 控制台与 8-bit 像素 Bix，支持 Bearer 配对鉴权、实时桌面截屏、远程键鼠操控、Shell 执行、24×7 后台守护进程管理与 PC Sentinel 安全审计流。
+- **Android 端「Bot 专属电脑 · Hive PC」(`HiveComputer.kt` / `UiHiveComputer.kt`)**：直连 BotHive Desktop，支持在手机里实时围观并点击操控 PC 桌面、远程终端、守护进程管理，并为全部 Bot 开放 `pc_exec`、`pc_screenshot`（视觉直传）、`pc_action`、`pc_daemon` 四项远程电脑工具。
+- **个人智能体中枢 (`MemoryPod.kt` / `PersonalAgent.kt` / `UiPersonalHub.kt`)**：
+  - **可溯源记忆档案舱**：带分类（事实/偏好/目标/临时情绪）、来源、可信度（用户明说 vs 模型推测）与按 Bot 授权分区，支持一键导入/导出「记忆搬家包」。
+  - **主动目标与 Draft-First Check-in**：长期目标建档并随时触发 Super-Agent 提前备好行动草案等你拍板。
+  - **通知隐私围栏**：在通知进入 SuperRouter 前默认拦截微信/QQ/支付宝/Signal/银行等敏感 App，支持黑名单/白名单双模式。
+  - **Bot 预算信封**：支持为每个 Bot 设定独立每日 Token 上限。
+- **4 套全新 8-bit Bix 像素动画**：新增 `DesktopPC`、`MemoryPod`、`GoalFlag`、`PrivacyFence`，全面接入跨屏贝塞尔飞行引擎、选项卡穿梭轨道与设置工牌预览。
+
 - **Bix 跨屏飞行与转场动效 (`BixTransitions.kt`)**：新增全屏贝塞尔弧线跨屏飞行叠加层（花粉像素尾迹、速度倾角、落地挤压回弹与星爆环）、侧边栏开关招手、系统预测性返回手势边缘探头，以及 Super-Agent 看板 5 选项卡 Bix 抛物线穿梭轨道与场景感知页面转场。
 
 # 更新日志

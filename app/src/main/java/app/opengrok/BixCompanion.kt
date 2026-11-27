@@ -129,7 +129,16 @@ enum class BixAction {
     /** Scribbling glowing sticky notes with pixel chalk on a slate board (Hive Blackboard). */
     Blackboard,
     /** Pounding a pixel wooden gavel with sparks (Multi-Bot Debate Arena). */
-    Debate
+    Debate,
+    // v0.7.2 Dual-End Hive Computer & Personal Agent poses:
+    /** Operating a glowing dual-monitor desktop PC workstation (BotHive Desktop / HiveComputer). */
+    DesktopPC,
+    /** Hugging a glowing pixel memory pod box with color-coded tags (Portable Memory Pod). */
+    MemoryPod,
+    /** Planting and waving a pixel goal flag on a milestone hill (Proactive Goals & Check-in). */
+    GoalFlag,
+    /** Standing guard before a glowing pixel privacy fence blocking private notifications. */
+    PrivacyFence
 }
 
 /** User-selectable 8-bit pixel accessories synced across every Bix appearance in the app. */
@@ -544,6 +553,10 @@ fun bixCycleMs(action: BixAction): Int = when (action) {
     BixAction.Watchdog -> 1050
     BixAction.Blackboard -> 880
     BixAction.Debate -> 640
+    BixAction.DesktopPC -> 760
+    BixAction.MemoryPod -> 920
+    BixAction.GoalFlag -> 700
+    BixAction.PrivacyFence -> 860
     else -> 1300
 }
 
@@ -565,7 +578,8 @@ private fun bixHasProp(action: BixAction): Boolean = when (action) {
     BixAction.Sentinel, BixAction.Blocked, BixAction.Handoff, BixAction.Briefing,
     BixAction.Teaching, BixAction.Budget, BixAction.Sleeping, BixAction.Alarm,
     BixAction.Router, BixAction.Ticket, BixAction.Spill, BixAction.Watchdog,
-    BixAction.Blackboard, BixAction.Debate -> true
+    BixAction.Blackboard, BixAction.Debate,
+    BixAction.DesktopPC, BixAction.MemoryPod, BixAction.GoalFlag, BixAction.PrivacyFence -> true
     else -> false
 }
 
@@ -603,6 +617,10 @@ fun DrawScope.drawBixPose(
         BixAction.Watchdog -> drawBixWatchdog(phase, compact, acc)
         BixAction.Blackboard -> drawBixBlackboard(phase, compact, acc)
         BixAction.Debate -> drawBixDebate(phase, compact, acc)
+        BixAction.DesktopPC -> drawBixDesktopPC(phase, compact, acc)
+        BixAction.MemoryPod -> drawBixMemoryPod(phase, compact, acc)
+        BixAction.GoalFlag -> drawBixGoalFlag(phase, compact, acc)
+        BixAction.PrivacyFence -> drawBixPrivacyFence(phase, compact, acc)
     }
 }
 
@@ -1303,6 +1321,84 @@ private fun DrawScope.drawBixDebate(phase: Float, compact: Boolean, acc: BixAcce
     }
 }
 
+/** v0.7.2 DesktopPC: Bix operating a glowing dual-monitor pixel PC workstation! */
+private fun DrawScope.drawBixDesktopPC(phase: Float, compact: Boolean, acc: BixAccessory) {
+    val u = if (compact) size.height / 14f else size.height / 17f
+    val bx = if (compact) 0.4f * u else (size.width - 21f * u) * 0.5f
+    val by = size.height - 13.5f * u
+    drawCoreBix(bx, by, u, wingUp = phase < 0.5f, face = 1, accessory = acc)
+    val mx = bx + 11.4f * u
+    val my = by + 0.8f * u
+    // Dual monitor chassis + stand
+    px(0.6f, 1.0f, 6.8f, 4.8f, u, mx, my, BixStripe)
+    px(1.2f, 1.6f, 5.6f, 3.6f, u, mx, my, Color(0xFF101822))
+    px(3.4f, 5.8f, 1.2f, 1.4f, u, mx, my, BixStripe)
+    px(2.0f, 7.2f, 4.0f, 0.9f, u, mx, my, BixStripe)
+    // Live glowing cursor & code lines on screen
+    val curX = 1.8f + (phase * 3.6f)
+    px(1.6f, 2.2f, 3.2f, 0.6f, u, mx, my, BixCodeVolt)
+    px(1.6f, 3.2f, 2.4f, 0.6f, u, mx, my, Color(0xFF5CE1E6))
+    px(curX, 4.1f, 0.9f, 0.8f, u, mx, my, BixGoldLight)
+}
+
+/** v0.7.2 MemoryPod: Bix organizing glowing memory cards into a portable pixel pod! */
+private fun DrawScope.drawBixMemoryPod(phase: Float, compact: Boolean, acc: BixAccessory) {
+    val u = if (compact) size.height / 14f else size.height / 17f
+    val bx = if (compact) 0.4f * u else (size.width - 21f * u) * 0.5f
+    val by = size.height - 13.5f * u
+    drawCoreBix(bx, by, u, wingUp = phase < 0.5f, face = 1, accessory = acc)
+    val px0 = bx + 11.8f * u
+    val py0 = by + 1.2f * u
+    // Portable archive pod box
+    px(0.8f, 3.6f, 5.8f, 4.6f, u, px0, py0, BixStripe)
+    px(1.4f, 4.2f, 4.6f, 3.4f, u, px0, py0, Color(0xFF182230))
+    px(2.6f, 5.6f, 2.2f, 0.7f, u, px0, py0, BixGold)
+    // Floating color-coded provenance tags rising into the pod
+    val bob = kotlin.math.sin(phase * 2.0 * kotlin.math.PI).toFloat() * 0.8f
+    px(1.4f, 1.4f + bob, 1.4f, 1.4f, u, px0, py0, BixCodeVolt)
+    px(3.2f, 0.8f - bob, 1.4f, 1.4f, u, px0, py0, Color(0xFF5CE1E6))
+    px(5.0f, 1.6f + bob * 0.6f, 1.4f, 1.4f, u, px0, py0, BixGoldLight)
+}
+
+/** v0.7.2 GoalFlag: Bix planting and waving a pixel milestone flag! */
+private fun DrawScope.drawBixGoalFlag(phase: Float, compact: Boolean, acc: BixAccessory) {
+    val u = if (compact) size.height / 14f else size.height / 17f
+    val bx = if (compact) 0.4f * u else (size.width - 21f * u) * 0.5f
+    val by = size.height - 13.5f * u
+    drawCoreBix(bx, by, u, wingUp = phase < 0.5f, face = 1, accessory = acc)
+    val fx = bx + 12.2f * u
+    val fy = by + 0.6f * u
+    // Flagpole + base
+    px(1.4f, 1.0f, 0.8f, 7.6f, u, fx, fy, BixGoldLight)
+    px(0.4f, 8.2f, 3.0f, 0.9f, u, fx, fy, BixStripe)
+    // Fluttering pixel pennant
+    val wave = if (phase < 0.5f) 0f else 0.6f
+    px(2.2f, 1.2f, 2.2f, 2.4f, u, fx, fy, BixCoral)
+    px(4.4f, 1.2f + wave, 1.8f, 2.0f, u, fx, fy, BixGold)
+    if (phase > 0.5f) {
+        px(5.8f, 0.4f, 0.8f, 0.8f, u, fx, fy, BixCodeVolt)
+    }
+}
+
+/** v0.7.2 PrivacyFence: Bix standing guard in front of a glowing pixel privacy barrier! */
+private fun DrawScope.drawBixPrivacyFence(phase: Float, compact: Boolean, acc: BixAccessory) {
+    val u = if (compact) size.height / 14f else size.height / 17f
+    val bx = if (compact) 0.4f * u else (size.width - 21f * u) * 0.5f
+    val by = size.height - 13.5f * u
+    drawCoreBix(bx, by, u, wingUp = phase < 0.5f, face = 1, accessory = acc)
+    val sx = bx + 11.8f * u
+    val sy = by + 1.0f * u
+    // Three pixel barrier posts + glowing security rail
+    px(0.6f, 2.4f, 1.2f, 6.0f, u, sx, sy, BixStripe)
+    px(2.8f, 2.4f, 1.2f, 6.0f, u, sx, sy, BixStripe)
+    px(5.0f, 2.4f, 1.2f, 6.0f, u, sx, sy, BixStripe)
+    val pulseColor = if (phase < 0.5f) Color(0xFF5CE1E6) else BixCodeVolt
+    px(0.4f, 3.6f, 6.0f, 0.9f, u, sx, sy, pulseColor)
+    px(0.4f, 6.0f, 6.0f, 0.9f, u, sx, sy, BixGold)
+    // Shield emblem at center
+    px(2.6f, 1.0f, 1.6f, 1.6f, u, sx, sy, BeeGreen)
+}
+
 // ============================================================
 // 3. Physical Bounce-Up & Roof-Landing Stage (半弹出摘要框顶栖息)
 // ============================================================
@@ -1662,7 +1758,8 @@ fun BixBadgeCard() {
             BixAction.Sentinel, BixAction.Handoff, BixAction.Briefing, BixAction.Teaching,
             BixAction.Budget, BixAction.Alarm, BixAction.Sleeping, BixAction.Blocked,
             BixAction.Router, BixAction.Ticket, BixAction.Spill, BixAction.Watchdog,
-            BixAction.Blackboard, BixAction.Debate
+            BixAction.Blackboard, BixAction.Debate,
+            BixAction.DesktopPC, BixAction.MemoryPod, BixAction.GoalFlag, BixAction.PrivacyFence
         )
     }
 

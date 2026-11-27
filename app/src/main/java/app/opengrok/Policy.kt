@@ -42,7 +42,7 @@ internal object PolicyRules {
     )
     val SCREEN_TOOLS = setOf("tap_at", "long_press", "drag_at", "tap_text", "input_text", "press_key", "launch_app", "phone_task")
     val WEB_TOOLS = setOf("browser_open", "browser_mouse", "browser_type", "open_url")
-    val SELF_TOOLS = setOf("remember", "schedule_task", "create_skill", "run_workflow", "ask_bot", "ticket_create", "ticket_update", "board_write")
+    val SELF_TOOLS = setOf("remember", "schedule_task", "create_skill", "run_workflow", "ask_bot", "ticket_create", "ticket_update", "board_write", "memory_pod_save")
 
     fun classify(tool: String, arg: (String) -> String): ActionClass = when {
         tool.startsWith("mcp_") -> ActionClass.EXTERNAL
@@ -51,7 +51,8 @@ internal object PolicyRules {
         tool == "fs_delete" -> ActionClass.DELETE
         tool == "shizuku_shell" -> ActionClass.PRIVILEGED
         tool == "browser_fill_secret" -> ActionClass.SENSITIVE_DATA
-        tool == "recall_spill" || tool == "ticket_list" || tool == "board_read" -> ActionClass.READ
+        tool == "recall_spill" || tool == "ticket_list" || tool == "board_read" || tool == "pc_screenshot" || tool == "memory_pod_query" -> ActionClass.READ
+        tool == "pc_exec" || tool == "pc_action" || tool == "pc_daemon" -> ActionClass.EXTERNAL
         tool == "open_deeplink" -> ActionClass.WEB
         tool == "browser_nav" -> {
             val act = arg("action").trim().lowercase()
