@@ -74,7 +74,7 @@ fun PersonalHubScreen(store: Store, go: (Screen) -> Unit) {
                     0 -> SmallChip("+ 新目标") { showAddGoal = true }
                     1 -> SmallChip("搬家") { showMigrateMem = true }
                     2 -> SmallChip("+ 包名") { showAddPkg = true }
-                    else -> SmallChip("PC 电脑") { go(Screen.HiveComputer) }
+                    else -> SmallChip(if (BixFloatingIsland.active.value) "关灵动岛" else "开灵动岛") { BixFloatingIsland.toggle(ctx, store) }
                 }
             }
         )

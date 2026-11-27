@@ -173,28 +173,26 @@ object Agent {
                 .put("start_line", JSONObject().put("type", "integer").put("description", "可选: 起始行号(从1开始)"))
                 .put("max_lines", JSONObject().put("type", "integer").put("description", "可选: 最多返回行数(10-200,默认80)")),
             "id"))
-        // v0.7.2 Hive Computer (Remote PC) + Portable Memory Pod tools:
-        put(fn("pc_exec", "在已绑定的 24x7 BotHive Desktop 远程电脑上执行 Shell/PowerShell 命令。",
+        // v0.7.2 Pure-Android DAG Auto-Relay Pipeline + Portable Memory Pod tools:
+        put(fn("pipeline_advance", "推进蜂巢 DAG 自动接力流水线：将当前棒次标为完成、写入共享黑板并自动唤醒下一棒 Worker。",
             JSONObject()
-                .put("command", str("要执行的命令"))
-                .put("timeout", JSONObject().put("type", "integer").put("description", "超时秒数(3-120,默认30)")),
-            "command"))
-        put(fn("pc_screenshot", "截取已绑定远程 PC 的当前桌面画面(PNG 会随结果直接附给你看)。", JSONObject()))
-        put(fn("pc_action", "操控已绑定远程 PC 的鼠标或键盘(坐标使用 0-1000 归一化比例,左上 0,0 右下 1000,1000)。",
+                .put("id", str("流水线 ID,如 pl_xxxxxx"))
+                .put("summary", str("本棒精炼产出摘要(将自动交接给下一棒)")),
+            "id", "summary"))
+        put(fn("desktop_start", "在手机本地 Ubuntu PRoot 容器中启动轻量 Fluxbox + noVNC 桌面环境(1280x720, DISPLAY=:1)，供 AI 看屏操作与用户随时接管。", JSONObject()))
+        put(fn("desktop_screenshot", "截取手机本地 Ubuntu 轻量桌面(DISPLAY=:1)的实时画面(PNG 随结果附给你看)，同时向用户显示你正在使用桌面。", JSONObject()))
+        put(fn("desktop_click", "在本地 Ubuntu 桌面(DISPLAY=:1)执行鼠标点击(0-1000 归一化坐标，左上 0,0 右下 1000,1000)。",
             JSONObject()
-                .put("action", str("click / double_click / right_click / move / scroll / type / hotkey"))
-                .put("x", JSONObject().put("type", "number").put("description", "可选: 横坐标 0-1000"))
-                .put("y", JSONObject().put("type", "number").put("description", "可选: 纵坐标 0-1000"))
-                .put("text", str("可选: type 时输入的文本"))
-                .put("keys", str("可选: hotkey 组合键,如 ctrl+c 或 cmd+space"))
-                .put("delta", JSONObject().put("type", "integer").put("description", "可选: scroll 滚动格数")),
-            "action"))
-        put(fn("pc_daemon", "管理远程 PC 上的 24x7 后台常驻守护进程(list/start/stop)。",
+                .put("x", JSONObject().put("type", "number").put("description", "横坐标 0-1000"))
+                .put("y", JSONObject().put("type", "number").put("description", "纵坐标 0-1000"))
+                .put("button", str("可选: left / right / double，默认 left")),
+            "x", "y"))
+        put(fn("desktop_type", "向本地 Ubuntu 桌面发送键盘文本输入或组合键(如 Return / ctrl+c / alt+F4)。",
             JSONObject()
-                .put("op", str("list / start / stop"))
-                .put("name", str("守护进程名(start/stop 时必填)"))
-                .put("command", str("启动命令(start 时必填)")),
-            "op"))
+                .put("text", str("可选: 要键入的文本"))
+                .put("key", str("可选: 组合键或功能键,如 Return / ctrl+c"))))
+        put(fn("desktop_open", "在本地 Ubuntu 桌面(DISPLAY=:1)启动图形应用(如 xterm / pcmanfm / python3 脚本)。",
+            JSONObject().put("app", str("要启动的命令,如 xterm 或 pcmanfm")), "app"))
         put(fn("memory_pod_save", "向用户的可溯源记忆档案舱写入一条结构化记忆(带分类与置信度,情绪吐槽请标为 mood 避免误判为目标)。",
             JSONObject()
                 .put("content", str("记忆内容"))
@@ -380,7 +378,7 @@ object Agent {
                     if (chatId.isNotBlank()) SuperAgent.heartbeatByChat(chatId, spillId)
                     // screen_shot AND browser_* calls carry a live screenshot for the model AND a thumbnail for the UI.
                     val shot = pendingShots.remove(bot.id)
-                    val carriesShot = shot != null && (name == "screen_shot" || name == "pc_screenshot" || name.startsWith("browser_"))
+                    val carriesShot = shot != null && (name == "screen_shot" || name == "desktop_screenshot" || name.startsWith("browser_"))
                     tools[idx] = tools[idx].copy(output = out, image = if (carriesShot) shot!!.absolutePath else "")
                     onTools(tools.toList())
                     msgs.put(JSONObject().put("role", "tool").put("tool_call_id", c.getString("id")).put("content", out))
@@ -981,40 +979,35 @@ object Agent {
                     maxLines = a.optInt("max_lines", 80)
                 )
             }
-            "pc_exec" -> {
-                val cmd = a.optString("command").trim()
-                if (cmd.isBlank()) "请提供要执行的 command。"
-                else HiveComputer.exec(cmd, a.optInt("timeout", 30))
+            "pipeline_advance" -> {
+                val pid = a.optString("id").trim()
+                if (pid.isBlank()) "请提供流水线 id。"
+                else HivePipeline.advanceStage(store, pid, a.optString("summary"))
             }
-            "pc_screenshot" -> {
-                val f = HiveComputer.captureScreenshot(store.appContext())
+            "desktop_start" -> LinuxDesktop.start(store.appContext())
+            "desktop_screenshot" -> {
+                val f = LinuxDesktop.screenshot(store.appContext(), bot.name)
                 if (f != null) {
                     pendingShots[bot.id] = f
-                    "已截取远程 PC 实时桌面画面（${HiveComputer.hostName.value.ifBlank { "PC" }} ${HiveComputer.screenInfo.value}），截图已附在本次工具结果中。"
+                    "已截取本地 Ubuntu 轻量桌面实时画面（1280×720），画面已附在结果中。"
                 } else {
-                    "PC 截屏失败：${HiveComputer.lastError.value.ifBlank { "请确认 BotHive Desktop 已在线绑定" }}"
+                    "Ubuntu 桌面未运行或截屏失败，请先调用 desktop_start。"
                 }
             }
-            "pc_action" -> {
-                val act = a.optString("action").trim()
-                val xVal = if (a.has("x")) a.optDouble("x") else null
-                val yVal = if (a.has("y")) a.optDouble("y") else null
-                HiveComputer.desktopAction(
-                    action = act,
-                    xNorm = xVal,
-                    yNorm = yVal,
-                    text = a.optString("text"),
-                    keys = a.optString("keys"),
-                    delta = a.optInt("delta", 0)
-                )
-            }
-            "pc_daemon" -> {
-                HiveComputer.manageDaemon(
-                    op = a.optString("op", "list"),
-                    name = a.optString("name"),
-                    command = a.optString("command")
-                )
-            }
+            "desktop_click" -> LinuxDesktop.click(
+                ctx = store.appContext(),
+                botName = bot.name,
+                xNorm = a.optDouble("x", 500.0),
+                yNorm = a.optDouble("y", 500.0),
+                button = a.optString("button", "left")
+            )
+            "desktop_type" -> LinuxDesktop.typeOrKey(
+                ctx = store.appContext(),
+                botName = bot.name,
+                text = a.optString("text"),
+                key = a.optString("key")
+            )
+            "desktop_open" -> LinuxDesktop.openApp(store.appContext(), bot.name, a.optString("app", "xterm"))
             "memory_pod_save" -> {
                 val content = a.optString("content").trim()
                 if (content.isBlank()) "请提供 content。"

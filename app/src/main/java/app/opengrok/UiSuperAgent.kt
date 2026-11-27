@@ -76,6 +76,7 @@ fun SuperAgentScreen(store: Store, go: (Screen) -> Unit) {
     var showRouterTest by remember { mutableStateOf(false) }
     var showDebate by remember { mutableStateOf(false) }
     var showAddNote by remember { mutableStateOf(false) }
+    var showNewPipeline by remember { mutableStateOf(false) }
     var activeSpillId by remember { mutableStateOf<String?>(null) }
 
     val allTickets = SuperAgent.tickets.toList()
@@ -83,6 +84,7 @@ fun SuperAgentScreen(store: Store, go: (Screen) -> Unit) {
     val pausedList = allTickets.filter { it.status == TicketStatus.PAUSED || it.status == TicketStatus.BLOCKED || it.status == TicketStatus.FAILED }
     val doneList = allTickets.filter { it.status == TicketStatus.DONE }
     val boardNotes = HiveBlackboard.notes.toList()
+    val pipelines = HivePipeline.pipelines.toList()
     val spills = remember(tab, allTickets.size) { ContextSpill.listRecent(24) }
 
     Column(Modifier.fillMaxSize()) {
@@ -91,6 +93,7 @@ fun SuperAgentScreen(store: Store, go: (Screen) -> Unit) {
             bix = when (tab) {
                 2 -> BixAction.Blackboard
                 4 -> BixAction.Watchdog
+                5 -> BixAction.Relay
                 else -> if (runningList.isNotEmpty()) BixAction.Router else BixAction.Ticket
             },
             onBack = { go(Screen.Home) },
@@ -119,7 +122,10 @@ fun SuperAgentScreen(store: Store, go: (Screen) -> Unit) {
                             val chiefName = store.chiefId.value.takeIf { it.isNotBlank() }?.let { store.botName(it) } ?: "全局 Router"
                             Text("中心：$chiefName · 点任意节点直达对话", color = Sub, fontSize = 11.sp)
                         }
-                        SmallChip("辩论赛") { showDebate = true }
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            SmallChip("接力流水线") { showNewPipeline = true }
+                            SmallChip("辩论赛") { showDebate = true }
+                        }
                     }
 
                     HiveTopologyCanvas(store = store, runningTickets = runningList, onOpenBot = { botId ->
@@ -158,23 +164,79 @@ fun SuperAgentScreen(store: Store, go: (Screen) -> Unit) {
                         HiveChip("共享黑板 (${boardNotes.size})", tab == 2) { tab = 2 }
                         HiveChip("已完成 (${doneList.size})", tab == 3) { tab = 3 }
                         HiveChip("看门狗 & Spill", tab == 4) { tab = 4 }
+                        HiveChip("接力流水线 (${pipelines.size})", tab == 5) { tab = 5 }
                     }
                     BixTabFlightTrack(
                         selectedIndex = tab,
-                        tabCount = 5,
+                        tabCount = 6,
                         poses = listOf(
                             BixAction.Router,
                             BixAction.Watchdog,
                             BixAction.Blackboard,
                             BixAction.Done,
-                            BixAction.Spill
+                            BixAction.Spill,
+                            BixAction.Relay
                         )
                     )
                 }
             }
 
             // 3. Tab Body
-            if (tab == 2) {
+            if (tab == 5) {
+                item {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("DAG 多棒自动接力流水线", color = Fg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                        SmallChip("+ 发起接力") { showNewPipeline = true }
+                    }
+                }
+                if (pipelines.isEmpty()) {
+                    item {
+                        Column(
+                            Modifier.fillMaxWidth().padding(vertical = 18.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            BixScene(action = BixAction.Relay, compact = false)
+                            Text("点右上角「+ 发起接力」，选一套模板即可让多只 Worker 按阶段自动写黑板并接力开跑。", color = Sub, fontSize = 12.sp)
+                        }
+                    }
+                } else {
+                    items(pipelines, key = { it.id }) { pipe ->
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .harmonyGlass(thickness = ImmersiveThickness.REGULAR, radius = 18.dp, fallbackBg = Card)
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(pipe.title, color = Fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                                    Text("ID: ${pipe.id} · ${pipe.stages.count { it.status == StageStatus.DONE }}/${pipe.stages.size} 棒已完成", color = Sub, fontSize = 11.sp)
+                                }
+                                SmallChip("推进下一棒") {
+                                    val msg = HivePipeline.advanceStage(store, pipe.id, "手动推进接力")
+                                    Toast.makeText(ctx, msg, Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                            PipelineRelayCanvas(pipe)
+                            pipe.stages.forEach { st ->
+                                val stColor = when (st.status) {
+                                    StageStatus.DONE -> BeeGreen
+                                    StageStatus.RUNNING -> Color(0xFFC8FF00)
+                                    StageStatus.FAILED -> BeeDanger
+                                    StageStatus.PENDING -> Sub
+                                }
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text("第${st.index + 1}棒·${st.title}", color = Fg, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                    Text("[${st.status.label}]", color = stColor, fontSize = 11.sp)
+                                    Text("→ ${store.botName(st.botId)}", color = Sub, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if (tab == 2) {
                 // Hive Blackboard Tab
                 item {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -338,6 +400,38 @@ fun SuperAgentScreen(store: Store, go: (Screen) -> Unit) {
                     Toast.makeText(ctx, "工单 ${t.id} 已加入队列", Toast.LENGTH_SHORT).show()
                 }
             }
+        )
+    }
+
+    if (showNewPipeline) {
+        var goalIn by remember { mutableStateOf("") }
+        var tplIdx by remember { mutableIntStateOf(0) }
+        AlertDialog(
+            onDismissRequest = { showNewPipeline = false },
+            containerColor = Card,
+            title = { Text("发起 DAG 自动接力流水线", color = Fg) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        HivePipeline.TEMPLATES.forEachIndexed { idx, tpl ->
+                            HiveChip(tpl.name, tplIdx == idx) { tplIdx = idx }
+                        }
+                    }
+                    Text(HivePipeline.TEMPLATES[tplIdx].subtitle, color = ThemeAccentPale, fontSize = 11.sp)
+                    Field("输入总目标（例如：调研并规划下周活动方案）", goalIn, { goalIn = it })
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (goalIn.isNotBlank()) {
+                        val p = HivePipeline.launchFromTemplate(store, HivePipeline.TEMPLATES[tplIdx], goalIn)
+                        showNewPipeline = false
+                        tab = 5
+                        Toast.makeText(ctx, "流水线 ${p.id} 已启动第 1 棒！", Toast.LENGTH_SHORT).show()
+                    }
+                }) { Text("启动接力", color = ThemeAccent) }
+            },
+            dismissButton = { TextButton(onClick = { showNewPipeline = false }) { Text("取消", color = Sub) } }
         )
     }
 
@@ -779,4 +873,54 @@ private fun CreateTicketDialog(
             TextButton(onClick = onDismiss) { Text("取消") }
         }
     )
+}
+
+
+/** Animated Liquid Glass DAG Relay Conduit Canvas with golden-volt energy pulses & sprinting Bix. */
+@Composable
+private fun PipelineRelayCanvas(pipe: HiveDagPipeline) {
+    val inf = rememberInfiniteTransition(label = "dag-relay")
+    val pulse by inf.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(1400, easing = LinearEasing), RepeatMode.Restart),
+        label = "dag-pulse"
+    )
+    Canvas(Modifier.fillMaxWidth().height(48.dp)) {
+        val n = pipe.stages.size.coerceAtLeast(2)
+        val pad = 26.dp.toPx()
+        val cy = size.height * 0.56f
+        val step = (size.width - pad * 2f) / (n - 1).toFloat()
+        val activeIdx = pipe.stages.indexOfFirst { it.status == StageStatus.RUNNING }
+
+        for (i in 0 until n - 1) {
+            val x1 = pad + step * i
+            val x2 = pad + step * (i + 1)
+            val doneSeg = pipe.stages[i].status == StageStatus.DONE
+            drawLine(
+                color = if (doneSeg) BeeGreen.copy(alpha = 0.75f) else Color(0x33FFFFFF),
+                start = Offset(x1, cy),
+                end = Offset(x2, cy),
+                strokeWidth = 2.5.dp.toPx()
+            )
+            if (i == activeIdx || (doneSeg && i + 1 == activeIdx)) {
+                val px = x1 + (x2 - x1) * pulse
+                drawCircle(color = Color(0xFFC8FF00), radius = 4.dp.toPx(), center = Offset(px, cy))
+            }
+        }
+        for (i in 0 until n) {
+            val cx = pad + step * i
+            val col = when (pipe.stages[i].status) {
+                StageStatus.DONE -> BeeGreen
+                StageStatus.RUNNING -> Color(0xFFC8FF00)
+                StageStatus.FAILED -> BeeDanger
+                StageStatus.PENDING -> Color(0xFF3E4452)
+            }
+            drawCircle(color = col.copy(alpha = 0.25f), radius = 12.dp.toPx(), center = Offset(cx, cy))
+            drawCircle(color = col, radius = 6.dp.toPx(), center = Offset(cx, cy))
+        }
+        val bixIdx = if (activeIdx >= 0) activeIdx else (n - 1)
+        val bx = (pad + step * bixIdx) - 14.dp.toPx()
+        drawBixSprite(BixAction.Relay, pulse, bx, 2.dp.toPx(), 28.dp.toPx(), 20.dp.toPx())
+    }
 }

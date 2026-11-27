@@ -1,3 +1,11 @@
+## 0.7.2 (2026-11-27) — 蜂巢灵动觉醒 · Pure Android
+
+- **手机本地 Ubuntu 轻量桌面 (`LinuxDesktop.kt` / `UiLinuxDesktop.kt`)**：复用现有 Ubuntu 24.04 PRoot 一键启动 Fluxbox + TigerVNC + noVNC（1280×720）实时图形桌面，内置 WebView 直连预览；AI 调用 `desktop_start`/`desktop_screenshot`/`desktop_click`/`desktop_type`/`desktop_open` 时自动浮现「（AI名）正在使用中」液态玻璃横幅，并支持随时一键人工接管与交回。
+- **Bix 全局「灵动蜂巢岛」(`BixFloatingIsland.kt`)**：基于 Android 原生悬浮窗打造钛金液态玻璃灵动胶囊，内嵌原版 14×13 像素 Bix（同步配饰与扇翅动画），切出 App 也能实时播报活跃工单与接力进度；支持自由拖动磁吸贴边，轻点展开迷你指令舱跨 App 一键派发工单。
+- **Super-Agent DAG 多棒自动接力流水线 (`HivePipeline.kt` / `UiSuperAgent.kt`)**：内置 4 套三阶段接力模板（深度调研 / 代码重构 / 出行研学 / 多视角决策），前序 Worker 完成自动写共享黑板并唤醒下一棒 Worker；配套动态能量连线画布与 Bix 举接力棒冲刺动画，开放 `pipeline_advance` 工具。
+- **个人智能体中枢 (`MemoryPod.kt` / `PersonalAgent.kt` / `UiPersonalHub.kt`)**：可溯源个人记忆档案舱（分类/来源/用户明说 vs 模型推测/一键导入导出搬家）、长期目标主动 Check-in（Draft-First）、通知隐私围栏（默认拦截微信/QQ/支付宝/Signal/银行通知进入 SuperRouter）及每 Bot 每日 Token 预算信封。
+- **全新 8-bit Bix 像素动作**：新增 `Relay`（举接力棒冲刺）、`Island`（灵动岛探头）、`MemoryPod`（抱档案盒）、`GoalFlag`（插小红旗）、`PrivacyFence`（站岗隐私栅栏）五套纯 Canvas 动画，全部同步至跨屏贝塞尔飞行与设置工牌。
+
 ## 0.7.2 (2026-11-27) — 双端觉醒 · Hive Computer & Personal Agent
 
 - **BotHive Desktop PC 端伴侣 (`desktop/bothive_pc.py`)**：跨平台（Windows / macOS / Linux）24×7 在线 PC 端，自带 Titanium Liquid Glass Web 控制台与 8-bit 像素 Bix，支持 Bearer 配对鉴权、实时桌面截屏、远程键鼠操控、Shell 执行、24×7 后台守护进程管理与 PC Sentinel 安全审计流。

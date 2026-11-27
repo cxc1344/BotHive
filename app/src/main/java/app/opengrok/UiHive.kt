@@ -1038,12 +1038,27 @@ fun HiveCenterScreen(store: Store, go: (Screen) -> Unit) {
                 PillButton("打开超级工单中枢", modifier = Modifier.fillMaxWidth()) { go(Screen.SuperAgent) }
             }
             HiveSection(
-                "Bot 专属电脑 · Hive PC (v0.7.2)", BixAction.DesktopPC,
-                "连接 BotHive Desktop PC 端（24×7 在线远程桌面、键鼠操控与后台守护进程），或使用本机工作站。"
+                "手机本地 Ubuntu 轻量桌面 (Fluxbox + noVNC)", BixAction.Coding,
+                "直接在手机本地 Ubuntu PRoot 中开启 1280×720 图形桌面供 AI 看屏操作，实时标示「（AI名）正在使用中」，随时一键人工接管。"
             ) {
-                val st = if (HiveComputer.connected.value) "已在线：${HiveComputer.hostName.value}" else "未连接 PC 端（支持 Windows / Mac / Linux）"
-                Text(st, color = if (HiveComputer.connected.value) BeeGreen else Sub, fontSize = 12.sp)
-                PillButton("打开 Bot 专属电脑", modifier = Modifier.fillMaxWidth()) { go(Screen.HiveComputer) }
+                val ai = LinuxDesktop.activeAiOwner.value
+                val info = when {
+                    LinuxDesktop.userTakeover.value -> "状态：你已接管桌面"
+                    ai.isNotBlank() -> "状态：（$ai）正在使用中"
+                    else -> "状态：${LinuxDesktop.state.value.label}"
+                }
+                Text(info, color = if (ai.isNotBlank() || LinuxDesktop.state.value == DesktopState.RUNNING) BeeGreen else Sub, fontSize = 12.sp)
+                PillButton("打开 Ubuntu 轻量桌面", modifier = Modifier.fillMaxWidth()) { go(Screen.LinuxDesktop) }
+            }
+            HiveSection(
+                "Bix 灵动蜂巢岛 · 全局悬浮伴侣 (v0.7.2)", BixAction.Island,
+                "切出 App 到微信/浏览器时，原版像素 Bix 依然悬浮吸附在屏幕边缘实时播报工单与接力进度，轻点即发指令。"
+            ) {
+                val on = BixFloatingIsland.active.value
+                Text(if (on) "灵动蜂巢岛运行中（可拖动贴边、轻点展开）" else "当前未开启，开启需授予悬浮窗权限", color = if (on) BeeGreen else Sub, fontSize = 12.sp)
+                PillButton(if (on) "关闭 Bix 灵动岛" else "一键开启 Bix 灵动岛", modifier = Modifier.fillMaxWidth()) {
+                    BixFloatingIsland.toggle(store.appContext(), store)
+                }
             }
             HiveSection(
                 "个人智能体中枢 (v0.7.2)", BixAction.MemoryPod,

@@ -120,16 +120,16 @@ sealed interface Screen {
     data object Activity : Screen
     data object HiveCenter : Screen
     data object SuperAgent : Screen
-    // v0.7.2「双端觉醒 · Hive Computer」
-    data object HiveComputer : Screen
+    // v0.7.2「蜂巢灵动觉醒 · Pure Android」
     data object PersonalHub : Screen
+    data object LinuxDesktop : Screen
 }
 
 @Composable
 fun App(store: Store) {
     val ctx = LocalContext.current
     remember { UiState.init(ctx) }
-    remember { ThemeColor.init(ctx); BixPrefs.init(ctx); ModelPrefs.init(ctx); SuperAgent.init(ctx); HiveBlackboard.init(ctx); HiveComputer.init(ctx); MemoryPod.init(ctx); PersonalAgent.init(ctx); HiveWatchdog.start(store) }
+    remember { ThemeColor.init(ctx); BixPrefs.init(ctx); ModelPrefs.init(ctx); SuperAgent.init(ctx); HiveBlackboard.init(ctx); HivePipeline.init(ctx); MemoryPod.init(ctx); PersonalAgent.init(ctx); HiveWatchdog.start(store) }
     var screen by remember { mutableStateOf<Screen>(Screen.Home) }
     var drawer by remember { mutableStateOf(false) }
     val nav: (Screen) -> Unit = { s ->
@@ -342,8 +342,8 @@ private fun ScreenHost(screen: Screen, store: Store, nav: (Screen) -> Unit) {
             Screen.Activity -> ActivityScreen(store, nav)
             Screen.HiveCenter -> HiveCenterScreen(store, nav)
             Screen.SuperAgent -> SuperAgentScreen(store, nav)
-            Screen.HiveComputer -> HiveComputerScreen(store, nav)
             Screen.PersonalHub -> PersonalHubScreen(store, nav)
+            Screen.LinuxDesktop -> LinuxDesktopScreen(store, nav)
         }
         return
     }
@@ -358,8 +358,8 @@ private fun ScreenHost(screen: Screen, store: Store, nav: (Screen) -> Unit) {
         transitionSpec = {
             val modeSwitch = (initialState is Screen.Chat && targetState == Screen.AgentChat) ||
                 (initialState == Screen.AgentChat && targetState is Screen.Chat)
-            val isHubEnter = targetState == Screen.SuperAgent || targetState == Screen.HiveCenter || targetState == Screen.BotHub || targetState == Screen.HiveComputer || targetState == Screen.PersonalHub
-            val isHubExit = initialState == Screen.SuperAgent || initialState == Screen.HiveCenter || initialState == Screen.BotHub || initialState == Screen.HiveComputer || initialState == Screen.PersonalHub
+            val isHubEnter = targetState == Screen.SuperAgent || targetState == Screen.HiveCenter || targetState == Screen.BotHub || targetState == Screen.PersonalHub || targetState == Screen.LinuxDesktop
+            val isHubExit = initialState == Screen.SuperAgent || initialState == Screen.HiveCenter || initialState == Screen.BotHub || initialState == Screen.PersonalHub || initialState == Screen.LinuxDesktop
             when {
                 targetState == Screen.Search -> {
                     val enter = slideInVertically(
@@ -432,8 +432,8 @@ private fun ScreenHost(screen: Screen, store: Store, nav: (Screen) -> Unit) {
             Screen.Activity -> ActivityScreen(store, nav)
             Screen.HiveCenter -> HiveCenterScreen(store, nav)
             Screen.SuperAgent -> SuperAgentScreen(store, nav)
-            Screen.HiveComputer -> HiveComputerScreen(store, nav)
             Screen.PersonalHub -> PersonalHubScreen(store, nav)
+            Screen.LinuxDesktop -> LinuxDesktopScreen(store, nav)
         }
     }
 }
@@ -458,7 +458,7 @@ private fun screenDepth(s: Screen): Int = when (s) {
     is Screen.EditMcp, is Screen.EditSkill -> 2
     Screen.BotMode -> 1
     Screen.BotHub -> 1
-    Screen.Approvals, Screen.Routines, Screen.Activity, Screen.HiveCenter, Screen.SuperAgent, Screen.HiveComputer, Screen.PersonalHub -> 1
+    Screen.Approvals, Screen.Routines, Screen.Activity, Screen.HiveCenter, Screen.SuperAgent, Screen.PersonalHub, Screen.LinuxDesktop -> 1
     Screen.Policy, Screen.Usage -> 2
 }
 

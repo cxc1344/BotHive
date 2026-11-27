@@ -130,9 +130,11 @@ enum class BixAction {
     Blackboard,
     /** Pounding a pixel wooden gavel with sparks (Multi-Bot Debate Arena). */
     Debate,
-    // v0.7.2 Dual-End Hive Computer & Personal Agent poses:
-    /** Operating a glowing dual-monitor desktop PC workstation (BotHive Desktop / HiveComputer). */
-    DesktopPC,
+    // v0.7.2 Pure-Android Hive Relay, Floating Island & Personal Agent poses:
+    /** Sprinting with a glowing golden-volt relay baton (DAG Auto-Relay Pipeline). */
+    Relay,
+    /** Peeking cheerfully from a floating Liquid Glass island capsule (Bix Floating Island). */
+    Island,
     /** Hugging a glowing pixel memory pod box with color-coded tags (Portable Memory Pod). */
     MemoryPod,
     /** Planting and waving a pixel goal flag on a milestone hill (Proactive Goals & Check-in). */
@@ -553,7 +555,8 @@ fun bixCycleMs(action: BixAction): Int = when (action) {
     BixAction.Watchdog -> 1050
     BixAction.Blackboard -> 880
     BixAction.Debate -> 640
-    BixAction.DesktopPC -> 760
+    BixAction.Relay -> 620
+    BixAction.Island -> 840
     BixAction.MemoryPod -> 920
     BixAction.GoalFlag -> 700
     BixAction.PrivacyFence -> 860
@@ -579,7 +582,7 @@ private fun bixHasProp(action: BixAction): Boolean = when (action) {
     BixAction.Teaching, BixAction.Budget, BixAction.Sleeping, BixAction.Alarm,
     BixAction.Router, BixAction.Ticket, BixAction.Spill, BixAction.Watchdog,
     BixAction.Blackboard, BixAction.Debate,
-    BixAction.DesktopPC, BixAction.MemoryPod, BixAction.GoalFlag, BixAction.PrivacyFence -> true
+    BixAction.Relay, BixAction.Island, BixAction.MemoryPod, BixAction.GoalFlag, BixAction.PrivacyFence -> true
     else -> false
 }
 
@@ -617,7 +620,8 @@ fun DrawScope.drawBixPose(
         BixAction.Watchdog -> drawBixWatchdog(phase, compact, acc)
         BixAction.Blackboard -> drawBixBlackboard(phase, compact, acc)
         BixAction.Debate -> drawBixDebate(phase, compact, acc)
-        BixAction.DesktopPC -> drawBixDesktopPC(phase, compact, acc)
+        BixAction.Relay -> drawBixRelay(phase, compact, acc)
+        BixAction.Island -> drawBixIsland(phase, compact, acc)
         BixAction.MemoryPod -> drawBixMemoryPod(phase, compact, acc)
         BixAction.GoalFlag -> drawBixGoalFlag(phase, compact, acc)
         BixAction.PrivacyFence -> drawBixPrivacyFence(phase, compact, acc)
@@ -1321,24 +1325,36 @@ private fun DrawScope.drawBixDebate(phase: Float, compact: Boolean, acc: BixAcce
     }
 }
 
-/** v0.7.2 DesktopPC: Bix operating a glowing dual-monitor pixel PC workstation! */
-private fun DrawScope.drawBixDesktopPC(phase: Float, compact: Boolean, acc: BixAccessory) {
+/** v0.7.2 Relay: Bix sprinting forward carrying a glowing golden-volt relay baton! */
+private fun DrawScope.drawBixRelay(phase: Float, compact: Boolean, acc: BixAccessory) {
     val u = if (compact) size.height / 14f else size.height / 17f
-    val bx = if (compact) 0.4f * u else (size.width - 21f * u) * 0.5f
+    val sprint = kotlin.math.sin(phase * 2.0 * kotlin.math.PI).toFloat() * 0.6f * u
+    val bx = (if (compact) 0.4f * u else (size.width - 21f * u) * 0.5f) + sprint
     val by = size.height - 13.5f * u
-    drawCoreBix(bx, by, u, wingUp = phase < 0.5f, face = 1, accessory = acc)
-    val mx = bx + 11.4f * u
-    val my = by + 0.8f * u
-    // Dual monitor chassis + stand
-    px(0.6f, 1.0f, 6.8f, 4.8f, u, mx, my, BixStripe)
-    px(1.2f, 1.6f, 5.6f, 3.6f, u, mx, my, Color(0xFF101822))
-    px(3.4f, 5.8f, 1.2f, 1.4f, u, mx, my, BixStripe)
-    px(2.0f, 7.2f, 4.0f, 0.9f, u, mx, my, BixStripe)
-    // Live glowing cursor & code lines on screen
-    val curX = 1.8f + (phase * 3.6f)
-    px(1.6f, 2.2f, 3.2f, 0.6f, u, mx, my, BixCodeVolt)
-    px(1.6f, 3.2f, 2.4f, 0.6f, u, mx, my, Color(0xFF5CE1E6))
-    px(curX, 4.1f, 0.9f, 0.8f, u, mx, my, BixGoldLight)
+    drawCoreBix(bx, by, u, wingUp = (phase * 4f).toInt() % 2 == 0, face = 1, accessory = acc)
+    val rx = bx + 11.6f * u
+    val ry = by + 2.0f * u
+    // Glowing relay baton + speed wind streaks
+    px(1.0f, 2.4f, 4.8f, 1.3f, u, rx, ry, BixCodeVolt)
+    px(1.6f, 2.6f, 3.2f, 0.6f, u, rx, ry, Color.White)
+    px(0.2f, 4.8f, 2.4f, 0.6f, u, rx, ry, BixGold)
+    px(1.8f, 6.0f, 3.4f, 0.6f, u, rx, ry, Color(0xFF5CE1E6))
+}
+
+/** v0.7.2 Island: Bix peeking out of a floating Titanium Liquid Glass Dynamic Island pill! */
+private fun DrawScope.drawBixIsland(phase: Float, compact: Boolean, acc: BixAccessory) {
+    val u = if (compact) size.height / 14f else size.height / 17f
+    val bob = kotlin.math.sin(phase * 2.0 * kotlin.math.PI).toFloat() * 0.5f * u
+    val bx = if (compact) 0.4f * u else (size.width - 21f * u) * 0.5f
+    val by = size.height - 13.5f * u + bob
+    drawCoreBix(bx, by, u, wingUp = phase < 0.5f, face = 2, accessory = acc)
+    val ix = bx + 11.4f * u
+    val iy = by + 2.2f * u
+    // Floating glass capsule + pulsing green beacon
+    px(0.4f, 2.0f, 6.6f, 3.4f, u, ix, iy, BixLaptopBody)
+    px(1.0f, 2.5f, 5.4f, 2.4f, u, ix, iy, BixScreenBg)
+    px(1.6f, 3.2f, 1.1f, 1.1f, u, ix, iy, if (phase < 0.5f) BeeGreen else BixCodeVolt)
+    px(3.3f, 3.4f, 2.4f, 0.7f, u, ix, iy, BixGoldLight)
 }
 
 /** v0.7.2 MemoryPod: Bix organizing glowing memory cards into a portable pixel pod! */
@@ -1759,7 +1775,7 @@ fun BixBadgeCard() {
             BixAction.Budget, BixAction.Alarm, BixAction.Sleeping, BixAction.Blocked,
             BixAction.Router, BixAction.Ticket, BixAction.Spill, BixAction.Watchdog,
             BixAction.Blackboard, BixAction.Debate,
-            BixAction.DesktopPC, BixAction.MemoryPod, BixAction.GoalFlag, BixAction.PrivacyFence
+            BixAction.Relay, BixAction.Island, BixAction.MemoryPod, BixAction.GoalFlag, BixAction.PrivacyFence
         )
     }
 
